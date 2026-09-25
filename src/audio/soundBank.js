@@ -48,4 +48,9 @@ export const BANK = {
 	fish_splash: { file: 'fish_splash.ogg', slices: [ [ 0.08, 0.464 ], [ 0.624, 0.324 ], [ 1.028, 0.504 ], [ 1.612, 1.204 ], [ 2.896, 1.304 ] ], lufs: [ -16, -14.2, -16.6, -17, -15.8 ] },
 	fish_flop: { file: 'fish_flop.ogg', slices: [ [ 0.08, 1.354 ], [ 1.514, 0.304 ], [ 1.898, 0.304 ], [ 2.282, 0.324 ] ], lufs: [ -24.6, -23.9, -23, -17 ] },
 	coins: { file: 'coins.ogg', slices: [ [ 0.08, 1.604 ] ], lufs: [ -16.5 ] },
+
+	// jet ski (sourced from Freesound CC0 - see tools/audio for build)
+	jetski_engine: { file: 'jetski_engine.ogg', loop: true, lufs: -23 },
+	jetski_rush: { file: 'jetski_rush.ogg', loop: true, lufs: -23.5 },
+	jetski_lap: { file: 'jetski_lap.ogg', loop: true, lufs: -32 },
 };
