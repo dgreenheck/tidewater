@@ -298,8 +298,12 @@ export function buildHouse( ctx, s ) {
 		for ( let i = 0; i < nx; i ++ ) for ( let j = 0; j < nz; j ++ ) {
 
 			const edge = i === 0 || j === 0 || i === nx - 1 || j === nz - 1;
-			if ( ! edge && ! stilts && ( i + j ) % 2 ) continue;
-			pts.push( [ xs[ i ], zs[ j ], edge ] );
+			if ( stilts ) {
+				pts.push( [ xs[ i ], zs[ j ], edge ] );
+			} else {
+				const corner = ( i === 0 || i === nx - 1 ) && ( j === 0 || j === nz - 1 );
+				if ( corner ) pts.push( [ xs[ i ], zs[ j ], true ] );
+			}
 
 		}
 
@@ -315,12 +319,11 @@ export function buildHouse( ctx, s ) {
 				colliders.addCylinder( p.x, p.z, 0.14, bottom, top, { tag: 'stilt' } );
 				checks.push( { x: p.x, y: bottom, z: p.z } );
 
-			} else if ( edge || ( s.clearance ?? 0.55 ) > 0.3 ) {
+			} else {
 
 				const bottom = g - 0.3;
 				B.box( 'wood', lx, ( bottom + top ) / 2, lz, 0.16, top - bottom, 0.16, { grain: 1, data: WOOD( rand.next(), 0.85 ) } );
-				B.box( 'stone', lx, g - 0.06, lz, 0.34, 0.26, 0.34, { grain: 0, tint: lin( 0xcfc8b8 ), data: [ rand.next(), 0, 0, 0 ] } );
-				checks.push( fr.worldPt( lx, g - 0.19, lz ) );
+				checks.push( fr.worldPt( lx, bottom, lz ) );
 
 			}
 
@@ -358,12 +361,11 @@ export function buildHouse( ctx, s ) {
 	const rimTint = s.rimRaw ? [ 1, 1, 1 ] : st.trim;
 	const rimData = () => [ rand.next(), s.rimRaw ? 0 : st.trimPaint, 0, st.weather ];
 	B.box( 'wood', 0, rimY, - d / 2 - 0.01, w + 0.08, rimH, 0.06, { grain: 0, tint: rimTint, data: rimData() } );
+	B.box( 'wood', 0, rimY, d / 2 + 0.01, w + 0.08, rimH, 0.06, { grain: 0, tint: rimTint, data: rimData() } );
 	if ( porch ) {
 		B.box( 'wood', pcx, rimY, d / 2 + pd + 0.01, pw + 0.08, rimH, 0.06, { grain: 0, tint: rimTint, data: rimData() } );
 		B.box( 'wood', pcx + pw / 2 + 0.01, rimY, d / 2 + pd / 2, 0.06, rimH, pd + 0.02, { grain: 2, tint: rimTint, data: rimData() } );
 		B.box( 'wood', pcx - pw / 2 - 0.01, rimY, d / 2 + pd / 2, 0.06, rimH, pd + 0.02, { grain: 2, tint: rimTint, data: rimData() } );
-	} else {
-		B.box( 'wood', 0, rimY, d / 2 + 0.01, w + 0.08, rimH, 0.06, { grain: 0, tint: rimTint, data: rimData() } );
 	}
 	B.box( 'wood', w / 2 + 0.01, rimY, 0, 0.06, rimH, d + 0.02, { grain: 2, tint: rimTint, data: rimData() } );
 	B.box( 'wood', - w / 2 - 0.01, rimY, 0, 0.06, rimH, d + 0.02, { grain: 2, tint: rimTint, data: rimData() } );
@@ -380,18 +382,19 @@ export function buildHouse( ctx, s ) {
 
 	if ( s.modernGlass ) {
 
-		const margin = 0.3;
-		const pillarH = frontWallH - margin;
+		const topMargin = 0.5; // Increased from 0.3 to reduce window height
+		const sideMargin = 0.3;
+		const pillarH = frontWallH - topMargin;
 		const pillarY = floorY + pillarH / 2;
-		const topBarY = floorY + frontWallH - margin / 2;
+		const topBarY = floorY + frontWallH - topMargin / 2;
 
 		// Top solid wall margin
-		B.box( 'wood', 0, topBarY, d / 2 - t / 2, w, margin, t, { grain: 0, tint: s.wall, data: wallData() } );
-		
+		B.box( 'wood', 0, topBarY, d / 2 - t / 2, w, topMargin, t, { grain: 0, tint: s.wall, data: wallData() } );
+
 		// Side pillars
-		B.box( 'wood', - w / 2 + margin / 2, pillarY, d / 2 - t / 2, margin, pillarH, t, { grain: 0, tint: s.wall, data: wallData() } );
-		B.box( 'wood', w / 2 - margin / 2, pillarY, d / 2 - t / 2, margin, pillarH, t, { grain: 0, tint: s.wall, data: wallData() } );
-		
+		B.box( 'wood', - w / 2 + sideMargin / 2, pillarY, d / 2 - t / 2, sideMargin, pillarH, t, { grain: 0, tint: s.wall, data: wallData() } );
+		B.box( 'wood', w / 2 - sideMargin / 2, pillarY, d / 2 - t / 2, sideMargin, pillarH, t, { grain: 0, tint: s.wall, data: wallData() } );
+
 		// interior floor matching the deck
 		const npIn = Math.max( 2, Math.round( d / 0.138 ) );
 		const gapIn = ( d - npIn * 0.13 ) / ( npIn + 1 );
@@ -734,40 +737,15 @@ export function buildHouse( ctx, s ) {
 			else if ( wi === 1 ) xs = slots( wl.L, [], 2.3 );
 			else xs = slots( wl.L, wi === 2 && s.chimney === 1 ? [ - chimZ ] : ( wi === 3 && s.chimney === - 1 ? [ chimZ ] : [] ), 2.2 );
 			if ( ! wl.front && s.fewWindows && xs.length > 1 ) xs = [ xs[ Math.floor( rand.next() * xs.length ) ] ];
-			
+
 			// Remove side/back windows for modern houses
 			if ( s.modernGlass && ! wl.front ) xs = [];
 
 			if ( s.modernGlass && wl.front ) {
 
 				if ( sIdx === 0 ) {
-					const margin = 0.3; // 30cm de borda de cada lado
-					const wallSpan = wl.L - ( margin * 2 );
-					const numPanels = Math.max( 1, Math.round( wallSpan / 2.0 ) );
-					const fw = wallSpan / numPanels;
-					const startX = - ( wl.L / 2 ) + margin + ( fw / 2 );
-					const tp = 0.04;
-					const fh = frontWallH - margin; // stops below top margin
-					const trim = st.trim;
-					const td = () => [ rand.next(), 0.9, 0, 0 ];
-					const py = floorY; // touches floor directly
-
-					for ( let i = 0; i < numPanels; i ++ ) {
-						
-						const px = startX + i * fw;
-						const lit = rand.chance( 0.6 ) ? 1 : 0;
-						B.part( 'modernGlass', quad01Part( fw, fh ), px, py + fh / 2, 0.015, { tint: lin( 0xfffaec ), data: [ rand.next(), 2, lit, 0 ] } );
-						
-						if ( lit ) litWindows.push( B.toWorld( px, py + fh / 2, 0.35 ) );
-						
-						B.box( 'wood', px - fw / 2, py + fh / 2, tp / 2, tp, fh, tp, { grain: 1, skip: 44, tint: trim, data: td() } );
-						
-						if ( i === numPanels - 1 ) {
-							B.box( 'wood', px + fw / 2, py + fh / 2, tp / 2, tp, fh, tp, { grain: 1, skip: 44, tint: trim, data: td() } );
-						}
-
-					}
-					B.box( 'wood', 0, py + fh - tp / 2, tp / 2, wallSpan, tp, tp, { grain: 0, skip: 32, tint: trim, data: td() } );
+					// O interior agora fica totalmente aberto e acessível!
+					// Janelas e molduras foram removidas para abrir a fachada.
 				}
 
 			} else {
@@ -806,7 +784,7 @@ export function buildHouse( ctx, s ) {
 	const porchPaint = s.porchPaint || null;
 	if ( porch ) {
 
-		const porchY = floorY - 0.05;
+		const porchY = floorY; // Deck na mesma altura do piso interno
 		const pz0 = d / 2, pz1 = d / 2 + pd;
 		const xL = pcx - pw / 2, xR = pcx + pw / 2;
 		// planks
@@ -822,9 +800,7 @@ export function buildHouse( ctx, s ) {
 
 		}
 
-		// rim + support posts (flush with planks)
-		B.box( 'wood', pcx, porchY - 0.15, pz1 - 0.03, pw, 0.22, 0.06, { grain: 0, tint: rimTint, data: rimData() } );
-		for ( const sx of [ xL, xR ] ) B.box( 'wood', sx + ( sx < pcx ? 0.03 : - 0.03 ), porchY - 0.15, ( pz0 + pz1 ) / 2, 0.06, 0.22, pd, { grain: 2, tint: rimTint, data: rimData() } );
+		// support posts (rim band removido)
 		for ( const px of linspace( xL + 0.1, xR - 0.1, Math.max( 2, Math.ceil( pw / 2.2 ) + 1 ) ) ) {
 
 			const g = gAt( px, pz1 - 0.12 );
@@ -963,7 +939,7 @@ export function buildHouse( ctx, s ) {
 		const stairW = roofType === 'flat' ? Math.min( 2.8, pw ) : 1.2;
 		const gapW = stairW / 2 + 0.08;
 		const gapL = stairX - gapW, gapR = stairX + gapW;
-		
+
 		if ( s.railNet && gapL - xL > 1.0 ) {
 
 			// a fishing net thrown over the railing to dry
@@ -991,7 +967,7 @@ export function buildHouse( ctx, s ) {
 		railSeg( gapR, beamZ, xR - 0.08, beamZ );
 		railSeg( xL + 0.08, pz0 + 0.08, xL + 0.08, beamZ );
 		railSeg( xR - 0.08, pz0 + 0.08, xR - 0.08, beamZ );
-		
+
 		if ( s.rail !== 'none' && railStyle !== 'none' ) {
 
 			for ( const gx of [ gapL, gapR ] ) {
@@ -1190,7 +1166,22 @@ export function buildHouse( ctx, s ) {
 
 	// main body collider
 	const bodyBot = gMin - 0.3;
-	fr.addBoxL( 0, ( bodyBot + roofTop ) / 2, 0, w / 2 + 0.06, ( roofTop - bodyBot ) / 2, d / 2 + 0.06, { tag: 'house' } );
+	if ( s.modernGlass ) {
+		// Assoalho (walkable)
+		fr.addBoxL( 0, ( bodyBot + floorY ) / 2, 0, w / 2 + 0.06, ( floorY - bodyBot ) / 2, d / 2 + 0.06, { walkable: true, solid: true, tag: 'house_floor' } );
+		
+		// Paredes ao redor (traseira e laterais)
+		const wallH = roofTop - floorY;
+		const cY = floorY + wallH / 2;
+		fr.addBoxL( 0, cY, -d/2, w/2, wallH/2, 0.1, { tag: 'house_wall' } ); // Fundo
+		fr.addBoxL( -w/2, cY, 0, 0.1, wallH/2, d/2, { tag: 'house_wall' } ); // Esquerda
+		fr.addBoxL( w/2, cY, 0, 0.1, wallH/2, d/2, { tag: 'house_wall' } ); // Direita
+		// Pilastras da frente
+		fr.addBoxL( -w/2 + 0.15, cY, d/2, 0.15, wallH/2, 0.1, { tag: 'house_wall' } );
+		fr.addBoxL( w/2 - 0.15, cY, d/2, 0.15, wallH/2, 0.1, { tag: 'house_wall' } );
+	} else {
+		fr.addBoxL( 0, ( bodyBot + roofTop ) / 2, 0, w / 2 + 0.06, ( roofTop - bodyBot ) / 2, d / 2 + 0.06, { tag: 'house' } );
+	}
 
 	return {
 		floorY, roofTop,

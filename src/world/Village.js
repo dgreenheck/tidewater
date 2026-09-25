@@ -33,6 +33,7 @@ const PASTELS = {
 	white: lin( 0xf1ede2 ),
 	lavender: lin( 0xbdb3da ),
 	sea: lin( 0x6aa6b8 ),
+	lightGrey: lin( 0xcad0d3 ),
 };
 
 const TRIMS = {
@@ -145,21 +146,21 @@ export class Village {
 		const houses = [
 			// front row (just above the beach)
 			{ name: 'A', x: 13.5, z: - 106.5, yaw: 0.12, w: 7.2, d: 5.0, roof: 'flat', roofMat: 'metal', roofColor: R.grey, wall: P.white, trim: T.cream, accent: T.navy, siding: 6, porch: { depth: 3.0, rail: 'none' }, paint: 10, weather: 0, rust: 0, porchPaint: lin( 0xdcd0c0 ), modernGlass: true },
-			{ name: 'B', x: 26.5, z: - 112.0, yaw: - 0.08, w: 6.2, d: 4.5, roof: 'flat', roofMat: 'metal', roofColor: R.grey, wall: P.cream, trim: T.white, accent: T.teal, siding: 6, paint: 10, weather: 0, rust: 0, porch: { depth: 2.5, rail: 'none' }, modernGlass: true, annex: { w: 3.5, d: 2.5, wall: P.white } },
-			{ name: 'C', x: 62.5, z: - 106.0, yaw: - 0.1, w: 8.0, d: 5.8, stories: 2, roof: 'flat', roofMat: 'metal', galv: true, rust: 0, wall: P.white, trim: T.white, accent: T.blue, siding: 6, porch: { depth: 2.5, rail: 'none' }, paint: 10, weather: 0, modernGlass: true, tank: 1 },
+			{ name: 'B', x: 26.5, z: - 112.0, yaw: - 0.08, w: 6.2, d: 4.5, roof: 'flat', roofMat: 'metal', roofColor: R.grey, wall: P.cream, trim: T.white, accent: T.teal, siding: 6, paint: 10, weather: 0, rust: 0, porch: { depth: 2.5, rail: 'none' }, modernGlass: true },
+			{ name: 'C', x: 62.5, z: - 106.0, yaw: - 0.1, w: 8.0, d: 5.8, stories: 2, roof: 'flat', roofMat: 'metal', galv: true, rust: 0, wall: P.white, trim: T.white, accent: T.blue, siding: 6, porch: { depth: 2.5, rail: 'none' }, paint: 10, weather: 0, modernGlass: true },
 			{ name: 'D', x: 79.0, z: - 110.5, yaw: - 0.18, w: 7.0, d: 5.0, roof: 'flat', roofMat: 'metal', roofColor: R.grey, wall: P.white, trim: T.white, accent: T.yellow, siding: 6, porch: { depth: 2.5, width: 5.0, offset: - 0.6, rail: 'none' }, doorX: - 0.6, paint: 10, weather: 0, rust: 0, modernGlass: true },
-			{ name: 'E', x: 96.0, z: - 115.5, yaw: - 0.3, w: 6.4, d: 4.6, roof: 'flat', roofMat: 'metal', roofColor: R.grey, wall: P.cream, trim: T.white, accent: T.green, siding: 6, paint: 10, weather: 0, rust: 0, porch: { depth: 2.5, rail: 'none' }, modernGlass: true, annex: { w: 3.8, d: 2.5 } },
+			{ name: 'E', x: 96.0, z: - 115.5, yaw: - 0.3, w: 6.4, d: 4.6, roof: 'flat', roofMat: 'metal', roofColor: R.grey, wall: P.cream, trim: T.white, accent: T.green, siding: 6, paint: 10, weather: 0, rust: 0, porch: { depth: 2.5, rail: 'none' }, modernGlass: true },
 			// middle row
 			{ name: 'F', x: - 3.0, z: - 125.0, yaw: 0.22, w: 6.6, d: 5.0, roof: 'flat', roofMat: 'metal', roofColor: R.grey, wall: P.white, trim: T.white, accent: T.red, siding: 6, porch: { depth: 2.5, rail: 'none' }, paint: 10, weather: 0, rust: 0, modernGlass: true },
 			{ name: 'G', x: 16.5, z: - 130.0, yaw: 0.1, w: 7.6, d: 5.6, stories: 2, roof: 'flat', roofMat: 'metal', roofColor: R.grey, wall: P.cream, trim: T.white, accent: T.teal, siding: 6, porch: { depth: 2.5, rail: 'none' }, paint: 10, weather: 0, rust: 0, modernGlass: true },
-			{ name: 'H', x: 57.5, z: - 128.5, yaw: - 0.05, w: 7.0, d: 5.2, roof: 'flat', roofMat: 'metal', roofColor: R.grey, wall: P.white, trim: T.cream, accent: T.yellow, siding: 6, porch: { depth: 2.5, rail: 'none' }, paint: 10, weather: 0, rust: 0, modernGlass: true, annex: { w: 4.0, d: 2.2, x: 0.6, wall: P.cream } },
-			{ name: 'I', x: 75.5, z: - 132.5, yaw: - 0.2, w: 6.4, d: 4.6, roof: 'flat', roofMat: 'metal', roofColor: R.grey, rust: 0, wall: P.white, trim: T.cream, accent: T.red, siding: 6, paint: 10, weather: 0, porch: { depth: 2.5, rail: 'none' }, modernGlass: true, tank: - 1 },
-			{ name: 'J', x: 96.5, z: - 135.0, yaw: - 0.32, w: 7.2, d: 5.0, roof: 'flat', roofMat: 'metal', roofColor: R.grey, galv: true, rust: 0, wall: P.cream, trim: T.white, accent: T.navy, siding: 6, porch: { depth: 2.5, rail: 'none' }, paint: 10, weather: 0, modernGlass: true, annex: { w: 4.0, d: 2.0, x: - 0.8 } },
+			{ name: 'H', x: 57.5, z: - 128.5, yaw: - 0.05, w: 7.0, d: 5.2, roof: 'flat', roofMat: 'metal', roofColor: R.grey, wall: P.white, trim: T.cream, accent: T.yellow, siding: 6, porch: { depth: 2.5, rail: 'none' }, paint: 10, weather: 0, rust: 0, modernGlass: true },
+			{ name: 'I', x: 75.5, z: - 132.5, yaw: - 0.2, w: 6.4, d: 4.6, roof: 'flat', roofMat: 'metal', roofColor: R.grey, rust: 0, wall: P.white, trim: T.cream, accent: T.red, siding: 6, paint: 10, weather: 0, porch: { depth: 2.5, rail: 'none' }, modernGlass: true },
+			{ name: 'J', x: 96.5, z: - 135.0, yaw: - 0.32, w: 7.2, d: 5.0, roof: 'flat', roofMat: 'metal', roofColor: R.grey, galv: true, rust: 0, wall: P.cream, trim: T.white, accent: T.navy, siding: 6, porch: { depth: 2.5, rail: 'none' }, paint: 10, weather: 0, modernGlass: true },
 			// back row (plateau)
 			{ name: 'K', x: 3.5, z: - 151.0, yaw: 0.18, w: 7.0, d: 5.2, roof: 'flat', roofMat: 'metal', roofColor: R.grey, wall: P.white, trim: T.white, accent: T.blue, siding: 6, porch: { depth: 2.5, rail: 'none' }, paint: 10, weather: 0, rust: 0, modernGlass: true },
 			{ name: 'L', x: 30.5, z: - 149.0, yaw: 0.04, w: 8.4, d: 5.6, stories: 2, roof: 'flat', roofMat: 'metal', roofColor: R.grey, wall: P.white, trim: T.white, accent: T.green, siding: 6, porch: { depth: 2.5, rail: 'none' }, paint: 10, weather: 0, rust: 0, modernGlass: true },
-			{ name: 'M', x: 55.0, z: - 152.5, yaw: - 0.06, w: 6.2, d: 4.8, roof: 'flat', roofMat: 'metal', roofColor: R.grey, wall: P.cream, trim: T.white, accent: T.teal, siding: 6, paint: 10, weather: 0, rust: 0, porch: { depth: 2.5, rail: 'none' }, modernGlass: true, annex: { w: 3.5, d: 1.8 } },
-			{ name: 'N', x: 78.5, z: - 156.0, yaw: - 0.22, w: 7.0, d: 5.0, roof: 'flat', roofMat: 'metal', roofColor: R.grey, wall: P.white, trim: T.white, accent: T.navy, siding: 6, porch: { depth: 2.5, rail: 'none' }, paint: 10, weather: 0, rust: 0, modernGlass: true, tank: 1 },
+			{ name: 'M', x: 55.0, z: - 152.5, yaw: - 0.06, w: 6.2, d: 4.8, roof: 'flat', roofMat: 'metal', roofColor: R.grey, wall: P.cream, trim: T.white, accent: T.teal, siding: 6, paint: 10, weather: 0, rust: 0, porch: { depth: 2.5, rail: 'none' }, modernGlass: true },
+			{ name: 'N', x: 78.5, z: - 156.0, yaw: - 0.22, w: 7.0, d: 5.0, roof: 'flat', roofMat: 'metal', roofColor: R.grey, wall: P.white, trim: T.white, accent: T.navy, siding: 6, porch: { depth: 2.5, rail: 'none' }, paint: 10, weather: 0, rust: 0, modernGlass: true },
 		];
 
 		// stilt fishing huts just above the beach, close to the pier foot (floor ~3 m)
@@ -173,6 +174,10 @@ export class Village {
 
 			h.curtain = h.curtain || curtain();
 			if ( h.foundation === undefined ) h.foundation = 'posts';
+			
+			// Randomize house and annex wall colors using pastel tones, white, and light grey
+			h.wall = rand.pick( [ P.coral, P.pink, P.sky, P.mint, P.yellow, P.turquoise, P.lavender, P.sea, P.white, P.lightGrey ] );
+			if ( h.annex ) h.annex.wall = h.wall;
 
 		}
 
@@ -269,11 +274,7 @@ export class Village {
 		// rowboats pulled up on the sand: two upturned ones down the beach west of Joe's fish stand (kept
 		// clear of it), one by the pier foot
 		const BX = - 26; // the upturned pair and their oars, relative to where they first stood by the stand
-		const boats = [
-			{ x: 46.8 + BX, z: - 57.2, ry: 0.35, up: true, hull: lin( 0x2f8f9a ), bottom: lin( 0xa0402e ) },
-			{ x: 43.9 + BX, z: - 59.8, ry: 0.55, up: true, hull: lin( 0xe9e4d6 ), bottom: lin( 0x2e5f86 ) },
-			{ x: 63.5, z: - 55.6, ry: - 0.35, up: false, hull: lin( 0xd8c35a ), bottom: lin( 0x3e6f5a ), rz: 0.14 },
-		];
+		const boats = [];
 		for ( const b of boats ) {
 
 			const gy = g( b.x, b.z );
@@ -287,26 +288,26 @@ export class Village {
 		{
 
 			const bx = 84.6, bz = - 53.2, gy = g( bx, bz );
-			rowboat( B, bx, gy + 0.03, bz, 0.45, { seed: rand.next(), hull: lin( 0xd0e4ea ), bottom: lin( 0xb04a30 ), trim: lin( 0x2f5f7a ), rz: - 0.16, oars: false } );
-			box( bx, gy + 0.4, bz, 0.72, 0.45, 2.0, 0.45, 'rowboat' );
-			this.footprints.push( { x: bx, z: bz, r: 2.4, kind: 'prop' } );
+			// rowboat( B, bx, gy + 0.03, bz, 0.45, { seed: rand.next(), hull: lin( 0xd0e4ea ), bottom: lin( 0xb04a30 ), trim: lin( 0x2f5f7a ), rz: - 0.16, oars: false } );
+			// box( bx, gy + 0.4, bz, 0.72, 0.45, 2.0, 0.45, 'rowboat' );
+			// this.footprints.push( { x: bx, z: bz, r: 2.4, kind: 'prop' } );
 			const wx = 102.5, wz = - 49.8;
-			wreck( B, wx, g( wx, wz ) - 0.12, wz, 0.95, rand, { rz: 0.22, beam: 3.1, depth: 1.05 } );
-			box( wx, g( wx, wz ) + 0.4, wz, 1.3, 0.6, 3.6, 0.95, 'wreck' );
-			this.footprints.push( { x: wx, z: wz, r: 4, kind: 'prop' } );
+			// wreck( B, wx, g( wx, wz ) - 0.12, wz, 0.95, rand, { rz: 0.22, beam: 3.1, depth: 1.05 } );
+			// box( wx, g( wx, wz ) + 0.4, wz, 1.3, 0.6, 3.6, 0.95, 'wreck' );
+			// this.footprints.push( { x: wx, z: wz, r: 4, kind: 'prop' } );
 
 		}
 
 		// oars leaning against the first upturned boat, oars on the sand
-		oar( B, [ 48.1 + BX, g( 48.1 + BX, - 55.7 ) + 0.03, - 55.7 ], [ 49.6 + BX, g( 49.6 + BX, - 57.9 ) + 0.05, - 57.9 ], rand.next(), lin( 0xc23b2e ) );
-		oar( B, [ 48.4 + BX, g( 48.4 + BX, - 55.4 ) + 0.03, - 55.4 ], [ 49.9 + BX, g( 49.9 + BX, - 57.6 ) + 0.06, - 57.6 ], rand.next(), lin( 0xc23b2e ) );
+		// oar( B, [ 48.1 + BX, g( 48.1 + BX, - 55.7 ) + 0.03, - 55.7 ], [ 49.6 + BX, g( 49.6 + BX, - 57.9 ) + 0.05, - 57.9 ], rand.next(), lin( 0xc23b2e ) );
+		// oar( B, [ 48.4 + BX, g( 48.4 + BX, - 55.4 ) + 0.03, - 55.4 ], [ 49.9 + BX, g( 49.9 + BX, - 57.6 ) + 0.06, - 57.6 ], rand.next(), lin( 0xc23b2e ) );
 
 		// net drying racks
-		const racks = [ [ 41.8, - 64.2, 0.25, lin( 0x3f6f5f ) ], [ 74.6, - 58.6, - 0.12, lin( 0x2f5f8a ) ], [ 86.4, - 64.0, 0.3, lin( 0xb0553a ) ] ];
+		const racks = [];
 		for ( const [ x, z, ry, tint ] of racks ) {
 
 			const cy = Math.cos( ry ), sy = Math.sin( ry );
-			netRack( B, x, g( x, z ), z, ry, 3.2, tint, rand.next(), ( lx, lz ) => g( x + lx * cy + lz * sy, z - lx * sy + lz * cy ) );
+			// netRack( B, x, g( x, z ), z, ry, 3.2, tint, rand.next(), ( lx, lz ) => g( x + lx * cy + lz * sy, z - lx * sy + lz * cy ) );
 			for ( const sx of [ - 1.6, 1.6 ] ) {
 
 				const px = x + sx * cy, pz = z - sx * sy;
@@ -320,9 +321,9 @@ export class Village {
 		}
 
 		// fish drying rack between the huts
-		fishRack( B, 73.8, g( 73.8, - 69.5 ), - 69.5, 0.2, 2.6, rand.next(), rand );
-		box( 73.8, g( 73.8, - 69.5 ) + 1.0, - 69.5, 1.45, 1.0, 0.75, 0.2, 'rack' );
-		this.foundationChecks.push( { x: 73.8, y: g( 73.8, - 69.5 ) - 0.2, z: - 69.5 } );
+		// // fishRack( B, 73.8, g( 73.8, - 69.5 ), - 69.5, 0.2, 2.6, rand.next(), rand );
+		// box( 73.8, g( 73.8, - 69.5 ) + 1.0, - 69.5, 1.45, 1.0, 0.75, 0.2, 'rack' );
+		// this.foundationChecks.push( { x: 73.8, y: g( 73.8, - 69.5 ) - 0.2, z: - 69.5 } );
 
 		// crates, traps and barrels around the pier foot and the huts
 		const X = PIER.x;
@@ -394,10 +395,10 @@ export class Village {
 
 		};
 
-		fenceAt( [ [ 5.2, - 101.5 ], [ 5.6, - 108.5 ], [ 9.0, - 111.2 ] ], 'picket', TRIMS.white );
-		fenceAt( [ [ 21.5, - 124.0 ], [ 23.6, - 131.5 ], [ 22.8, - 135.5 ] ], 'rail' );
-		fenceAt( [ [ 70.0, - 102.5 ], [ 72.5, - 106.0 ] ], 'picket', TRIMS.cream );
-		fenceAt( [ [ 86.5, - 150.0 ], [ 87.8, - 158.5 ] ], 'rail' );
+		// fenceAt( [ [ 5.2, - 101.5 ], [ 5.6, - 108.5 ], [ 9.0, - 111.2 ] ], 'picket', TRIMS.white );
+		// fenceAt( [ [ 21.5, - 124.0 ], [ 23.6, - 131.5 ], [ 22.8, - 135.5 ] ], 'rail' );
+		// fenceAt( [ [ 70.0, - 102.5 ], [ 72.5, - 106.0 ] ], 'picket', TRIMS.cream );
+		// fenceAt( [ [ 86.5, - 150.0 ], [ 87.8, - 158.5 ] ], 'rail' );
 
 		// laundry lines
 		const cloth = [ lin( 0xf2f0ea ), lin( 0xd9534a ), lin( 0x4f8fc0 ), lin( 0xf0c850 ), lin( 0x7fbf9f ), lin( 0xe89ab0 ) ];
@@ -410,15 +411,15 @@ export class Village {
 
 		};
 
-		laundryLine( B, pole( 7.8, - 112.8 ), pole( 12.6, - 114.6 ), rand, cloth );
-		laundryLine( B, pole( 21.0, - 136.8 ), pole( 25.2, - 137.6 ), rand, cloth );
-		laundryLine( B, pole( 83.2, - 138.2 ), pole( 87.4, - 140.0 ), rand, cloth );
+		// laundryLine( B, pole( 7.8, - 112.8 ), pole( 12.6, - 114.6 ), rand, cloth );
+		// laundryLine( B, pole( 21.0, - 136.8 ), pole( 25.2, - 137.6 ), rand, cloth );
+		// laundryLine( B, pole( 83.2, - 138.2 ), pole( 87.4, - 140.0 ), rand, cloth );
 
 		// fish drying rack and scattered gear in the village
-		fishRack( B, 67.0, g( 67.0, - 118.5 ), - 118.5, - 0.25, 2.4, rand.next(), rand );
+		// fishRack( B, 67.0, g( 67.0, - 118.5 ), - 118.5, - 0.25, 2.4, rand.next(), rand );
 		colliders.addBox( new Vector3( 67.0, g( 67.0, - 118.5 ) + 1.0, - 118.5 ), new Vector3( 1.35, 1.0, 0.75 ), - 0.25, { tag: 'rack' } );
 		this.foundationChecks.push( { x: 67.0, y: g( 67.0, - 118.5 ) - 0.2, z: - 118.5 } );
-		netRack( B, 5.5, g( 5.5, - 136.5 ), - 136.5, 0.35, 3.0, lin( 0x6a5a8a ), rand.next(), ( lx, lz ) => g( 5.5 + lx * Math.cos( 0.35 ) + lz * Math.sin( 0.35 ), - 136.5 - lx * Math.sin( 0.35 ) + lz * Math.cos( 0.35 ) ) );
+		// netRack( B, 5.5, g( 5.5, - 136.5 ), - 136.5, 0.35, 3.0, lin( 0x6a5a8a ), rand.next(), ( lx, lz ) => g( 5.5 + lx * Math.cos( 0.35 ) + lz * Math.sin( 0.35 ), - 136.5 - lx * Math.sin( 0.35 ) + lz * Math.cos( 0.35 ) ) );
 		for ( const sx of [ - 1.5, 1.5 ] ) {
 
 			const px = 5.5 + sx * Math.cos( 0.35 ), pz = - 136.5 - sx * Math.sin( 0.35 );
@@ -444,23 +445,23 @@ export class Village {
 		}
 
 		// upturned rowboat on trestles in a yard + a bucket
-		rowboat( B, 88.2, g( 88.2, - 124.5 ) + 0.55, - 124.5, 1.2, { upsideDown: true, seed: rand.next(), hull: lin( 0xc9463a ), bottom: lin( 0x2d2d2d ), trim: C.white } );
+		// rowboat( B, 88.2, g( 88.2, - 124.5 ) + 0.55, - 124.5, 1.2, { upsideDown: true, seed: rand.next(), hull: lin( 0xc9463a ), bottom: lin( 0x2d2d2d ), trim: C.white } );
 		for ( const o of [ - 1.2, 1.2 ] ) {
 
 			const px = 88.2 + o * Math.sin( 1.2 ), pz = - 124.5 + o * Math.cos( 1.2 );
-			B.box( 'wood', px, g( px, pz ) + 0.26, pz, 1.1, 0.07, 0.09, { grain: 0, ry: 1.2 + Math.PI / 2, data: WOOD( rand.next(), 0.85 ) } );
+			// B.box( 'wood', px, g( px, pz ) + 0.26, pz, 1.1, 0.07, 0.09, { grain: 0, ry: 1.2 + Math.PI / 2, data: WOOD( rand.next(), 0.85 ) } );
 			for ( const s of [ - 0.4, 0.4 ] ) {
 
 				const lx = px + s * Math.cos( 1.2 + Math.PI / 2 ), lz = pz - s * Math.sin( 1.2 + Math.PI / 2 );
-				B.box( 'wood', lx, g( lx, lz ) + 0.08, lz, 0.07, 0.5, 0.07, { grain: 1, data: WOOD( rand.next(), 0.85 ) } );
+				// B.box( 'wood', lx, g( lx, lz ) + 0.08, lz, 0.07, 0.5, 0.07, { grain: 1, data: WOOD( rand.next(), 0.85 ) } );
 
 			}
 
 		}
 
-		colliders.addBox( new Vector3( 88.2, g( 88.2, - 124.5 ) + 0.6, - 124.5 ), new Vector3( 0.75, 0.6, 2.0 ), 1.2, { tag: 'rowboat' } );
+		// colliders.addBox( new Vector3( 88.2, g( 88.2, - 124.5 ) + 0.6, - 124.5 ), new Vector3( 0.75, 0.6, 2.0 ), 1.2, { tag: 'rowboat' } );
 		this.foundationChecks.push( { x: 88.2, y: g( 88.2, - 124.5 ) - 0.17, z: - 124.5 } );
-		bucket( B, 86.9, g( 86.9, - 122.6 ), - 122.6, C.blue, rand.next() );
+		// bucket( B, 86.9, g( 86.9, - 122.6 ), - 122.6, C.blue, rand.next() );
 
 		// a couple of extra path lights toward the upper houses
 		for ( const [ x, z ] of [ [ 33.5, - 125.5 ], [ 48.0, - 130.5 ], [ 42.0, - 142.0 ] ] ) {
