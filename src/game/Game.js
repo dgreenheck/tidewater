@@ -171,7 +171,7 @@ export class Game {
 
 		}
 
-		if ( this.hud && ( inp.hit( 'KeyI' ) || inp.hit( 'Tab' ) ) ) this.hud.toggleInventory();
+		if ( this.hud && ! this.hud.standOpen && ( inp.hit( 'KeyI' ) || inp.hit( 'Tab' ) || ( ! this.hud.invOpen && inp.hit( 'ArrowDown' ) ) ) ) this.hud.toggleInventory();
 		if ( this.hud && inp.hit( 'Escape' ) ) {
 
 			this.hud.toggleInventory( false );
@@ -180,11 +180,12 @@ export class Game {
 		}
 
 		// mouse edges (the left button also looks around while the pointer isn't captured)
-		const lmb = inp.mouseDown && inp.enabled, rmb = inp.rightDown && inp.enabled;
+		const lmb = inp.primaryDown(), rmb = inp.secondaryDown();
 		const lDown = lmb && ! this._lmb, lUp = ! lmb && this._lmb, rDown = rmb && ! this._rmb;
 		this._lmb = lmb;
 		this._rmb = rmb;
 		const panelOpen = this.hud && ( this.hud.invOpen || this.hud.standOpen );
+		if ( panelOpen ) this.hud.handleController( inp );
 
 		if ( rod.equipped && ! panelOpen ) {
 

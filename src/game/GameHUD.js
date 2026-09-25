@@ -66,6 +66,7 @@ const CSS = /* css */`
 .gm-btn[disabled] { opacity: 0.4; cursor: default; }
 .gm-btn.is-ghost { background: var(--tw-fill-2); color: var(--tw-ink); }
 .gm-mini { font: 500 var(--tw-fs-sm) var(--tw-font); color: var(--tw-ink-2); background: var(--tw-fill); border: 1px solid var(--tw-line); border-radius: 999px; padding: 2px var(--tw-2); cursor: pointer; }
+.gm-btn.is-pad-focus, .gm-mini.is-pad-focus { outline: 2px solid var(--tw-sun); outline-offset: 3px; box-shadow: 0 0 0 5px rgba(var(--tw-sun-rgb), 0.16); }
 .gm-gauge { display: none; align-items: center; gap: var(--tw-2); color: var(--tw-ink-2); font-size: var(--tw-fs-md); }
 .gm-gauge.is-on { display: flex; }
 .gm-gauge b { font-family: var(--tw-mono); font-weight: 500; color: var(--tw-ink); }
@@ -297,6 +298,48 @@ export class GameHUD {
 
 	}
 
+	// Modal menus remain regular DOM buttons for mouse users. This small focus model makes
+	// the same buttons usable from a standard Xbox controller without moving browser focus.
+	_setControllerFocus( preferred = null ) {
+
+		const panel = this.standOpen ? this.stand : this.inv;
+		const buttons = [ ...panel.querySelectorAll( 'button:not([disabled])' ) ];
+		if ( ! buttons.length ) return;
+		const i = preferred ? buttons.findIndex( ( b ) => b.matches( preferred ) ) : - 1;
+		this._controllerFocus = i >= 0 ? i : Math.min( this._controllerFocus || 0, buttons.length - 1 );
+		buttons.forEach( ( b, n ) => b.classList.toggle( 'is-pad-focus', n === this._controllerFocus ) );
+		buttons[ this._controllerFocus ].scrollIntoView( { block: 'nearest' } );
+
+	}
+
+	handleController( input ) {
+
+		if ( ! input.gamepadConnected || ( ! this.standOpen && ! this.invOpen ) ) return false;
+		if ( input.hit( 'KeyC' ) || input.hit( 'KeyE' ) ) {
+
+			if ( this.standOpen ) this.closeStand();
+			else this.toggleInventory( false );
+			return true;
+
+		}
+		const panel = this.standOpen ? this.stand : this.inv;
+		const buttons = [ ...panel.querySelectorAll( 'button:not([disabled])' ) ];
+		if ( ! buttons.length ) return false;
+		if ( this._controllerFocus === undefined || this._controllerFocus >= buttons.length ) this._controllerFocus = 0;
+		const next = input.hit( 'ArrowDown' ) || input.hit( 'ArrowRight' );
+		const prev = input.hit( 'ArrowUp' ) || input.hit( 'ArrowLeft' );
+		if ( next || prev ) {
+
+			this._controllerFocus = ( this._controllerFocus + ( next ? 1 : - 1 ) + buttons.length ) % buttons.length;
+			buttons.forEach( ( b, n ) => b.classList.toggle( 'is-pad-focus', n === this._controllerFocus ) );
+			buttons[ this._controllerFocus ].scrollIntoView( { block: 'nearest' } );
+
+		}
+		if ( input.hit( 'Space' ) ) buttons[ this._controllerFocus ].click();
+		return next || prev;
+
+	}
+
 	// ---- catch card
 	// info: GameState.lastCatch ({ species, kg, cm, value, newSpecies, record, prevBestKg, prevBestCm, kept })
 	showCatch( info, ms = 9000 ) {
@@ -385,6 +428,7 @@ export class GameHUD {
 	renderInventory() {
 
 		const s = this.game.state;
+		const pad = this.game.app.input.gamepadConnected;
 		const rows = s.inventory.map( ( f ) => `<div class="gm-row has-cm"><span>${ FISH[ f.species ].name }${ f.record ? '<small>record</small>' : '' }</span><span class="gm-cm">${ f.cm ?? Math.round( fishLengthCm( f.species, f.kg ) ) } cm</span><span class="gm-kg">${ f.kg.toFixed( 2 ) } kg</span><span class="gm-val">$${ f.value }</span><button class="gm-mini" data-release="${ f.id }">Release</button></div>` ).join( '' );
 		const logged = Object.entries( s.log ).filter( ( [ k ] ) => FISH[ k ] ).map( ( [ k, v ] ) => `${ FISH[ k ].name }: ${ v.count } caught, best ${ v.bestKg.toFixed( 2 ) } kg · ${ v.bestCm ?? Math.round( fishLengthCm( k, v.bestKg ) ) } cm` ).join( '<br>' );
 		this.inv.innerHTML = `
@@ -392,9 +436,10 @@ export class GameHUD {
 			<p class="gm-sub">${ s.inventory.length } fish · ${ s.holdKg.toFixed( 1 ) } of ${ s.stats.holdKg } kg · worth $${ s.holdValue }</p>
 			<div class="gm-list">${ rows || '<div class="gm-empty">Nothing yet. Cast from the pier, the beach or the boat.</div>' }</div>
 			${ logged ? `<div class="gm-log"><b>Fish log</b><br>${ logged }</div>` : '' }
-			<div class="gm-foot"><span class="gm-sub">Sell at the fish stand by the pier</span><button class="gm-btn is-ghost" data-close>Close (I)</button></div>`;
+			<div class="gm-foot"><span class="gm-sub">${ pad ? 'D-pad select · A confirm · B / X close' : 'Sell at the fish stand by the pier' }</span><button class="gm-btn is-ghost" data-close>Close (${ pad ? 'B / X' : 'I' })</button></div>`;
 		this.inv.querySelector( '[data-close]' ).onclick = () => this.toggleInventory( false );
 		for ( const b of this.inv.querySelectorAll( '[data-release]' ) ) b.onclick = () => s.release( Number( b.dataset.release ) );
+		this._setControllerFocus( '[data-release]' );
 
 	}
 
@@ -422,15 +467,17 @@ export class GameHUD {
 
 		const s = this.game.state;
 		const v = this.vendor || { name: 'Fish buyer' };
-		const rows = s.inventory.map( ( f ) => `<div class="gm-row has-cm"><span>${ FISH[ f.species ].name }</span><span class="gm-cm">${ f.cm ?? Math.round( fishLengthCm( f.species, f.kg ) ) } cm</span><span class="gm-kg">${ f.kg.toFixed( 2 ) } kg</span><span class="gm-val">$${ f.value }</span><button class="gm-mini" data-sell="${ f.id }">Sell</button></div>` ).join( '' );
+		const pad = this.game.app.input.gamepadConnected;
+		const rows = s.inventory.map( ( f ) => `<div class="gm-row has-cm"><span>${ FISH[ f.species ].name }</span><span class="gm-cm">${ f.cm ?? Math.round( fishLengthCm( f.species, f.kg ) ) } cm</span><span class="gm-kg">${ f.kg.toFixed( 2 ) } kg</span><span class="gm-val">$${ f.value }</span><button class="gm-mini" data-sell="${ f.id }">Sell${ pad ? ' (A)' : '' }</button></div>` ).join( '' );
 		this.stand.innerHTML = `
 			<h2>${ v.name }</h2>
 			<p class="gm-sub">${ s.inventory.length ? v.greeting || 'Let\'s see what you caught.' : v.idle || 'Come back when you\'ve got fish.' }</p>
 			<div class="gm-list">${ rows || '<div class="gm-empty">Your cooler is empty.</div>' }</div>
-			<div class="gm-foot"><button class="gm-btn is-ghost" data-close>Leave (E)</button><button class="gm-btn" data-all ${ s.inventory.length ? '' : 'disabled' }>Sell all · $${ s.holdValue }</button></div>`;
+			<div class="gm-foot"><button class="gm-btn is-ghost" data-close>Leave (${ pad ? 'B / X' : 'E' })</button><button class="gm-btn" data-all ${ s.inventory.length ? '' : 'disabled' }>Sell all · $${ s.holdValue }${ pad ? ' (A)' : '' }</button></div>`;
 		this.stand.querySelector( '[data-close]' ).onclick = () => this.closeStand();
 		this.stand.querySelector( '[data-all]' ).onclick = () => this.game.sellAll();
 		for ( const b of this.stand.querySelectorAll( '[data-sell]' ) ) b.onclick = () => this.game.sell( [ Number( b.dataset.sell ) ] );
+		this._setControllerFocus( '[data-all]' );
 
 	}
 
@@ -440,6 +487,7 @@ GameHUD.prototype.renderShop = function () {
 
 	const s = this.game.state;
 	const v = this.vendor;
+	const pad = this.game.app.input.gamepadConnected;
 	const rows = Object.entries( UPGRADES ).map( ( [ key, track ] ) => {
 
 		const cur = track.levels[ s.upgrades[ key ] | 0 ];
@@ -456,11 +504,12 @@ GameHUD.prototype.renderShop = function () {
 		<h2>${ v.name }</h2>
 		<p class="gm-sub">${ v.greeting } · You have $${ s.money.toLocaleString() }</p>
 		<div class="gm-list">${ fuelRow }${ rows }</div>
-		<div class="gm-foot"><span class="gm-sub">Upgrades take effect at once</span><button class="gm-btn is-ghost" data-close>Leave (E)</button></div>`;
+		<div class="gm-foot"><span class="gm-sub">${ pad ? 'D-pad select · A confirm · B / X leave' : 'Upgrades take effect at once' }</span><button class="gm-btn is-ghost" data-close>Leave (${ pad ? 'B / X' : 'E' })</button></div>`;
 	this.stand.querySelector( '[data-close]' ).onclick = () => this.closeStand();
 	for ( const b of this.stand.querySelectorAll( '[data-buy]' ) ) b.onclick = () => this.game.buy( b.dataset.buy );
 	const f = this.stand.querySelector( '[data-fuel]' );
 	if ( f ) f.onclick = () => this.game.refuel();
+	this._setControllerFocus( '[data-fuel], [data-buy]' );
 
 };
 

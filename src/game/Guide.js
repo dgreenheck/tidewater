@@ -100,6 +100,37 @@ const CARDS = [
 	},
 ];
 
+const CONTROLLER_CARDS = [
+	CARDS[ 0 ],
+	{
+		eyebrow: 'Fishing · Xbox controller',
+		title: 'Cast, strike, reel',
+		body: `<div class="gm-guide-list">
+			${ row( k( 'Y' ), 'Take out the rod (by the water or on the boat)' ) }
+			${ row( k( 'Hold', 'RT' ), 'Wind up, release to cast. Hold longer to cast farther' ) }
+			${ row( k( 'RT' ), 'Strike when the bobber is <b>pulled under</b> (dips are only nibbles)' ) }
+			${ row( k( 'Hold', 'RT' ), 'Reel in. <b>Let go when the tension turns red</b>, or the line snaps' ) }
+			${ row( k( 'LT' ), 'Reel an empty line back in' ) }
+			${ row( k( 'D-pad ↓' ), 'Your cooler and fish log' ) }
+		</div>`,
+	},
+	{
+		eyebrow: 'Getting around · Xbox controller',
+		title: 'Joe and Marta',
+		body: `<div class="gm-guide-list">
+			${ row( k( 'Left stick' ), 'Move. Right stick looks. Hold <kbd>LB</kbd> to run or boost the boat' ) }
+			${ row( k( 'X' ), 'Board the boat, take the helm, and talk to Joe and Marta' ) }
+			${ row( k( 'A', 'B' ), 'Jump / swim up / climb · dive or descend' ) }
+			${ row( k( 'Menu' ), 'Open settings. <kbd>RB</kbd> changes the boat camera' ) }
+		</div>
+		<div class="gm-guide-where">
+			<div class="is-joe"><i></i><span><b>Joe</b> · fish stand by the pier</span><em data-where="joe"></em></div>
+			<div class="is-marta"><i></i><span><b>Marta</b> · chandlery by the boathouse</span><em data-where="marta"></em></div>
+		</div>
+		<p style="margin:0;color:var(--tw-ink-3);font-size:var(--tw-fs-sm)">Both are marked on the map in the lower right.</p>`,
+	},
+];
+
 const TIPS = {
 	rodOut: 'Hold the <b>left mouse button</b> to wind up and release to cast. Try deeper water, around the pier or over the reef.',
 	nibble: 'The bobber is dipping: something is <b>nibbling</b>. Wait until it is <b>pulled under</b>, then click to strike.',
@@ -109,6 +140,18 @@ const TIPS = {
 	boat: 'Your boat. <kbd>E</kbd> to board, <kbd>E</kbd> again at the wheel to drive (<kbd>W</kbd><kbd>S</kbd> throttle, <kbd>A</kbd><kbd>D</kbd> steer). Diesel is sold by Marta.',
 	joe: '<b>Joe</b> buys your fish. <kbd>E</kbd> to see what he will pay.',
 	marta: '<b>Marta</b> sells upgrades and diesel. <kbd>E</kbd> to see her stock.',
+};
+
+const CONTROLLER_TIPS = {
+	controller: '<b>Xbox controller connected.</b> Left stick moves, right stick looks; <kbd>X</kbd> interacts, <kbd>Y</kbd> equips the rod, <kbd>RT</kbd> casts and reels, and <kbd>LT</kbd> retrieves an empty line.',
+	rodOut: 'Hold <kbd>RT</kbd> to wind up and release to cast. Try deeper water, around the pier or over the reef.',
+	nibble: 'The bobber is dipping: something is <b>nibbling</b>. Wait until it is <b>pulled under</b>, then press <kbd>RT</kbd> to strike.',
+	fishOn: '<b>Hold RT</b> to reel. When the tension needle nears the <b>red</b>, let go until it settles, then reel again.',
+	caught: 'Into the cooler (<kbd>D-pad ↓</kbd>). Sell your catch to <b>Joe</b> at the fish stand by the pier: he is on the map.',
+	full: 'Your cooler is <b>full</b>. Sell to Joe, or buy a bigger hold from Marta at the chandlery.',
+	boat: 'Your boat. <kbd>X</kbd> to board, <kbd>X</kbd> again at the wheel to drive (left stick throttle and steer). Hold <kbd>LB</kbd> for a boost. Diesel is sold by Marta.',
+	joe: '<b>Joe</b> buys your fish. Press <kbd>X</kbd> to see what he will pay.',
+	marta: '<b>Marta</b> sells upgrades and diesel. Press <kbd>X</kbd> to see her stock.',
 };
 
 const h = ( tag, cls, html ) => {
@@ -151,6 +194,7 @@ export class Guide {
 		this.body = this.el.querySelector( '.gm-guide-body' );
 		this.dots = [ ...this.el.querySelectorAll( '.gm-guide-dots span' ) ];
 		this.nextBtn = this.el.querySelector( '.gm-guide-next' );
+		this.hint = this.el.querySelector( '.gm-guide-hint' );
 		this.el.querySelector( '.gm-guide-skip' ).addEventListener( 'click', ( e ) => {
 
 			e.stopPropagation();
@@ -175,6 +219,8 @@ export class Guide {
 		this._coachT = 0;
 		this._queue = [];
 		this._whereT = 0;
+		this.controller = false;
+		this._controllerTipPending = false;
 		this._prev = { lastCatch: game.state.lastCatch };
 
 		// while the intro is up it owns the keyboard and the mouse (capture phase, before the game's input)
@@ -233,10 +279,11 @@ export class Guide {
 	show( i ) {
 
 		this.step = i;
-		const c = CARDS[ i ];
+		const c = ( this.controller ? CONTROLLER_CARDS : CARDS )[ i ];
 		this.eyebrow.textContent = c.eyebrow;
 		this.title.textContent = c.title;
 		this.body.innerHTML = c.body;
+		this.hint.textContent = this.controller ? 'A / X next · B skip' : 'Enter · Esc to skip';
 		this.dots.forEach( ( d, j ) => d.classList.toggle( 'is-on', j === i ) );
 		this.nextBtn.textContent = i === CARDS.length - 1 ? 'Let\'s fish' : 'Next';
 		if ( this.minimap ) this.minimap.highlight( i === CARDS.length - 1 ? [ 'joe', 'marta' ] : [] );
@@ -297,6 +344,14 @@ export class Guide {
 	update( dt ) {
 
 		const ui = this.ui, g = this.game, app = g.app, p = app.player;
+		const controller = app.input.gamepadConnected;
+		if ( controller !== this.controller ) {
+
+			this.controller = controller;
+			if ( controller && ! this.seen.controller ) this._controllerTipPending = true;
+			if ( this.open ) this.show( this.step );
+
+		}
 
 		// the intro, once the start overlay is gone
 		if ( this._wait >= 0 && ! ui._start ) {
@@ -307,6 +362,10 @@ export class Guide {
 		}
 
 		if ( this.open ) {
+
+			if ( controller && app.input.hit( 'KeyE' ) ) this.next();
+			if ( controller && app.input.hit( 'KeyC' ) ) this.close();
+			if ( ! this.open ) return;
 
 			// live direction and distance to Joe and Marta
 			this._whereT -= dt;
@@ -324,6 +383,14 @@ export class Guide {
 			}
 
 			return;
+
+		}
+
+		// Do not spend the controller hint while the loading / start overlay covers the HUD.
+		if ( this._controllerTipPending && ! ui._start ) {
+
+			this.tip( 'controller' );
+			this._controllerTipPending = false;
 
 		}
 
@@ -368,7 +435,7 @@ export class Guide {
 			this._current = id;
 			this.seen[ id ] = true;
 			this._save();
-			this.coachText.innerHTML = TIPS[ id ];
+			this.coachText.innerHTML = ( controller ? CONTROLLER_TIPS : TIPS )[ id ];
 			this.coach.classList.add( 'is-on' );
 			this._coachT = 7.5;
 

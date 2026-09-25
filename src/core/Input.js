@@ -10,6 +10,10 @@ export class Input {
 		this.wheel = 0;
 		this.mouseDown = false;
 		this.rightDown = false;
+		this.gamepadKeys = new Set();
+		this.gamepadMouseDown = false;
+		this.gamepadRightDown = false;
+		this.gamepadConnected = false;
 		this.locked = false;
 		this.enabled = true;
 
@@ -68,9 +72,68 @@ export class Input {
 
 	}
 
+	// Standard-mapped controllers (including Xbox pads) mirror the keyboard / mouse actions
+	// used by the game. Keeping the mapping here means gameplay systems stay device agnostic.
+	updateGamepad( dt ) {
+
+		const pads = globalThis.navigator?.getGamepads?.() || [];
+		const pad = Array.from( pads ).find( ( p ) => p && p.connected );
+		this.gamepadConnected = Boolean( pad );
+		const next = new Set();
+		const deadzone = 0.22;
+		const axis = ( index ) => Math.abs( pad?.axes[ index ] || 0 ) > deadzone ? pad.axes[ index ] : 0;
+		const button = ( index ) => {
+
+			const b = pad?.buttons[ index ];
+			return Boolean( b && ( b.pressed || b.value > 0.5 ) );
+
+		};
+		const add = ( code, active ) => {
+
+			if ( active ) next.add( code );
+
+		};
+
+		if ( pad ) {
+
+			const moveX = axis( 0 ), moveY = axis( 1 );
+			add( 'KeyA', moveX < - deadzone );
+			add( 'KeyD', moveX > deadzone );
+			add( 'KeyW', moveY < - deadzone );
+			add( 'KeyS', moveY > deadzone );
+
+			// Right stick is a continuous first-person / chase-camera look control.
+			this.look.x += axis( 2 ) * 720 * dt;
+			this.look.y += axis( 3 ) * 720 * dt;
+
+			// A / B / X / Y, bumpers, triggers, and system buttons on the Xbox layout.
+			add( 'Space', button( 0 ) ); // A: jump, swim up, climb
+			add( 'KeyC', button( 1 ) ); // B: dive / descend
+			add( 'KeyE', button( 2 ) ); // X: interact / confirm
+			add( 'KeyR', button( 3 ) ); // Y: equip fishing rod
+			add( 'ShiftLeft', button( 4 ) ); // LB: sprint / boat boost
+			add( 'KeyV', button( 5 ) ); // RB: boat camera
+			add( 'KeyM', button( 8 ) ); // View: mute
+			add( 'KeyH', button( 9 ) ); // Menu: settings
+			add( 'KeyF', button( 10 ) ); // left stick press: free camera
+			add( 'KeyL', button( 11 ) ); // right stick press: flashlight
+			add( 'ArrowUp', button( 12 ) ); // d-pad up
+			add( 'ArrowDown', button( 13 ) ); // d-pad down
+			add( 'ArrowLeft', button( 14 ) ); // d-pad left
+			add( 'ArrowRight', button( 15 ) ); // d-pad right
+
+		}
+
+		for ( const code of next ) if ( ! this.gamepadKeys.has( code ) ) this.pressed.add( code );
+		this.gamepadKeys = next;
+		this.gamepadMouseDown = button( 7 ); // RT: cast / strike / reel
+		this.gamepadRightDown = button( 6 ); // LT: reel empty line
+
+	}
+
 	down( code ) {
 
-		return this.enabled && this.keys.has( code );
+		return this.enabled && ( this.keys.has( code ) || this.gamepadKeys.has( code ) );
 
 	}
 
@@ -95,6 +158,18 @@ export class Input {
 		const w = this.wheel;
 		this.wheel = 0;
 		return w;
+
+	}
+
+	primaryDown() {
+
+		return this.enabled && ( this.mouseDown || this.gamepadMouseDown );
+
+	}
+
+	secondaryDown() {
+
+		return this.enabled && ( this.rightDown || this.gamepadRightDown );
 
 	}
 

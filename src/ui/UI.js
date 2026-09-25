@@ -2189,16 +2189,39 @@ export class UI {
 			<div class="tw-start-inner">
 				${ brandMark( 'tw-start-mark' ) }
 				<div class="tw-start-title">TIDEWATER</div>
-				<button type="button" class="tw-start-cta"><span class="tw-start-pulse" aria-hidden="true"></span>${ icon( 'mouse' ) }<span>Click to explore</span></button>
-				<div class="tw-start-keys">
-					<span><span class="tw-wasd"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span>Move</span>
-					<span><kbd class="tw-kbd-ico">${ icon( 'mouse' ) }</kbd>Look</span>
-					<span><kbd>E</kbd>Interact</span>
-					<span><kbd>H</kbd>Settings</span>
-					<span><kbd>F1</kbd>All controls</span>
-				</div>
+				<button type="button" class="tw-start-cta"><span class="tw-start-pulse" aria-hidden="true"></span><span class="tw-start-cta-body"></span></button>
+				<div class="tw-start-keys"></div>
 			</div>`;
+		this.startCtaBody = el.querySelector( '.tw-start-cta-body' );
+		this.startKeys = el.querySelector( '.tw-start-keys' );
+		this._startController = null;
+		this.setStartController( false );
 		this.root.append( el );
+
+	}
+
+	setStartController( controller ) {
+
+		controller = Boolean( controller );
+		if ( controller === this._startController ) return;
+		this._startController = controller;
+		if ( controller ) {
+
+			this.startCtaBody.innerHTML = '<kbd>A</kbd><span>Press A, X, or Menu to explore</span>';
+			this.startKeys.innerHTML = '<span><kbd>LS</kbd>Move</span><span><kbd>RS</kbd>Look</span><span><kbd>X</kbd>Interact</span><span><kbd>Y</kbd>Fishing rod</span><span><kbd>Menu</kbd>Settings</span>';
+
+		} else {
+
+			this.startCtaBody.innerHTML = `${ icon( 'mouse' ) }<span>Click to explore</span>`;
+			this.startKeys.innerHTML = `<span><span class="tw-wasd"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span>Move</span><span><kbd class="tw-kbd-ico">${ icon( 'mouse' ) }</kbd>Look</span><span><kbd>E</kbd>Interact</span><span><kbd>H</kbd>Settings</span><span><kbd>F1</kbd>All controls</span>`;
+
+		}
+
+	}
+
+	startFromController() {
+
+		if ( this._startGo ) this._startGo( { type: 'gamepad' } );
 
 	}
 
@@ -3184,6 +3207,7 @@ export class UI {
 				el.removeEventListener( 'click', go );
 				window.removeEventListener( 'keydown', go, true );
 				this._start = false;
+				this._startGo = null;
 				this._startPromise = null;
 				this.root.classList.remove( 'is-starting' );
 				el.classList.remove( 'is-on' );
@@ -3203,6 +3227,7 @@ export class UI {
 
 			el.addEventListener( 'click', go );
 			window.addEventListener( 'keydown', go, true );
+			this._startGo = go;
 
 		} );
 

@@ -250,6 +250,9 @@ export class AppUI {
 
 		const app = this.app;
 		const ui = this.ui;
+		const controller = app.input.gamepadConnected;
+		ui.setStartController( controller );
+		if ( ui._start && controller && ( app.input.hit( 'Space' ) || app.input.hit( 'KeyE' ) || app.input.hit( 'KeyH' ) ) ) ui.startFromController();
 		ui.setStats( { fps: app.fps, frameMs: dt * 1000 } );
 		this.s.renderScale = app.post.scale;
 
@@ -257,7 +260,7 @@ export class AppUI {
 		if ( app.freeCam ) {
 
 			ui.setMode( 'Free camera' );
-			ui.setPrompt( 'F', 'Walk' );
+			ui.setPrompt( app.input.gamepadConnected ? 'LS' : 'F', 'Walk' );
 			ui.setBoatGauges( { visible: false } );
 			ui.setDepth( { visible: false } );
 			return;
@@ -268,7 +271,12 @@ export class AppUI {
 			: p.mode === 'deck' ? 'On deck'
 			: p.mode === 'swim' ? ( app.camera.position.y < ( app.cameraWaterHeight ?? 0 ) - 0.3 ? 'Diving' : 'Swimming' ) : 'Walking';
 		ui.setMode( mode );
-		if ( p.prompt ) ui.setPrompt( p.prompt.key, p.prompt.text );
+		if ( p.prompt ) {
+
+			const padKeys = { E: 'X', Space: 'A' };
+			ui.setPrompt( app.input.gamepadConnected ? ( padKeys[ p.prompt.key ] || p.prompt.key ) : p.prompt.key, p.prompt.text );
+
+		}
 		else ui.setPrompt( null );
 
 		const b = app.boatCtl;

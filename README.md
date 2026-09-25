@@ -94,6 +94,10 @@ breach. It runs directly on WebGPU and WGSL with its own small rendering engine,
 | P | Photo mode |
 | F1 or ? | All controls |
 
+### Xbox controller
+
+Tidewater supports standard-mapped Xbox controllers in browsers with the Gamepad API. The left stick moves and the right stick looks. A jumps, swims up, or climbs; B dives; X interacts; Y equips the rod; LB sprints or boosts the boat; RB changes the boat camera; and the triggers cast, strike, reel, and retrieve an empty line. View mutes, Menu opens settings, left-stick press toggles the free camera, right-stick press toggles the flashlight, and d-pad up/down pause time and open the cooler. In the cooler, fish stand, and chandlery panels, the d-pad selects an action, A confirms it, and B or X closes the panel.
+
 ### Fishing
 
 Walk the deck of the boat while it drifts, or fish from the pier and the beach. Cast, wait for the bobber

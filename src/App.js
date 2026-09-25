@@ -598,6 +598,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 	_frame( dt ) {
 
 		GPU.beginFrame();
+		this.input.updateGamepad( dt );
 		FrameUniforms.fields.frameIndex.value = GPU.frame;
 		const s = this.settings;
 		this.updateFPS( dt );
@@ -607,7 +608,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 
 		// ---- player / boat (boat physics first so the cameras follow this frame's pose)
 		if ( this.input.hit( 'KeyF' ) ) this.setFreeCam( ! this.freeCam );
-		if ( this.input.hit( 'KeyT' ) ) this.toggleTime();
+		if ( this.input.hit( 'KeyT' ) || ( ! this.game.hud?.standOpen && ! this.game.hud?.invOpen && this.input.hit( 'ArrowUp' ) ) ) this.toggleTime();
 		if ( this.input.hit( 'KeyL' ) ) {
 
 			const on = this.localLights.toggleFlashlight();
@@ -625,7 +626,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		this.boatSpray.update( dt );
 		this.wake.update( dt );
 		if ( this.freeCam ) this.fly.update( dt );
-		else this.player.update( dt );
+		else if ( ! ( this.game.hud?.standOpen || this.game.hud?.invOpen || this.game.hud?.catchOpen ) ) this.player.update( dt );
 		this.game.update( dt );
 		this.updateSun();
 

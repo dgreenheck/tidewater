@@ -2498,6 +2498,12 @@ body {
 	height: calc(18 * var(--tw-u));
 }
 
+.tw-start-cta-body {
+	display: inline-flex;
+	align-items: center;
+	gap: calc(10 * var(--tw-u));
+}
+
 .tw-start-pulse {
 	position: absolute;
 	inset: 0;
