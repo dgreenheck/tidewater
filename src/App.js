@@ -27,6 +27,7 @@ import { Colliders } from './world/Colliders.js';
 import { Village } from './world/Village.js';
 import { Reef } from './world/Reef.js';
 import { BoatModel } from './world/BoatModel.js';
+import { JetSkiModel } from './world/JetSkiModel.js';
 import { Rocks } from './world/Rocks.js';
 import { Debris } from './world/Debris.js';
 import { Wildlife } from './world/wildlife/Wildlife.js';
@@ -167,6 +168,10 @@ export class App {
 		scene.add( this.boat.group );
 		this.boat.group.position.copy( WORLD.boatDock.position );
 		this.boat.group.rotation.y = WORLD.boatDock.heading;
+		this.jetSki = new JetSkiModel();
+		scene.add( this.jetSki.group );
+		this.jetSki.group.position.copy( WORLD.jetSkiDock.position );
+		this.jetSki.group.rotation.y = WORLD.jetSkiDock.heading;
 
 		// ---------------------------------------------------------------- ocean
 		await progress( 0.3, 'Simulating the ocean…' );
@@ -215,6 +220,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		} );
 		underwaterMode( this.village.group, 'lite' );
 		underwaterMode( this.boat.group, 'lite' );
+		underwaterMode( this.jetSki.group, 'lite' );
 		if ( this.vegetation ) underwaterMode( this.vegetation.group, 'none' );
 
 		this.underwaterLighting = installUnderwaterLighting( {
@@ -289,6 +295,47 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		this.airMotes = new AirMotes( { terrain: this.terrainGPU, clouds: this.clouds, csm: this.csm, reversedDepth: true } );
 		scene.add( this.airMotes.mesh );
 		this.boatCtl = new BoatController( { model: this.boat, query: this.query, terrain: this.terrainData, colliders: this.colliders } );
+		this.jetSkiCtl = new BoatController( { model: this.jetSki, query: this.query, terrain: this.terrainData, colliders: this.colliders } );
+
+		// Override jet ski hydrodynamics: the BoatController constructor scales the waterplane
+		// samples (sx=0.79, sz=0.9) for the lobster boat feel. For the jet ski we want the full
+		// waterplane for stability. Rebuild samples with sx=1, sz=1 using the model's hullSamples.
+		const cbz = this.jetSki.hydro.centerOfBuoyancy.z;
+		this.jetSkiCtl.samples = this.jetSki.hullSamples.map( ( s ) => ( {
+			p: new Vector3( s.position.x, s.position.y, cbz + ( s.position.z - cbz ) ),
+			area: s.area, bottom: s.bottomY ?? s.position.y,
+		} ) );
+		// Recompute pitch stiffness for the new samples
+		let pitchK = 0;
+		for ( const s of this.jetSkiCtl.samples ) pitchK += s.area * ( s.p.z - cbz ) ** 2;
+		this.jetSkiCtl.pitchStiffness = 1025 * 9.81 * pitchK;
+
+		// Sync hydrostatics from model (mass, COM, COB, inertia) — constructor captured old values
+		this.jetSkiCtl.mass = this.jetSki.hydro.suggestedMass;
+		this.jetSkiCtl.com.copy( this.jetSki.hydro.centerOfMass );
+		this.jetSkiCtl.inertia.copy( this.jetSki.hydro.inertia );
+		// Added mass/inertia for a small planing hull: much less than a displacement boat
+		this.jetSkiCtl.addedMass.set( 0.1, 0.15, 0.02 ); // surge, sway, heave
+		this.jetSkiCtl.addedInertia.set( 0.2, 0.1, 0.05 ); // pitch, yaw, roll
+
+		this.jetSkiCtl.maxThrust = 11500;
+		this.jetSkiCtl.pitchSpeed = 25;
+		this.jetSkiCtl.reverseFactor = 0.32;
+		this.jetSkiCtl.rudderLift = 5.4;
+		this.jetSkiCtl.hullLift = 0.22;
+		this.jetSkiCtl.inputResponse = { throttle: 5.5, steer: 8.5 };
+		// Lateral stations along the keel (z, area m²) — shorter hull, wider sponsons
+		this.jetSkiCtl.stations = [ [ - 0.7, 0.2 ], [ - 0.3, 0.22 ], [ 0.2, 0.22 ], [ 0.65, 0.18 ] ];
+		this.jetSkiCtl.lateralY = - 0.05; // centre of lateral resistance (boat frame)
+		// Contact points for grounding (x, y, z in boat frame)
+		this.jetSkiCtl.contactPoints = [ new Vector3( 0, - 0.12, 0.8 ), new Vector3( 0, - 0.14, - 0.6 ), new Vector3( 0.3, - 0.08, 0 ), new Vector3( - 0.3, - 0.08, 0 ) ];
+		// Outline for pier collision (x, y, z in boat frame, at waterline height)
+		this.jetSkiCtl.outline = [ new Vector3( 0, 0.0, 0.85 ), new Vector3( 0.35, 0.0, 0.3 ), new Vector3( - 0.35, 0.0, 0.3 ), new Vector3( 0.38, 0.0, - 0.55 ), new Vector3( - 0.38, 0.0, - 0.55 ) ];
+		this.jetSkiCtl.mooring.anchor.copy( WORLD.jetSkiDock.position );
+		this.jetSkiCtl.mooring.heading = WORLD.jetSkiDock.heading;
+		this.jetSkiCtl.position.copy( WORLD.jetSkiDock.position );
+		this.jetSkiCtl.quaternion.setFromAxisAngle( _up, WORLD.jetSkiDock.heading );
+		this.jetSkiCtl.apply();
 		this.boatSpray = new BoatSpray( { boat: this.boatCtl, spray: this.spray } );
 		// humpback cruising the deep water around the island (model fetched from public/models/whale)
 		this.whale = new Whale( { scene, terrain: this.terrainData, query: this.query, spray: this.spray } );
@@ -307,7 +354,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		// interactive wake around the boat (Kelvin pattern, bow/stern waves, prop wash foam)
 		this.wake = new WakeSim( renderer, { terrainGPU: this.terrainGPU, boat: this.boatCtl, colliders: this.colliders } );
 		this.surface.wake = this.wake;
-		this.player = new Player( { camera, input: this.input, terrain: this.terrainData, colliders: this.colliders, query: this.query, boat: this.boatCtl, reef: this.reef } );
+		this.player = new Player( { camera, input: this.input, terrain: this.terrainData, colliders: this.colliders, query: this.query, boat: this.boatCtl, jetSki: this.jetSkiCtl, reef: this.reef } );
 		// birds, beach crabs, sanderlings (after spray / query / boat, which they use)
 		this.wildlife = new Wildlife( {
 			scene, renderer, terrain: this.terrainData, terrainGPU: this.terrainGPU, shore: this.shore,
@@ -623,6 +670,8 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 
 		}
 		this.boatCtl.update( dt );
+		this.jetSkiCtl.update( dt );
+		this.jetSki.update( dt );
 		this.boatSpray.update( dt );
 		this.wake.update( dt );
 		if ( this.freeCam ) this.fly.update( dt );
@@ -638,6 +687,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		this.seaDetail.update( dt );
 		this.query.setCamera( this.camera.position.x, this.camera.position.z );
 		this.boatCtl.queueQueries();
+		this.jetSkiCtl.queueQueries();
 		this.query.update();
 		if ( this.query.cpuValid ) {
 
@@ -736,8 +786,8 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 			daylight: 1 - G.night.value,
 			nearPier: Math.abs( p.x - WORLD.pier.x ) < 12 && p.z > WORLD.pier.zStart - 5 && p.z < WORLD.pier.zEnd + 8,
 			boat: {
-				active: this.boatCtl.driven, rpm: this.boatCtl.rpm, throttle: this.boatCtl.throttle, speed: this.boatCtl.velocity.length(),
-				position: this.boat.group.position, listenerInside: this.player.mode === 'boat' && this.player.camMode === 'first',
+				active: this.boatCtl.driven || this.jetSkiCtl.driven, rpm: this.boatCtl.driven ? this.boatCtl.rpm : this.jetSkiCtl.rpm, throttle: this.boatCtl.driven ? this.boatCtl.throttle : this.jetSkiCtl.throttle, speed: this.boatCtl.driven ? this.boatCtl.velocity.length() : this.jetSkiCtl.velocity.length(),
+				position: this.boatCtl.driven ? this.boat.group.position : this.jetSki.group.position, listenerInside: ( this.player.mode === 'boat' || this.player.mode === 'jetski' ) && this.player.camMode === 'first',
 			},
 		} );
 

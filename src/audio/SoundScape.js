@@ -96,6 +96,11 @@ export const MIX = {
 	fishSplash: - 24, // a hooked fish thrashing at the surface, at 6 m
 	fishFlop: - 32, // the landed fish flapping on the line in front of you
 	coins: - 30, // paid at the stand
+	// jet ski
+	jetskiIdle: - 32, // at the rider, idle
+	jetskiRun: - 24, // at the rider, full rpm
+	jetskiRush: - 28, // water past at ~10 m/s
+	jetskiLap: - 34, // gentle lapping at rest
 };
 
 // the fishing sounds (loaded when the rod comes out)
@@ -549,6 +554,7 @@ export class SoundScape {
 			surf_far: this.surfFar, wind: this.windLP, palms: this.above, crickets: this.above, pier_lap: this.pierPan,
 			under_reef: this.under, birds_dawn: this.above, whale_song: this.songPan,
 			boat_engine: this.engineLP, boat_rush: this.boatSum, boat_lap: this.boatSum,
+			jetski_engine: this.engineLP, jetski_rush: this.boatSum, jetski_lap: this.boatSum,
 			reel_wind: this.rod, reel_drag: this.rod, line_strain: this.rod,
 		};
 
@@ -1095,6 +1101,20 @@ export class SoundScape {
 
 			}
 
+		}
+
+		// jet ski: separate engine from boat (two-stroke whine + pump rush)
+		// eb.active is true for both boat and jet ski; we detect jet ski by its higher rpm range and speed
+		const isJetSki = eb.active && eb.rpm > 0 && sp > 0.5 && eb.speed < 25; // jet ski tops ~20 m/s
+		const jetSkiEng = isJetSki ? this._engine : 0; // reuse _engine ramp for jet ski when active
+		const jsRpm = isJetSki ? eb.rpm : 0;
+		const jsSp = isJetSki ? eb.speed : 0;
+		if ( isJetSki ) {
+			this._bed( 'jetski_engine', dB( lerp( MIX.jetskiIdle, MIX.jetskiRun, Math.pow( jsRpm, 0.7 ) ) ) * jetSkiEng / dB( BANK.jetski_engine.lufs ), now, 0.1,
+				( 0.7 + 1.2 * jsRpm ) * lerp( 0.75, 1, jetSkiEng ) );
+			this._ramp( this.engineLP.frequency, 800 + 8000 * Math.pow( jsRpm, 1.1 ), 0.1 );
+			this._bed( 'jetski_rush', nearBoat ? dB( MIX.jetskiRush ) * smooth( 1.0, 12, jsSp ) / dB( BANK.jetski_rush.lufs ) : 0, now, 0.25, 0.8 + 0.03 * Math.min( jsSp, 20 ) );
+			this._bed( 'jetski_lap', nearBoat ? dB( MIX.jetskiLap ) * ( 1 - smooth( 1.0, 4, jsSp ) ) / dB( BANK.jetski_lap.lufs ) : 0, now, 0.5 );
 		}
 
 	}

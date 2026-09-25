@@ -34,7 +34,7 @@ const HELM_REACH = 0.75; // m from the helm seat to take the wheel
 //   boat : at the helm, driving; V toggles helm (1st person) / chase (3rd person) camera, E stands up
 export class Player {
 
-	constructor( { camera, input, terrain, colliders, query, boat, reef = null, audio = null } ) {
+	constructor( { camera, input, terrain, colliders, query, boat, jetSki = null, reef = null, audio = null } ) {
 
 		this.camera = camera;
 		this.input = input;
@@ -42,6 +42,7 @@ export class Player {
 		this.colliders = colliders;
 		this.query = query;
 		this.boat = boat;
+		this.jetSki = jetSki;
 		this.reef = reef;
 		this.audio = audio;
 
@@ -129,6 +130,14 @@ export class Player {
 
 	}
 
+	nearJetSki() {
+
+		if ( ! this.jetSki ) return false;
+		const d = Math.hypot( this.jetSki.position.x - this.position.x, this.jetSki.position.z - this.position.z );
+		return d < 3.1 && Math.abs( this.jetSki.position.y - this.position.y ) < 2.8;
+
+	}
+
 	// ------------------------------------------------------------------ update
 
 	update( dt ) {
@@ -142,6 +151,12 @@ export class Player {
 		if ( this.mode === 'boat' ) {
 
 			this.updateBoat( dt );
+			return;
+
+		}
+		if ( this.mode === 'jetski' ) {
+
+			this.updateJetSki( dt );
 			return;
 
 		}
@@ -164,6 +179,17 @@ export class Player {
 			if ( inp.hit( 'KeyE' ) ) {
 
 				this.boardBoat();
+				return;
+
+			}
+
+		}
+		if ( this.nearJetSki() && ! this.busy ) {
+
+			this.prompt = { key: 'E', text: 'Ride jet ski' };
+			if ( inp.hit( 'KeyE' ) ) {
+
+				this.enterJetSki();
 				return;
 
 			}
@@ -797,6 +823,104 @@ export class Player {
 			}
 
 			this.camPos.lerp( want, 1 - Math.exp( - dt * 6 ) );
+			this.camera.position.copy( this.camPos );
+			this.camera.lookAt( target );
+
+		}
+
+	}
+
+	enterJetSki() {
+
+		const j = this.jetSki;
+		this.mode = 'jetski';
+		j.driven = true;
+		j.moored = false;
+		this.helmYaw = 0;
+		this.helmPitch = - 0.08;
+		this.orbitYaw = j.getYaw() + Math.PI;
+		this.orbitPitch = 0.18;
+		this.orbitDist = 8;
+		this.camInit = false;
+		this.camMode = 'first'; // start in first-person like the boat helm
+		if ( this.audio ) this.audio.engineStart();
+
+	}
+
+	exitJetSki() {
+
+		const j = this.jetSki;
+		j.driven = false;
+		j.throttle = 0;
+		const side = new THREE.Vector3( 1.15, 0, 0 ).applyQuaternion( j.quaternion );
+		this.position.copy( j.position ).add( side );
+		this.position.y = j.position.y - 0.25;
+		this.velocity.set( 0, 0, 0 );
+		this.waterH = this.waterMean = j.position.y;
+		this.mode = 'swim';
+		this.yaw = j.getYaw() + Math.PI;
+		this._camY = null;
+		if ( this.audio ) {
+			this.audio.engineStop();
+			// subtle splash when stepping off the jet ski
+			this.audio.splash( 0.35 );
+		}
+
+	}
+
+	updateJetSki( dt ) {
+
+		const inp = this.input;
+		const j = this.jetSki;
+		const look = inp.consumeLook();
+		const wheel = inp.consumeWheel();
+		if ( inp.hit( 'KeyV' ) ) this.camMode = this.camMode === 'first' ? 'third' : 'first';
+		if ( inp.hit( 'KeyE' ) ) {
+
+			this.exitJetSki();
+			return;
+
+		}
+		let throttle = 0;
+		if ( inp.down( 'KeyW' ) ) throttle = inp.down( 'ShiftLeft' ) ? 1 : 0.82;
+		if ( inp.down( 'KeyS' ) ) throttle = - 0.45;
+		let steer = 0;
+		if ( inp.down( 'KeyA' ) ) steer += 1;
+		if ( inp.down( 'KeyD' ) ) steer -= 1;
+		j.setInput( throttle, steer, dt );
+		this.prompt = { key: 'E', text: 'Leave jet ski   ·   V  camera' };
+		// keep the player attached (for audio / queries) — same as boat
+		j.toWorld( j.model.helmEye, this.position );
+		this.position.y -= 1.62;
+
+		if ( this.camMode === 'first' ) {
+
+			this.helmYaw = THREE.MathUtils.clamp( this.helmYaw - look.x * 0.0022, - 1.7, 1.7 );
+			this.helmPitch = THREE.MathUtils.clamp( this.helmPitch - look.y * 0.0022, - 1.0, 0.8 );
+			const eye = j.toWorld( j.model.helmEye, new THREE.Vector3() );
+			this.camera.position.copy( eye );
+			const yawOnly = new THREE.Quaternion().setFromAxisAngle( _yAxis, j.getYaw() + Math.PI );
+			const base = new THREE.Quaternion().slerpQuaternions( j.quaternion.clone().multiply( new THREE.Quaternion().setFromAxisAngle( _yAxis, Math.PI ) ), yawOnly, 0.72 );
+			this.camera.quaternion.copy( base ).multiply( new THREE.Quaternion().setFromEuler( _e.set( this.helmPitch, this.helmYaw, 0 ) ) );
+
+		} else {
+
+			this.orbitYaw -= look.x * 0.0035;
+			this.orbitPitch = THREE.MathUtils.clamp( this.orbitPitch + look.y * 0.003, - 0.03, 1.0 );
+			this.orbitDist = THREE.MathUtils.clamp( this.orbitDist * ( 1 + wheel * 0.08 ), 5, 22 );
+			if ( j.speed > 3 && Math.abs( look.x ) < 0.5 ) {
+
+				let d = j.getYaw() + Math.PI - this.orbitYaw;
+				d = Math.atan2( Math.sin( d ), Math.cos( d ) );
+				this.orbitYaw += d * ( 1 - Math.exp( - dt * 2.2 ) );
+
+			}
+			const target = j.toWorld( new THREE.Vector3( 0, 0.55, 0 ), new THREE.Vector3() );
+			const off = new THREE.Vector3( Math.sin( this.orbitYaw ) * Math.cos( this.orbitPitch ), Math.sin( this.orbitPitch ), Math.cos( this.orbitYaw ) * Math.cos( this.orbitPitch ) ).multiplyScalar( this.orbitDist );
+			const want = target.clone().add( off );
+			want.y = Math.max( want.y, this.waterH + 0.65 );
+			if ( ! this.camInit ) { this.camPos.copy( want ); this.camInit = true; }
+			this.camPos.lerp( want, 1 - Math.exp( - dt * 8 ) );
 			this.camera.position.copy( this.camPos );
 			this.camera.lookAt( target );
 
