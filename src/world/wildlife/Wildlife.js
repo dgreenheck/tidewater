@@ -5,6 +5,7 @@ import { Crabs } from './Crabs.js';
 import { ShadowBlobs } from './ShadowBlobs.js';
 import { SwashProbe } from './SwashProbe.js';
 import { Shorebirds } from './Shorebirds.js';
+import { Shiba } from './Shiba.js';
 
 // Water heights for birds on / just above the sea (pelicans skimming, floating, diving): a few
 // WaterQuery slots handed out to whoever asks, read back 1-3 frames later. Falls back to sea level.
@@ -106,6 +107,7 @@ export class Wildlife {
 		this.shorebirds = new Shorebirds( { terrain, probe } );
 		this.water = new WaterHeights( query );
 		this.birds = new Birds( { terrain, village, colliders, boat, boatModel, water: this.water, spray } );
+		this.shiba = new Shiba( { scene, terrain } );
 		this.viewer = { x: 0, y: 0, z: 0, speed: 0, mode: 'walk', px: 0, pz: 0, init: false };
 		this.test = null;
 		this.cpuMs = 0;
@@ -159,6 +161,7 @@ export class Wildlife {
 			this.birds.update( dt, viewer, this.birdBatch, camera );
 			this.shorebirds.update( dt, viewer, this.birdBatch, camera, this.blobs );
 			this.crabs.update( dt, viewer, this.critterBatch, camera, this.blobs );
+			this.shiba.update( dt, viewer );
 
 		}
 
