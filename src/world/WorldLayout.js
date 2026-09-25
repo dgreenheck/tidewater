@@ -22,6 +22,9 @@ export const WORLD = {
 
 	// Where the boat is moored: east side of the pier head, bow pointing south.
 	boatDock: { position: new THREE.Vector3( 64.5, 0, 36.5 ), heading: 0 },
+	// A light personal watercraft in waist-deep water directly off the beach front.
+	// It is close enough to wade to from the sand, rather than hidden beside the pier head.
+	jetSkiDock: { position: new THREE.Vector3( 35, 0, - 25 ), heading: 0 },
 
 	village: { center: new THREE.Vector3( 40, 0, - 118 ), radius: 95 },
 
