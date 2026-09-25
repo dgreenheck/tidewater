@@ -13,5 +13,8 @@
   },
   "license": "MIT",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "stats.js": "^0.17.0"
+  }
 }

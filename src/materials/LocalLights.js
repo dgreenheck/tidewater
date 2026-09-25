@@ -20,7 +20,7 @@ import { SceneLighting } from './SceneLighting.js';
 // for effects outside the lighting model (underwater beam in-scatter, marine snow: add the module).
 // Exclusions per material define: IS_WATER, NO_LOCAL_LIGHTS (the former `material.localLights = false`);
 // LOCAL_LIGHTS_CHEAP (material.localLightsCheap) = Lambert only.
-const MAX = 8;
+const MAX = 24;
 const v4 = () => Array.from( { length: MAX }, () => new THREE.Vector4() );
 const params = new UniformBlock( 'LocalLightParams', {
 	pos: [ `vec4f[${ MAX }]`, v4() ], // xyz, range^2
@@ -279,8 +279,8 @@ export function addBoatLights( lights, boat ) {
 // lights sit just outside the pane and only light outward (porches); lanterns flicker a little.
 export function addVillageLights( lights, village ) {
 
-	const K = { lantern: 1.5, pathLight: 1.0, window: 0.8 };
-	const R = { lantern: 11, pathLight: 7, window: 6 };
+	const K = { lantern: 1.5, pathLight: 1.0, window: 0.8, interior: 1.0 };
+	const R = { lantern: 14, pathLight: 10, window: 10, interior: 35 };
 	for ( const l of village.getLightSources() ) {
 
 		const kind = l.kind || 'lantern';

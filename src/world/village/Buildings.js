@@ -570,10 +570,25 @@ export function buildHouse( ctx, s ) {
 		B.box( 'wood', X + ft / 2, midY - fp / 2 + 0.05, midZ, ft, fp, sideLen, { grain: 2, tint: st.trim, data: cF, rx: -ang } );
 		B.box( 'wood', - X - ft / 2, midY - fp / 2 + 0.05, midZ, ft, fp, sideLen, { grain: 2, tint: st.trim, data: cF, rx: -ang } );
 
+		// Wooden planks underneath the metal roof
+		B.pushAt( 0, midY, midZ, 0, -ang );
+		const plankW = X * 2;
+		const plankD = 0.13;
+		const plankThick = 0.04;
+		const npRoof = Math.max( 2, Math.round( sideLen / 0.138 ) );
+		const gapRoof = ( sideLen - npRoof * plankD ) / ( npRoof + 1 );
+		for ( let i = 0; i < npRoof; i ++ ) {
+
+			const zc = - sideLen / 2 + gapRoof + plankD / 2 + i * ( plankD + gapRoof );
+			B.box( 'wood', 0, -0.05, zc, plankW, plankThick, plankD, { grain: 0, tint: s.porchPaint || [ 1, 1, 1 ], data: WOOD( rand.next(), s.porchPaint ? 10 : 0, s.porchPaint ? 0.68 : 0, 0 ) } );
+
+		}
+		B.pop();
+
 		// Fill the side wall gaps up to the slanted roof
 		const wData = () => [ rand.next(), st.paint, s.siding ?? 1, st.weather ];
-		const hBack = yR + ( -d/2 + Zb ) * pitch + 0.02; // +0.02 to hide top face inside roof
-		const hFront = yR + ( d/2 + Zb ) * pitch + 0.02;
+		const hBack = yR + ( -d/2 + Zb ) * pitch - 0.05; // -0.05 to hide top face inside wooden planks
+		const hFront = yR + ( d/2 + Zb ) * pitch - 0.05;
 		const lPts = [ V3( -w/2, yE, d/2 ), V3( -w/2, yE, -d/2 ), V3( -w/2, hBack, -d/2 ), V3( -w/2, hFront, d/2 ) ];
 		B.slab( 'wood', lPts, t, { up: V3(-1, 0, 0), uDir: V3(0, 0, 1), tint: s.wall, data: wData() } );
 		const rPts = [ V3( w/2, yE, -d/2 ), V3( w/2, yE, d/2 ), V3( w/2, hFront, d/2 ), V3( w/2, hBack, -d/2 ) ];
@@ -768,8 +783,14 @@ export function buildHouse( ctx, s ) {
 				doorUnit( B, rand, doorX, floorY, st );
 				if ( s.lantern !== false ) {
 					const lw = wallLantern( B, doorX + 0.78, floorY + 1.95, 0.0, rand.next() );
-					lights.push( { position: lw, color: WARM.clone(), intensity: 3.5, kind: 'lantern' } );
+					lights.push( { position: lw, color: WARM.clone(), intensity: 6.0, kind: 'lantern' } );
 				}
+			} else {
+				// Luz central simples para casas modernas de frente aberta
+				// A partir da parede frontal, recuamos '-d / 2' em Z para chegar ao centro da casa
+				const ceilingY = floorY + stories * storyH - 0.4;
+				const centerPos = B.toWorld( 0, ceilingY, - d / 2 );
+				lights.push( { position: centerPos, color: WARM.clone(), intensity: 10.0, kind: 'interior' } );
 			}
 
 		}
@@ -778,7 +799,7 @@ export function buildHouse( ctx, s ) {
 
 	}
 
-	if ( litWindows.length ) lights.push( { position: litWindows[ 0 ], color: new Color( 1.0, 0.62, 0.32 ), intensity: 1.6, kind: 'window' } );
+	if ( litWindows.length ) lights.push( { position: litWindows[ 0 ], color: new Color( 1.0, 0.62, 0.32 ), intensity: 3.5, kind: 'window' } );
 
 	// ------------------------------------------------------------- porch or stoop
 	const porchPaint = s.porchPaint || null;

@@ -148,8 +148,8 @@ export class Game {
 			const ui = app.ui.ui;
 			this.hud = new GameHUD( ui, this );
 			// the minimap (lower right) and the first-play guide (intro, one-time tips; replay from F1)
-			this.minimap = new Minimap( ui.hud || ui.root, this );
-			this.guide = new Guide( ui, this, this.minimap );
+			// this.minimap = new Minimap( ui.hud || ui.root, this );
+			this.guide = new Guide( ui, this, null );
 			ui.onReplayGuide = () => this.guide.replay();
 
 		}
