@@ -143,7 +143,7 @@ export class App {
 		if ( ! qs.has( 'noVeg' ) ) {
 
 			await progress( 0.14, 'Planting the island…' );
-			this.vegetation = new Vegetation( { scene, terrain: this.terrainData, village: this.village } );
+			this.vegetation = new Vegetation( { scene, terrain: this.terrainData, village: this.village, colliders: this.colliders } );
 			useStaticVelocity( this.vegetation.group );
 
 		}

@@ -1,4 +1,5 @@
 import * as THREE from '../engine/index.js';
+import { BoatWorldCollision } from './BoatWorldCollision.js';
 import { WORLD } from '../world/WorldLayout.js';
 
 const RHO = 1025; // sea water density
@@ -29,7 +30,6 @@ const _c1 = new THREE.Vector3();
 const _c2 = new THREE.Vector3();
 const _c3 = new THREE.Vector3();
 const _c4 = new THREE.Vector3();
-const _c5 = new THREE.Vector3();
 const _invQ = new THREE.Quaternion();
 const _dq = new THREE.Quaternion();
 
@@ -55,6 +55,9 @@ export class BoatController {
 		this.query = query;
 		this.terrain = terrain;
 		this.colliders = colliders;
+		this.worldCollision = colliders ? new BoatWorldCollision( model, colliders ) : null;
+		this._previousPosition = new THREE.Vector3();
+		this._previousQuaternion = new THREE.Quaternion();
 
 		const hydro = model.hydro || {};
 		this.mass = hydro.suggestedMass || 3200;
@@ -254,6 +257,7 @@ export class BoatController {
 
 	step( h ) {
 
+		const previousPosition = this._previousPosition.copy( this.position ), previousQuaternion = this._previousQuaternion.copy( this.quaternion );
 		const m = this.mass;
 		const F = _F.set( 0, - m * GRAV, 0 );
 		const T = _T.set( 0, 0, 0 ); // torque about COM (world)
@@ -425,6 +429,7 @@ export class BoatController {
 
 		// origin = com - R * comLocal
 		this.position.copy( comW ).sub( _v.copy( this.com ).applyQuaternion( this.quaternion ) );
+		this.worldCollision?.move( this, previousPosition, previousQuaternion );
 
 	}
 
@@ -494,32 +499,6 @@ export class BoatController {
 				f.set( - vp.x * 6000, Math.max( fn, 0 ), - vp.z * 6000 );
 				F.add( f );
 				T.add( r.copy( pw ).sub( comW ).cross( f ) );
-
-			}
-
-		}
-
-		// pier piles: keep the hull outline out of vertical cylinders / solid boxes near the waterline
-		if ( this.colliders ) {
-
-			const outline = this.outline || ( this.outline = [
-				new THREE.Vector3( 0, 0.3, 4.1 ), new THREE.Vector3( 1.2, 0.3, 2.0 ), new THREE.Vector3( - 1.2, 0.3, 2.0 ),
-				new THREE.Vector3( 1.4, 0.3, - 1.0 ), new THREE.Vector3( - 1.4, 0.3, - 1.0 ), new THREE.Vector3( 1.2, 0.3, - 3.8 ), new THREE.Vector3( - 1.2, 0.3, - 3.8 ),
-			] );
-			const tmp = _c5;
-			for ( const lp of outline ) {
-
-				this.toWorld( lp, pw );
-				tmp.copy( pw );
-				tmp.y -= 0.9;
-				if ( this.colliders.resolveCapsule( tmp, 0.25, 1.6, 0 ) ) {
-
-					vp.copy( this.angular ).cross( r.copy( pw ).sub( comW ) ).add( this.velocity );
-					f.set( ( tmp.x - pw.x ) * 260000 - vp.x * 8000, 0, ( tmp.z - pw.z ) * 260000 - vp.z * 8000 );
-					F.add( f );
-					T.add( r.copy( pw ).sub( comW ).cross( f ) );
-
-				}
 
 			}
 
