@@ -1,3 +1,4 @@
+import { PALM_H, palmRadius, palmRootLumps, TREE_BASE, TREE_FORK, treeRadius, youngPalmRadius } from './TrunkProfiles.js';
 import * as THREE from '../../engine/index.js';
 import { GeoBuilder } from './GeoBuilder.js';
 import { mulberry32 } from '../../util/Noise.js';
@@ -206,27 +207,6 @@ function addIcosphere( b, center, radii, mat, veg ) {
 
 // Coconut palm -----------------------------------------------------------------------
 
-const PALM_H = 10; // geometry trunk height (the shader uses the per-instance height)
-
-const palmRadius = ( u ) => {
-
-	const y = u * PALM_H;
-	let r = 0.155 + 0.045 * ( 1 - u ) + 0.19 * Math.exp( - Math.max( y, 0 ) / 0.42 );
-	r *= 1 + 0.05 * Math.sin( y * 1.7 ) * ( 1 - u ); // slight irregularity
-	r += 0.07 * smooth( 0.955, 0.99, u ) - 0.1 * smooth( 0.995, 1.02, u ); // leaf-base boot
-	return r;
-
-};
-
-// buttress roots: lumps around the flared base, fading out within the first ~0.6 m
-const palmRootLumps = ( u, a ) => {
-
-	const y = Math.max( u * PALM_H, 0 );
-	const k = Math.exp( - y / 0.3 );
-	return k * ( 0.16 * Math.max( 0, Math.sin( a * 5 + 0.7 ) ) + 0.08 * Math.sin( a * 11 + 2.1 ) );
-
-};
-
 // Frond parameters shared by both LODs so their silhouettes agree.
 function palmFrondParams( rand, count ) {
 
@@ -331,7 +311,7 @@ export function buildPalmFar( seed = 11 ) {
 export function buildYoungPalm( seed = 5, b = new GeoBuilder() ) {
 
 	const rand = mulberry32( seed );
-	addStem( b, { radial: 5, rows: [ - 0.2, 0.3, 1.0 ], radius: ( u ) => 0.16 - 0.07 * u, Hgeo: 0.6, mat: [ PART.STEM, 0.35, 0, 0 ], cap: false } );
+	addStem( b, { radial: 5, rows: [ - 0.2, 0.3, 1.0 ], radius: youngPalmRadius, Hgeo: 0.6, mat: [ PART.STEM, 0.35, 0, 0 ], cap: false } );
 	const n = 8;
 	for ( let i = 0; i < n; i ++ ) {
 
@@ -468,7 +448,6 @@ export const TREE_LOBES = [
 	[ - 1.1, 11.2, - 1.7, 1.8 ],
 	[ 3.7, 5.2, - 0.9, 1.9 ],
 ];
-const TREE_FORK = [ 0.15, 3.7, - 0.05 ];
 
 export const SHRUB_H = 1.6;
 export const SHRUB_LOBES = [
@@ -697,16 +676,7 @@ export function buildTreeNear( seed = 21, b = new GeoBuilder() ) {
 	const fork = new THREE.Vector3( ...TREE_FORK );
 
 	// trunk with buttress fins at the foot
-	const trunkR = ( f, a, c ) => {
-
-		const y = c.y;
-		const r = 0.34 - 0.1 * f;
-		const fin = Math.pow( Math.max( 0, Math.cos( 4 * a + 0.4 ) ), 4 ) * Math.exp( - Math.max( y, 0 ) / 0.8 );
-		return r * ( 1 + 0.9 * fin + 0.25 * Math.exp( - Math.max( y + 0.3, 0 ) / 0.5 ) );
-
-	};
-
-	addBranch( b, new THREE.Vector3( 0, - 0.5, 0 ), fork, 0.34, 0.24, 10, 7, [ 0, 0, 0, 0 ], H, flex, trunkR );
+	addBranch( b, new THREE.Vector3( ...TREE_BASE ), fork, 0.34, 0.24, 10, 7, [ 0, 0, 0, 0 ], H, flex, treeRadius );
 
 	// limbs to the lobes (the first five from the fork, the rest from the middle of a limb)
 	const mids = [];

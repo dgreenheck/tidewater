@@ -1,4 +1,5 @@
 import * as THREE from '../engine/index.js';
+import { TreeColliders } from './vegetation/TreeColliders.js';
 import { G } from '../core/Globals.js';
 import { VegSite, scatterVegetation, buildGrassMask, RULES } from './vegetation/Scatter.js';
 import { VegType, LodLevel } from './vegetation/InstanceLOD.js';
@@ -93,7 +94,7 @@ const CANOPY_FAR = [ 2600, 2800 ];
 
 export class Vegetation {
 
-	constructor( { scene, terrain, village = null } ) {
+	constructor( { scene, terrain, village = null, colliders = null } ) {
 
 		this.scene = scene;
 		this.terrain = terrain;
@@ -106,6 +107,7 @@ export class Vegetation {
 		this.site = site;
 		const recs = scatterVegetation( site );
 		this.records = recs;
+		if ( colliders ) colliders.trees = new TreeColliders( recs );
 		const t1 = performance.now();
 		const grassMask = buildGrassMask( site );
 		this.timings = { scatter: t1 - t0, mask: performance.now() - t1 };

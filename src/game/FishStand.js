@@ -30,17 +30,21 @@ export class FishStand {
 		scene.add( this.group );
 		this.ready = loadStallAssets().then( ( a ) => {
 
-			const mesh = new Mesh( buildStallKit( a ), a.material );
+			const roofPanels = [];
+			const mesh = new Mesh( buildStallKit( a, roofPanels ), a.material );
 			mesh.name = 'FishStandStall';
 			mesh.castShadow = true;
 			this.group.add( mesh );
+			registerRoofPanels( colliders, roofPanels, this.group.position );
 
 		} ).catch( ( e ) => {
 
 			console.error( 'FishStand: stall assets failed, using the plain stall', e );
-			const mesh = new Mesh( buildStall(), this.material );
+			const roofPanels = [];
+			const mesh = new Mesh( buildStall( roofPanels ), this.material );
 			mesh.castShadow = true;
 			this.group.add( mesh );
+			registerRoofPanels( colliders, roofPanels, this.group.position );
 
 		} );
 
@@ -65,6 +69,7 @@ export class FishStand {
 		if ( colliders ) {
 
 			colliders.addBox( new Vector3( STAND.x, y + 1.2, STAND.z ), new Vector3( 1.45, 1.2, 0.95 ), STAND.yaw, { tag: 'fishStand' } );
+
 			// the crates, the bucket and the chalkboard around it
 			for ( const [ lx, lz, hx, hz, hy ] of [ [ - 1.85, 0.25, 0.45, 0.25, 0.35 ], [ 1.8, - 0.2, 0.3, 0.6, 0.23 ], [ 1.55, 1.05, 0.2, 0.2, 0.28 ], [ 1.95, 1.45, 0.35, 0.25, 0.42 ] ] ) {
 
@@ -106,8 +111,24 @@ export class FishStand {
 
 }
 
+// The collision sheets use each rendered panel's exact dimensions and transform.
+// A 4 cm envelope covers the corrugations; keep it separate from the stall body.
+function registerRoofPanels( colliders, panels, position ) {
+
+	if ( ! colliders ) return;
+	const world = new Matrix4().makeRotationY( STAND.yaw ).setPosition( position );
+	for ( const { width, length, matrix } of panels ) {
+
+		const points = [ [ - 1, - 1 ], [ 1, - 1 ], [ 1, 1 ], [ - 1, 1 ] ].map( ( [ x, z ] ) =>
+			new Vector3( x * width / 2, 0.02, z * length / 2 ).applyMatrix4( matrix ).applyMatrix4( world ) );
+		colliders.addSurface( points, 0.04 );
+
+	}
+
+}
+
 // Stall in local space: 2.6 m wide (x), 1.6 m deep (z, counter at +z), roof sloping back.
-function buildStall() {
+function buildStall( roofPanels ) {
 
 	const P = [];
 	const add = ( g, o ) => P.push( prepare( g, o ) );
@@ -163,7 +184,9 @@ function buildStall() {
 
 		const x = - 1.14 + i * 0.76;
 		const g = corrugated( 0.8, 2.1, 9 );
-		add( g, { ...TIN, matrix: mat4( x, 2.4 + ( i === 3 ? 0.03 : 0 ), 0.04, - 0.16 + ( i === 3 ? 0.03 : 0 ), jit( 0.02 ), jit( 0.02 ) ) } );
+		const matrix = mat4( x, 2.4 + ( i === 3 ? 0.03 : 0 ), 0.04, - 0.16 + ( i === 3 ? 0.03 : 0 ), jit( 0.02 ), jit( 0.02 ) );
+		add( g, { ...TIN, matrix } );
+		roofPanels.push( { width: 0.8, length: 2.1, matrix } );
 
 	}
 
@@ -209,7 +232,7 @@ function corrugated( w, l, ribs ) {
 
 // Local frame as above: 2.6 m wide (x), 1.6 m deep (z), counter and customers at +z, roof sloping
 // back. Joe stands on the floor between the shelf (z -0.78..-0.48) and the counter (top from 0.58).
-function buildStallKit( assets ) {
+function buildStallKit( assets, roofPanels ) {
 
 	const K = new KitBuilder( assets, 7 );
 	const { WALL, DECK, TIN, SIGN, CHALK, PLAIN, FLOAT, DIAL } = LAYER;
@@ -245,7 +268,9 @@ function buildStallKit( assets ) {
 	for ( let i = 0; i < 3; i ++ ) {
 
 		const x = - 0.9 + i * 0.9;
-		K.corrugated( 0.98, 2.12, place( x, 2.405 + i * 0.006 + ( i === 2 ? 0.02 : 0 ), 0.04, J( 0.02 ), - 0.16 + ( i === 2 ? 0.02 : 0 ), J( 0.02 ) ), K.rnd(), [ 1, 1, 1 ] );
+		const matrix = place( x, 2.405 + i * 0.006 + ( i === 2 ? 0.02 : 0 ), 0.04, J( 0.02 ), - 0.16 + ( i === 2 ? 0.02 : 0 ), J( 0.02 ) );
+		K.corrugated( 0.98, 2.12, matrix, K.rnd(), [ 1, 1, 1 ] );
+		roofPanels.push( { width: 0.98, length: 2.12, matrix } );
 
 	}
 

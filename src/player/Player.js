@@ -1,5 +1,7 @@
 import * as THREE from '../engine/index.js';
 import { WORLD } from '../world/WorldLayout.js';
+import { BoatCollision } from './BoatCollision.js';
+import { resolveSolidMotion } from '../world/SolidCollision.js';
 import { HOUSE } from '../world/boat/Wheelhouse.js';
 
 const HOUSE_HELM = { x: HOUSE.helmX, z: HOUSE.seatZ };
@@ -8,6 +10,7 @@ const EYE = 1.62;
 const SWIM_EYE = EYE * 0.1; // eyes above the body's float point while swimming
 const RADIUS = 0.3;
 const HEIGHT = 1.75;
+const STEP_HEIGHT = 0.4;
 // water depth (mean level over the feet) where you start swimming / find your feet again
 const SWIM_DEPTH = 1.35;
 const STAND_DEPTH = 1.1;
@@ -42,6 +45,7 @@ export class Player {
 		this.colliders = colliders;
 		this.query = query;
 		this.boat = boat;
+		this.boatCollision = boat ? new BoatCollision( boat.model ) : null;
 		this.reef = reef;
 		this.audio = audio;
 
@@ -64,6 +68,7 @@ export class Player {
 		this.camOff = 0;
 		this.camOffV = 0;
 		this._camY = null;
+		this.stepOffset = 0;
 		this.floating = true; // swimming at the surface (riding the waves) vs. free under water
 		this.slot = query.allocate( 'player', 1 );
 		this.prompt = null;
@@ -116,6 +121,14 @@ export class Player {
 		if ( c > g ) g = c;
 		if ( this.reef && this.reef.floorHeightAt ) g = Math.max( g, this.reef.floorHeightAt( x, z ) );
 		return g;
+
+	}
+
+	resolveMovement( previous, radius, height ) {
+
+		const solids = this.colliders.characterSolids( previous, this.position, radius, height );
+		const boatSolids = this.boatCollision ? this.boatCollision.worldSolids( this.boat, previous, this.position ) : [];
+		return resolveSolidMotion( [ ...solids, ...boatSolids ], previous, this.position, radius, height, this.velocity );
 
 	}
 
@@ -184,6 +197,7 @@ export class Player {
 			// something else drove the camera since our last frame (free camera, boat): start fresh
 			this.camOff = 0;
 			this.camOffV = 0;
+			this.stepOffset = 0;
 
 		} else if ( this.mode !== prevMode ) {
 
@@ -194,7 +208,24 @@ export class Player {
 		const w = 6, e = Math.exp( - w * dt ), j = ( this.camOffV + w * this.camOff ) * dt;
 		this.camOff = ( this.camOff + j ) * e;
 		this.camOffV = ( this.camOffV - w * j ) * e;
+		this.stepOffset *= Math.exp( - 18 * dt );
+		if ( this.mode !== 'walk' ) this.stepOffset = 0;
+		this.stepOffset = THREE.MathUtils.clamp( this.stepOffset, - STEP_HEIGHT, STEP_HEIGHT );
 		eye.y += this.camOff;
+		if ( this.stepOffset > 1e-4 ) {
+
+			// Easing down a step can put the eye above the body's usual eye height.
+			// Sweep that extra offset so a low ceiling still keeps the camera outside.
+			const from = eye.clone(); from.y -= 0.05;
+			const to = from.clone(); to.y += this.stepOffset;
+			const solids = this.colliders.characterSolids( from, to, 0.05, 0.1 );
+			if ( this.boatCollision ) solids.push( ...this.boatCollision.worldSolids( this.boat, from, to ) );
+			resolveSolidMotion( solids, from, to, 0.05, 0.1 );
+			this.stepOffset = Math.max( 0, to.y - from.y );
+			eye.x = to.x; eye.z = to.z;
+
+		}
+		eye.y += this.stepOffset;
 		this.camera.position.copy( eye );
 		this._camY = this.camera.position.y;
 		this.camera.quaternion.setFromEuler( _e.set( this.pitch, this.yaw, 0 ) );
@@ -236,20 +267,60 @@ export class Player {
 
 		const p = this.position;
 		const old = p.clone();
+		const canStep = this.grounded && this.velocity.y <= 0;
 		p.addScaledVector( this.velocity, dt );
-		this.colliders.resolveCapsule( p, RADIUS, HEIGHT, 0.4 );
-		const g = this.groundAt( p.x, p.z, p.y + 0.45 );
-		if ( p.y <= g ) {
+		// Terrain is a height field; solid floors and stairs are swept with the body.
+		const terrainY = Math.max( this.terrain.heightAt( p.x, p.z ), this.reef?.floorHeightAt?.( p.x, p.z ) ?? - Infinity );
+		p.y = Math.max( p.y, terrainY );
+		const desired = p.clone(), incoming = this.velocity.clone();
+		const solids = this.colliders.characterSolids( old, desired, RADIUS, HEIGHT, STEP_HEIGHT );
+		if ( this.boatCollision ) solids.push( ...this.boatCollision.worldSolids( this.boat, old, desired ) );
+		this.grounded = resolveSolidMotion( solids, old, p, RADIUS, HEIGHT, this.velocity );
 
-			p.y = g;
-			if ( this.velocity.y < 0 ) this.velocity.y = 0;
-			this.grounded = true;
+		if ( canStep ) {
 
-		} else {
+			const dx = desired.x - old.x, dz = desired.z - old.z;
+			const progress = point => ( point.x - old.x ) * dx + ( point.z - old.z ) * dz;
+			if ( progress( p ) < dx * dx + dz * dz - 1e-7 ) {
 
-			this.grounded = p.y - g < 0.06;
+				// Try up, across, then down. Every leg checks the whole body, including
+				// overhead clearance; accept only a supported step that makes progress.
+				const up = old.clone(); up.y += STEP_HEIGHT;
+				resolveSolidMotion( solids, old, up, RADIUS, HEIGHT );
+				const across = up.clone().add( new THREE.Vector3( dx, 0, dz ) );
+				const steppedVelocity = incoming.clone();
+				resolveSolidMotion( solids, up, across, RADIUS, HEIGHT, steppedVelocity );
+				const down = across.clone(); down.y = old.y - STEP_HEIGHT;
+				const landed = resolveSolidMotion( solids, across, down, RADIUS, HEIGHT, steppedVelocity );
+				if ( landed && down.y > old.y + 1e-3 && down.y <= old.y + STEP_HEIGHT + 1e-3 && progress( down ) > progress( p ) + 1e-7 ) {
+
+					p.copy( down ); this.velocity.copy( steppedVelocity ); this.grounded = true;
+
+				}
+
+			}
+
+			// Stay supported over shallow drops instead of alternating walking and
+			// falling at every tread / boardwalk seam. Never snap a jumping player.
+			const down = p.clone(); down.y -= STEP_HEIGHT;
+			if ( resolveSolidMotion( solids, p, down, RADIUS, HEIGHT ) ) {
+
+				p.copy( down ); this.grounded = true;
+
+			} else {
+
+				const floor = this.groundAt( p.x, p.z, p.y );
+				if ( p.y - floor <= STEP_HEIGHT ) { p.y = floor; this.grounded = true; }
+
+			}
 
 		}
+
+		// Re-query after sliding: the blocked target may be on different terrain.
+		const floor = this.groundAt( p.x, p.z, p.y + 1e-4 );
+		if ( p.y <= floor + 1e-4 ) { p.y = floor; this.grounded = true; }
+		if ( this.grounded && this.velocity.y < 0 ) this.velocity.y = 0;
+		if ( canStep && this.grounded ) this.stepOffset += old.y - p.y;
 
 		// head bob + footsteps
 		const moved = Math.hypot( p.x - old.x, p.z - old.z );
@@ -301,6 +372,7 @@ export class Player {
 		const inp = this.input;
 		const p = this.position;
 		const surfaceY = this.waterH;
+		const old = p.clone();
 		// look-relative movement (diving follows the view)
 		_fwd.set( 0, 0, - 1 ).applyEuler( _e.set( this.pitch, this.yaw, 0 ) );
 		_right.set( - Math.cos( this.yaw ), 0, Math.sin( this.yaw ) ).negate();
@@ -338,9 +410,10 @@ export class Player {
 
 		p.addScaledVector( this.velocity, dt );
 		p.y = Math.min( p.y, surfaceY + 0.05 );
-		this.colliders.resolveCapsule( p, RADIUS, 1.0, 0 );
 		const g = this.groundAt( p.x, p.z, p.y + 0.3 );
 		if ( p.y < g + 0.25 ) p.y = g + 0.25;
+
+		this.resolveMovement( old, RADIUS, 1.0 );
 
 		// strokes / bubbles
 		this.stepDist += this.velocity.length() * dt;
@@ -426,6 +499,7 @@ export class Player {
 		this._ashoreT = 0;
 		this.velocity.set( 0, 0, 0 );
 		this._camY = null;
+		this.stepOffset = 0;
 		this.deckToWorld();
 
 	}
@@ -457,6 +531,7 @@ export class Player {
 		this.pitch = this.helmPitch;
 		this.deckGrounded = true;
 		this._camY = null;
+		this.stepOffset = 0;
 		if ( this.audio ) this.audio.engineStop();
 		this.deckToWorld();
 
@@ -509,6 +584,7 @@ export class Player {
 		this.velocity.set( 0, 0, 0 );
 		this.yaw = b.getYaw() + Math.PI;
 		this._camY = null;
+		this.stepOffset = 0;
 		if ( this.audio && wasDriving ) this.audio.engineStop();
 
 	}
@@ -617,23 +693,9 @@ export class Player {
 
 		v.y -= 9.81 * dt;
 		const p = this.deckPos;
+		const old = p.clone();
 		const oldX = p.x, oldZ = p.z;
 		p.addScaledVector( v, dt );
-
-		// walls: push out of the solid boxes you can't step onto (boat frame, axis aligned)
-		for ( let iter = 0; iter < 2; iter ++ ) for ( const c of b.model.colliders ) {
-
-			if ( ! c.solid ) continue;
-			const top = c.center.y + c.half.y, bot = c.center.y - c.half.y;
-			if ( top <= p.y + DECK_STEP || bot >= p.y + HEIGHT ) continue;
-			const ex = c.half.x + DECK_RADIUS, ez = c.half.z + DECK_RADIUS;
-			const dx = p.x - c.center.x, dz = p.z - c.center.z;
-			if ( Math.abs( dx ) >= ex || Math.abs( dz ) >= ez ) continue;
-			const px = ex - Math.abs( dx ), pz = ez - Math.abs( dz );
-			if ( px < pz ) { p.x += Math.sign( dx || ( oldX - c.center.x ) || 1 ) * px; v.x = 0; }
-			else { p.z += Math.sign( dz || ( oldZ - c.center.z ) || 1 ) * pz; v.z = 0; }
-
-		}
 
 		// stay inside the hull (the bulwarks, plus a margin fore and aft)
 		p.z = THREE.MathUtils.clamp( p.z, L.zAft + L.shell + DECK_RADIUS, 4.0 );
@@ -648,6 +710,8 @@ export class Player {
 			this.deckGrounded = true;
 
 		} else this.deckGrounded = p.y - g < 0.04;
+
+		this.deckGrounded = resolveSolidMotion( this.boatCollision.deckSolids( old.y, this.deckGrounded ? DECK_STEP : 0 ), old, p, DECK_RADIUS, HEIGHT, v ) || this.deckGrounded;
 
 		// footsteps on the deck
 		const moved = Math.hypot( p.x - oldX, p.z - oldZ );

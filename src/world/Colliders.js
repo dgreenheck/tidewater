@@ -1,4 +1,5 @@
 import * as THREE from '../engine/index.js';
+import { prismCollider, boxCollider, cylinderCollider, transformCollider } from './SolidCollision.js';
 
 // Lightweight collision world for the character controller and boat.
 // Boxes are oriented around Y only. Walkable boxes (decks, floors, stairs) act as ground.
@@ -6,9 +7,10 @@ export class Colliders {
 
 	constructor() {
 
+		this.revision = 0;
 		this.boxes = [];
 		this.cylinders = [];
-		this._v = new THREE.Vector3();
+		this.surfaces = [];
 
 	}
 
@@ -23,7 +25,17 @@ export class Colliders {
 			radius: Math.hypot( half.x, half.z ),
 		};
 		this.boxes.push( b );
+		this.revision ++;
 		return b;
+
+	}
+
+	// Convex surface slab (roofs, shutters): thickness extends below the top face.
+	addSurface( points, thickness ) {
+
+		const roof = prismCollider( points, thickness );
+		this.surfaces.push( roof );
+		return roof;
 
 	}
 
@@ -31,7 +43,36 @@ export class Colliders {
 
 		const c = { x, z, radius, yMin, yMax, tag };
 		this.cylinders.push( c );
+		this.revision ++;
 		return c;
+
+	}
+
+	// All character obstacles participate in one sweep, so sliding off a roof cannot
+	// push the character back through a wall resolved by an earlier, separate pass.
+	// margin includes the extra reach of a step-up/down trial in the broad phase.
+	characterSolids( previous, position, radius, height, margin = 0 ) {
+
+		const reach = previous.distanceTo( position ) + radius + margin + 0.01;
+		const solids = [ ...this.surfaces, ...( this.trees?.near( previous, position, reach ) || [] ) ];
+		for ( const b of this.boxes ) {
+
+			if ( ! b.solid ) continue;
+			if ( b.bottom > Math.max( previous.y, position.y ) + height + reach || b.top < Math.min( previous.y, position.y ) - reach ) continue;
+			if ( Math.abs( previous.x - b.center.x ) > b.radius + reach || Math.abs( previous.z - b.center.z ) > b.radius + reach ) continue;
+			if ( ! b.shape ) b.shape = transformCollider( boxCollider( new THREE.Vector3(), b.half ), b.center,
+				new THREE.Quaternion().setFromAxisAngle( new THREE.Vector3( 0, 1, 0 ), b.rotY ) );
+			solids.push( b.shape );
+
+		}
+		for ( const c of this.cylinders ) {
+
+			if ( Math.abs( previous.x - c.x ) > c.radius + reach || Math.abs( previous.z - c.z ) > c.radius + reach ) continue;
+			if ( ! c.shape ) c.shape = cylinderCollider( new THREE.Vector3( c.x, c.yMin, c.z ), new THREE.Vector3( c.x, c.yMax, c.z ), c.radius );
+			solids.push( c.shape );
+
+		}
+		return solids;
 
 	}
 
@@ -39,12 +80,6 @@ export class Colliders {
 
 		const dx = x - b.center.x, dz = z - b.center.z;
 		return [ dx * b.cos - dz * b.sin, dx * b.sin + dz * b.cos ];
-
-	}
-
-	_toWorldDir( b, lx, lz ) {
-
-		return [ lx * b.cos + lz * b.sin, - lx * b.sin + lz * b.cos ];
 
 	}
 
@@ -62,60 +97,6 @@ export class Colliders {
 		}
 
 		return best;
-
-	}
-
-	// Push a vertical capsule (feet at pos.y) out of solid geometry. Returns true if collided.
-	resolveCapsule( pos, radius, height, stepHeight = 0.35 ) {
-
-		let hit = false;
-		for ( const b of this.boxes ) {
-
-			if ( ! b.solid ) continue;
-			if ( pos.y + height < b.bottom || pos.y + stepHeight > b.top ) continue;
-			if ( Math.abs( pos.x - b.center.x ) > b.radius + radius || Math.abs( pos.z - b.center.z ) > b.radius + radius ) continue;
-			const [ lx, lz ] = this._toLocal( b, pos.x, pos.z );
-			const cx = Math.max( - b.half.x, Math.min( b.half.x, lx ) );
-			const cz = Math.max( - b.half.z, Math.min( b.half.z, lz ) );
-			let dx = lx - cx, dz = lz - cz;
-			const d2 = dx * dx + dz * dz;
-			if ( d2 >= radius * radius ) continue;
-			let nx, nz, pen;
-			if ( d2 > 1e-8 ) {
-
-				const d = Math.sqrt( d2 );
-				nx = dx / d; nz = dz / d; pen = radius - d;
-
-			} else {
-
-				// center inside box: push out along the smallest axis
-				const px = b.half.x - Math.abs( lx ), pz = b.half.z - Math.abs( lz );
-				if ( px < pz ) { nx = Math.sign( lx ) || 1; nz = 0; pen = px + radius; } else { nx = 0; nz = Math.sign( lz ) || 1; pen = pz + radius; }
-
-			}
-
-			const [ wx, wz ] = this._toWorldDir( b, nx, nz );
-			pos.x += wx * pen;
-			pos.z += wz * pen;
-			hit = true;
-
-		}
-
-		for ( const c of this.cylinders ) {
-
-			if ( pos.y + height < c.yMin || pos.y + stepHeight > c.yMax ) continue;
-			const dx = pos.x - c.x, dz = pos.z - c.z;
-			const r = c.radius + radius;
-			const d2 = dx * dx + dz * dz;
-			if ( d2 >= r * r ) continue;
-			const d = Math.sqrt( d2 ) || 1e-4;
-			pos.x = c.x + dx / d * r;
-			pos.z = c.z + dz / d * r;
-			hit = true;
-
-		}
-
-		return hit;
 
 	}
 

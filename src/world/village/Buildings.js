@@ -16,6 +16,14 @@ const _v = new Vector3();
 const _h = new Vector3();
 const WARM = new Color( 1.0, 0.68, 0.38 );
 
+// Render and collide against the same sloping surface, including the eave overhang.
+function solidRoof( B, colliders, key, points, thickness, options ) {
+
+	B.slab( key, points, thickness, options );
+	colliders.addSurface( points.map( p => B.toWorld( p.x, p.y, p.z ) ), thickness );
+
+}
+
 function frameFns( terrain, x, z, yaw ) {
 
 	const cy = Math.cos( yaw ), sy = Math.sin( yaw );
@@ -51,7 +59,7 @@ function gableEndPart( base, hSide, hApex, t ) {
 // ---------------------------------------------------------------------------
 // shared building blocks (all in the builder's current frame; wall surface at z = 0, facing +z)
 
-function windowUnit( B, rand, cx, sillY, ww, wh, st ) {
+function windowUnit( B, rand, cx, sillY, ww, wh, st, colliders ) {
 
 	const tw = 0.085, tp = 0.035;
 	const trim = st.trim, td = () => [ rand.next(), st.trimPaint, 0, st.weather ];
@@ -122,6 +130,10 @@ function windowUnit( B, rand, cx, sillY, ww, wh, st ) {
 		B.pushAt( cx, hy, 0.05, 0, - ang );
 		B.box( 'wood', 0, - bh / 2, 0.015, bw, bh, 0.03, { grain: 0, tint: st.accent, data: [ rand.next(), st.paint, 4, st.weather ] } );
 		B.box( 'wood', 0, - bh + 0.03, 0.035, bw, 0.06, 0.015, { grain: 0, tint: st.accent, data: [ rand.next(), st.paint, 0, st.weather ] } );
+		// Top-hinged shutter: use its actual tilted frame, including the house/facade rotation.
+		const shutter = colliders.addSurface( [ [ - bw / 2, 0 ], [ bw / 2, 0 ], [ bw / 2, - bh ], [ - bw / 2, - bh ] ]
+			.map( ( [ x, y ] ) => B.toWorld( x, y, 0.03 ) ), 0.03 );
+		shutter.tag = 'shutter';
 		B.pop();
 		// prop sticks
 		const tipY = hy - Math.cos( ang ) * bh, tipZ = 0.05 + Math.sin( ang ) * bh;
@@ -384,7 +396,7 @@ export function buildHouse( ctx, s ) {
 	const roofKey = isThatch ? 'thatch' : 'roofMetal';
 	const roofTint = isThatch ? [ 1, 1, 1 ] : ( s.roofColor || lin( 0xa5452f ) );
 	const roofData = () => ( isThatch ? [ rand.next(), s.thatchAge ?? 0.4, 0, 0 ] : [ rand.next(), s.rust ?? 0.4, s.galv ? 1 : 0, 0 ] );
-	const roofSlab = ( pts, uDir ) => B.slab( roofKey, pts, T, { uDir: uDir.normalize(), up: UP, tint: roofTint, data: roofData() } );
+	const roofSlab = ( pts, uDir ) => solidRoof( B, colliders, roofKey, pts, T, { uDir: uDir.normalize(), up: UP, tint: roofTint, data: roofData() } );
 	const Tv = T / Math.cos( a );
 	let roofTop = yE;
 	let ridge = null;
@@ -636,7 +648,7 @@ export function buildHouse( ctx, s ) {
 			for ( const px of xs ) {
 
 				const closed = rand.chance( s.closedChance ?? 0.12 );
-				const lit = windowUnit( B, rand, px, baseY + 0.88, winW, winH, { ...st, closed, closedPattern: st.shutters === 'louver' ? 4 : 3 } );
+				const lit = windowUnit( B, rand, px, baseY + 0.88, winW, winH, { ...st, closed, closedPattern: st.shutters === 'louver' ? 4 : 3 }, colliders );
 				if ( lit && wl.front ) litWindows.push( B.toWorld( lit.x, lit.y, 0.35 ) );
 
 			}
@@ -716,7 +728,7 @@ export function buildHouse( ctx, s ) {
 		const postTop = beamTop - beamH;
 		const roofX0 = xL - 0.22, roofX1 = xR + 0.22;
 		const porchKey = isThatch ? 'thatch' : 'roofMetal';
-		B.slab( porchKey, [ V3( roofX0, yEnd, zEnd ), V3( roofX1, yEnd, zEnd ), V3( roofX1, yAtt, pz0 ), V3( roofX0, yAtt, pz0 ) ], Tp, {
+		solidRoof( B, colliders, porchKey, [ V3( roofX0, yEnd, zEnd ), V3( roofX1, yEnd, zEnd ), V3( roofX1, yAtt, pz0 ), V3( roofX0, yAtt, pz0 ) ], Tp, {
 			up: UP, uDir: V3( 0, yAtt - yEnd, pz0 - zEnd ).normalize(), tint: roofTint, data: roofData(),
 		} );
 		if ( ! isThatch ) {
@@ -864,7 +876,7 @@ export function buildHouse( ctx, s ) {
 		fr.addBoxL( doorX, ( stoopY + Math.min( gS, sr.g ) - 0.4 ) / 2, d / 2 + sd / 2, sw / 2, ( stoopY - Math.min( gS, sr.g ) + 0.4 ) / 2, sd / 2, { walkable: true, solid: true, tag: 'stoop' } );
 		// small hood over the door
 		const hy = floorY + 2.5;
-		B.slab( roofKey, [ V3( doorX - 0.85, hy - 0.22, d / 2 + 0.75 ), V3( doorX + 0.85, hy - 0.22, d / 2 + 0.75 ), V3( doorX + 0.85, hy, d / 2 ), V3( doorX - 0.85, hy, d / 2 ) ], isThatch ? 0.14 : 0.04, {
+		solidRoof( B, colliders, roofKey, [ V3( doorX - 0.85, hy - 0.22, d / 2 + 0.75 ), V3( doorX + 0.85, hy - 0.22, d / 2 + 0.75 ), V3( doorX + 0.85, hy, d / 2 ), V3( doorX - 0.85, hy, d / 2 ) ], isThatch ? 0.14 : 0.04, {
 			up: UP, uDir: V3( 0, 0.22, - 0.75 ).normalize(), tint: roofTint, data: roofData(),
 		} );
 		for ( const sx of [ - 1, 1 ] ) B.beam( 'wood', [ doorX + sx * 0.75, hy - 0.5, d / 2 + 0.02 ], [ doorX + sx * 0.75, hy - 0.2, d / 2 + 0.65 ], 0.05, 0.07, { tint: st.trim, data: trimData() } );
@@ -972,12 +984,12 @@ export function buildHouse( ctx, s ) {
 		B.box( 'wood', ax, rimY, za1 - 0.02, aw + 0.08, rimH, 0.06, { grain: 0, tint: rimTint, data: rimData() } );
 		B.box( 'wood', ax, yBackTop - 0.08, za1 - 0.012, aw, 0.16, 0.025, { grain: 0, tint: st.trim, data: trimData() } );
 		const rx0 = ax - aw / 2 - 0.22, rx1 = ax + aw / 2 + 0.22;
-		B.slab( roofKey, [ V3( rx0, yEnd, zEnd ), V3( rx1, yEnd, zEnd ), V3( rx1, yAtt, za0 ), V3( rx0, yAtt, za0 ) ], Ta, {
+		solidRoof( B, colliders, roofKey, [ V3( rx0, yEnd, zEnd ), V3( rx1, yEnd, zEnd ), V3( rx1, yAtt, za0 ), V3( rx0, yAtt, za0 ) ], Ta, {
 			up: UP, uDir: V3( 0, yAtt - yEnd, za0 - zEnd ).normalize(), tint: roofTint, data: roofData(),
 		} );
 		if ( ! isThatch ) B.box( 'wood', ax, yEnd - 0.09, zEnd + 0.016, rx1 - rx0, 0.16, 0.03, { grain: 0, tint: st.trim, data: trimData() } );
 		B.pushAt( ax, 0, za1, Math.PI );
-		windowUnit( B, rand, 0, floorY + 1.0, 0.7, 0.85, { ...st, closed: rand.chance( 0.25 ), closedPattern: 3 } );
+		windowUnit( B, rand, 0, floorY + 1.0, 0.7, 0.85, { ...st, closed: rand.chance( 0.25 ), closedPattern: 3 }, colliders );
 		B.pop();
 		fr.addBoxL( ax, ( gMin - 0.3 + yAtt ) / 2, ( za0 + za1 ) / 2, aw / 2 + 0.05, ( yAtt - gMin + 0.3 ) / 2, ad / 2, { tag: 'house' } );
 
@@ -1017,7 +1029,7 @@ export function buildHouse( ctx, s ) {
 
 	// main body collider
 	const bodyBot = gMin - 0.3;
-	fr.addBoxL( 0, ( bodyBot + roofTop ) / 2, 0, w / 2 + 0.06, ( roofTop - bodyBot ) / 2, d / 2 + 0.06, { tag: 'house' } );
+	fr.addBoxL( 0, ( bodyBot + yE ) / 2, 0, w / 2 + 0.06, ( yE - bodyBot ) / 2, d / 2 + 0.06, { tag: 'house' } );
 
 	return {
 		floorY, roofTop,
@@ -1095,8 +1107,8 @@ export function buildBoathouse( ctx, s ) {
 	const xe = w / 2 + ov, yF = yE + r0 - ov * ta;
 	const rd = () => [ rand.next(), 0.75, 0, 0 ];
 	const rt = s.roofColor || lin( 0x6d7f86 );
-	B.slab( 'roofMetal', [ V3( xe, yF, Z ), V3( xe, yF, - Z ), V3( 0, yR, - Z ), V3( 0, yR, Z ) ], 0.05, { up: UP, uDir: V3( - xe, yR - yF, 0 ).normalize(), tint: rt, data: rd() } );
-	B.slab( 'roofMetal', [ V3( - xe, yF, - Z ), V3( - xe, yF, Z ), V3( 0, yR, Z ), V3( 0, yR, - Z ) ], 0.05, { up: UP, uDir: V3( xe, yR - yF, 0 ).normalize(), tint: rt, data: rd() } );
+	solidRoof( B, colliders, 'roofMetal', [ V3( xe, yF, Z ), V3( xe, yF, - Z ), V3( 0, yR, - Z ), V3( 0, yR, Z ) ], 0.05, { up: UP, uDir: V3( - xe, yR - yF, 0 ).normalize(), tint: rt, data: rd() } );
+	solidRoof( B, colliders, 'roofMetal', [ V3( - xe, yF, - Z ), V3( - xe, yF, Z ), V3( 0, yR, Z ), V3( 0, yR, - Z ) ], 0.05, { up: UP, uDir: V3( xe, yR - yF, 0 ).normalize(), tint: rt, data: rd() } );
 	for ( const sz of [ - 1, 1 ] ) {
 
 		B.part( 'wood', gableEndPart( w, r0 - 0.03, r0 + ( w / 2 ) * ta - 0.03, 0.08 ), 0, yE, sz * ( d / 2 - 0.05 ), { ry: sz > 0 ? 0 : Math.PI, tint: wall, data: wdat( 2 ) } );
@@ -1204,10 +1216,10 @@ export function buildMarketStall( ctx, s ) {
 	const ye = top + 0.08, yR = ye + ZE * ta;
 	const td = () => [ rand.next(), 0.5, 0, 0 ];
 	const T = 0.2;
-	B.slab( 'thatch', [ V3( - XE, ye, ZE ), V3( XE, ye, ZE ), V3( XR, yR, 0 ), V3( - XR, yR, 0 ) ], T, { up: UP, uDir: V3( 0, yR - ye, - ZE ).normalize(), data: td() } );
-	B.slab( 'thatch', [ V3( XE, ye, - ZE ), V3( - XE, ye, - ZE ), V3( - XR, yR, 0 ), V3( XR, yR, 0 ) ], T, { up: UP, uDir: V3( 0, yR - ye, ZE ).normalize(), data: td() } );
-	B.slab( 'thatch', [ V3( XE, ye, ZE ), V3( XE, ye, - ZE ), V3( XR, yR, 0 ) ], T, { up: UP, uDir: V3( - XE + XR, yR - ye, 0 ).normalize(), data: td() } );
-	B.slab( 'thatch', [ V3( - XE, ye, - ZE ), V3( - XE, ye, ZE ), V3( - XR, yR, 0 ) ], T, { up: UP, uDir: V3( XE - XR, yR - ye, 0 ).normalize(), data: td() } );
+	solidRoof( B, colliders, 'thatch', [ V3( - XE, ye, ZE ), V3( XE, ye, ZE ), V3( XR, yR, 0 ), V3( - XR, yR, 0 ) ], T, { up: UP, uDir: V3( 0, yR - ye, - ZE ).normalize(), data: td() } );
+	solidRoof( B, colliders, 'thatch', [ V3( XE, ye, - ZE ), V3( - XE, ye, - ZE ), V3( - XR, yR, 0 ), V3( XR, yR, 0 ) ], T, { up: UP, uDir: V3( 0, yR - ye, ZE ).normalize(), data: td() } );
+	solidRoof( B, colliders, 'thatch', [ V3( XE, ye, ZE ), V3( XE, ye, - ZE ), V3( XR, yR, 0 ) ], T, { up: UP, uDir: V3( - XE + XR, yR - ye, 0 ).normalize(), data: td() } );
+	solidRoof( B, colliders, 'thatch', [ V3( - XE, ye, - ZE ), V3( - XE, ye, ZE ), V3( - XR, yR, 0 ) ], T, { up: UP, uDir: V3( XE - XR, yR - ye, 0 ).normalize(), data: td() } );
 	B.rod( 'thatch', [ - XR - 0.05, yR - 0.04, 0 ], [ XR + 0.05, yR - 0.04, 0 ], 0.15, 0.15, { segs: 7, data: [ rand.next(), 0.7, 0, 0 ] } );
 
 	// counter with fish baskets
@@ -1381,7 +1393,7 @@ export function buildShed( ctx, s ) {
 	for ( const hy of [ 0.3, 1.5 ] ) B.box( 'hard', - 0.13, base + hy, d / 2 + 0.03, 0.25, 0.04, 0.01, { tint: C.iron, data: HARD( rand.next(), 0.8, 0.5, 0.6 ) } );
 	// shed roof
 	const rf = [ V3( - w / 2 - 0.2, base + hB + 0.02, - d / 2 - 0.25 ), V3( w / 2 + 0.2, base + hB + 0.02, - d / 2 - 0.25 ), V3( w / 2 + 0.2, base + hF + 0.08, d / 2 + 0.3 ), V3( - w / 2 - 0.2, base + hF + 0.08, d / 2 + 0.3 ) ];
-	B.slab( 'roofMetal', rf, 0.04, { up: UP, uDir: V3( 0, hF - hB, d + 0.55 ).normalize(), tint: s.roof || lin( 0x8a5a40 ), data: [ rand.next(), 0.8, s.galv ? 1 : 0, 0 ] } );
+	solidRoof( B, colliders, 'roofMetal', rf, 0.04, { up: UP, uDir: V3( 0, hF - hB, d + 0.55 ).normalize(), tint: s.roof || lin( 0x8a5a40 ), data: [ rand.next(), 0.8, s.galv ? 1 : 0, 0 ] } );
 	B.pop();
 	const c = toW( 0, 0 );
 	colliders.addBox( _v.set( c.x, ( gMin - 0.3 + base + hF ) / 2, c.z ), _h.set( w / 2 + 0.05, ( base + hF - gMin + 0.3 ) / 2, d / 2 + 0.05 ), yaw, { tag: 'shed' } );
