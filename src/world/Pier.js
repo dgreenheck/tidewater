@@ -601,10 +601,10 @@ export function buildPier( { B, terrain, colliders, rand, lights, inst, signB = 
 	trap( 50.5, DK + 0.31, 38.75, 1.2 );
 	addBox( 50.55, DK + 0.35, 38.8, 0.75, 0.35, 0.5, { tag: 'traps' } );
 
-	inst.add( 'barrel', 48.75, DK, 36.1, 0.3, [ 0.9, 0.85, 0.8 ] );
-	inst.add( 'barrel', 49.4, DK, 36.75, 1.1, [ 1.05, 1.0, 0.95 ] );
-	colliders.addCylinder( 48.75, 36.1, 0.32, DK, DK + 0.9, { tag: 'barrel' } );
-	colliders.addCylinder( 49.4, 36.75, 0.32, DK, DK + 0.9, { tag: 'barrel' } );
+	// inst.add( 'barrel', 48.75, DK, 36.1, 0.3, [ 0.9, 0.85, 0.8 ] );
+	// inst.add( 'barrel', 49.4, DK, 36.75, 1.1, [ 1.05, 1.0, 0.95 ] );
+	// colliders.addCylinder( 48.75, 36.1, 0.32, DK, DK + 0.9, { tag: 'barrel' } );
+	// colliders.addCylinder( 49.4, 36.75, 0.32, DK, DK + 0.9, { tag: 'barrel' } );
 
 	// floats hanging on the west rail
 	buoyString( B, [ hx0 + 0.12, railTop + 0.02, 34.0 ], [ hx0 + 0.12, railTop + 0.02, 35.9 ], 4, rand, 0.22 );

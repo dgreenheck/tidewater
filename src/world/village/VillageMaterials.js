@@ -256,7 +256,7 @@ export function createWoodMaterial( T ) {
 	// ---- colour
 	var col = mix( wood * ( stain * - 0.4 + 1.0 ), paintCol, painted );
 	col = mix( col, vec3f( 0.04, 0.032, 0.028 ), nail );
-	let dirt = mix( 0.22, 0.5, wW );
+	let dirt = 0.0; // mix( 0.22, 0.5, wW );
 	let Gd = mix( Gm, Gs, rawK );
 	col = col * ( 1.0 - Gd.r * dirt * mix( 0.75, 0.35, rawK ) );
 	col = mix( col, vec3f( 0.62, 0.61, 0.57 ), Gd.g * mix( 0.28, 0.16, rawK ) * ( painted * 0.5 + 0.5 ) );
@@ -265,7 +265,7 @@ export function createWoodMaterial( T ) {
 	// splash-back along the bottom of walls: rain throws sand and soil up the boards, and green
 	// mildew grows where they stay damp; a ragged upper edge
 	let splashH = 0.55 + ( Gm.a - 0.5 ) * 0.5 + ( macroV - 0.5 ) * 0.3;
-	let splash = ( 1.0 - smoothstep( 0.0, splashH, uvS.y ) ) * isWall;
+	let splash = 0.0; // ( 0.0, splashH, uvS.y ) ) * isWall;
 	col = col * ( 1.0 - splash * 0.5 );
 	col = mix( col, col * vec3f( 0.78, 0.9, 0.62 ), splash * smoothstep( 0.4, 0.7, Gm.a + Gm.b * 0.5 ) * 0.7 );
 	let ao = mix( N.a, mix( 1.0, N.a, 0.35 ) * P.a, painted );
@@ -282,10 +282,10 @@ export function createWoodMaterial( T ) {
 	let walkK = step( paint, - 0.5 ) * smoothstep( 0.6, 0.9, upF ) * exp( - wd * wd ) * ( 1.0 - endAny );
 	// the path is worn brown-grey: the silver skin scuffed off, grime trodden into the grain
 	let trodden = col * vec3f( 0.8, 0.76, 0.72 );
-	col = mix( col, trodden, walkK * 0.55 );
+	col = mix( col, trodden, 0.0 );
 	// grit and dirt packed along the edges of deck boards (the gaps collect it)
 	let bev = min( uvS.y, 0.18 - uvS.y );
-	let edgeDirt = mNail * smoothstep( 0.6, 0.9, upF ) * ( 1.0 - smoothstep( 0.004, 0.03, bev ) ) * ( 1.0 - endAny );
+	let edgeDirt = 0.0; // ( 0.6, 0.9, upF ) * ( 1.0 - smoothstep( 0.004, 0.03, bev ) ) * ( 1.0 - endAny );
 	col = col * ( 1.0 - edgeDirt * ( 0.18 + Gs.r * 0.15 ) );
 	// water that pools along the board edges keeps them damp and darker in broad, gradual bands
 	// (no blotches: it follows the boards); sun and salt bleach the open middle of the deck
@@ -493,16 +493,19 @@ fn vlmGlass( uvm: vec2f, aTint: vec3f, seed: f32, kind: f32, lit: f32 ) -> VlmGl
 	// grime map channels: R streaks, G salt, B spots, A macro
 	let Gl = textureSample( vlgGrime, smpAnisoRepeat, uvm * 0.45 + vec2f( seed * 3.7, seed * 1.3 ) );
 	let edgeD = min( min( uvm.x, 1.0 - uvm.x ), min( uvm.y, 1.0 - uvm.y ) );
-	let frameDirt = 1.0 - smoothstep( 0.0, 0.07, edgeD );
+	let frameDirt = 0.0; // ( 0.0, 0.07, edgeD );
 	let curtain = ( 1.0 - smoothstep( 0.18, 0.3, uvm.x ) + smoothstep( 0.7, 0.82, uvm.x ) ) * step( 0.35, seed );
 	let folds = vlmN01( sin( uvm.x * 70.0 + seed * 20.0 ) );
-	let interior = vec3f( 0.012, 0.014, 0.017 ) * ( Gl.a * 0.8 + 0.6 );
-	var winCol = mix( interior, aTint * 0.16 * ( folds * 0.4 + 0.6 ), curtain );
+	let isLantern = step( 0.5, kind ) * step( kind, 1.5 );
+	let isModern = step( 1.5, kind );
+	let modernGlassColor = vec3f( 0.08, 0.15, 0.25 ) * ( Gl.a * 0.3 + 0.7 ); // Much brighter daytime blue reflection
+	let interior = mix( vec3f( 0.012, 0.014, 0.017 ) * ( Gl.a * 0.8 + 0.6 ), modernGlassColor, isModern );
+	let curtainBright = mix( 0.16, 0.65, isModern ); // Brighter unlit curtain for modern houses
+	var winCol = mix( interior, aTint * curtainBright * ( folds * 0.4 + 0.6 ), curtain );
 	winCol = winCol + vec3f( 0.05, 0.05, 0.045 ) * Gl.g + vec3f( 0.03, 0.026, 0.02 ) * ( Gl.b + frameDirt );
 	let lanternCol = aTint * 0.55 * ( 1.0 - Gl.b * 0.25 );
-	let isLantern = step( 0.5, kind );
 	let color = mix( winCol, lanternCol, isLantern );
-	let rough = mix( 0.035 + Gl.r * 0.22 + Gl.g * 0.18 + Gl.b * 0.1 + frameDirt * 0.25, 0.32 + Gl.r * 0.15, isLantern );
+	let rough = mix( mix( 0.035 + Gl.r * 0.22 + Gl.g * 0.18 + Gl.b * 0.1 + frameDirt * 0.25, 0.02, isModern ), 0.32 + Gl.r * 0.15, isLantern );
 
 	let nightOn = smoothstep( 0.15, 0.75, frame.night );
 	let warm = vec3f( 1.0, 0.56, 0.24 );
@@ -559,7 +562,7 @@ export function createStoneMaterial( T ) {
 	var col = mix( stoneCol * mix( 1.0, N.a, 0.5 ), plasterCol, pm );
 	// sand dust and splash dirt near the ground
 	let low = 1.0 - smoothstep( 0.05, 0.75, uvS.y );
-	let dust = low * smoothstep( 0.25, 0.7, PA.a ) * 0.8;
+	let dust = 0.0; // ( 0.25, 0.7, PA.a ) * 0.8;
 	col = mix( col, vec3f( 0.46, 0.4, 0.3 ), dust );
 	col = col * ( 1.0 - low * 0.18 );
 

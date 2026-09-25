@@ -379,14 +379,14 @@ function buildContainers( kit, L ) {
 
 	// bait barrel against the port rail aft of the wheelhouse
 	const bx = 0.86, bz = - 0.8;
-	const barrel = cylinder( 0.26, 0.26, 0.78, 20 );
-	barrel.translate( bx, L.deckY + 0.39, bz );
-	kit.add( 'fittings', barrel, { color: 0x1f5ea6, rough: 0.5 } );
+	// const barrel = cylinder( 0.26, 0.26, 0.78, 20 );
+	// barrel.translate( bx, L.deckY + 0.39, bz );
+	// kit.add( 'fittings', barrel, { color: 0x1f5ea6, rough: 0.5 } );
 	for ( const y of [ 0.26, 0.52 ] ) {
 
 		const rib = torus( 0.262, 0.012, 5, 24 );
 		rib.applyMatrix4( mat4( bx, L.deckY + y, bz, Math.PI / 2, 0, 0 ) );
-		kit.add( 'fittings', rib, { color: 0x1f5ea6, rough: 0.5 } );
+		// kit.add( 'fittings', rib, { color: 0x1f5ea6, rough: 0.5 } );
 
 	}
 

@@ -367,7 +367,7 @@ export class BoatModel {
 		}
 
 		add( 'hauler', V( HAULER.x - 0.2, L.deckY, HAULER.z - 0.08 ), V( HAULER.x + 0.2, HAULER.y + 0.2, HAULER.z + 0.25 ) );
-		add( 'baitBarrel', V( 0.6, L.deckY, - 1.06 ), V( 1.12, L.deckY + 0.8, - 0.54 ) );
+		// add( 'baitBarrel', V( 0.6, L.deckY, - 1.06 ), V( 1.12, L.deckY + 0.8, - 0.54 ) );
 		// foredeck steps (walkable) from the house front to the stem head
 		for ( const [ z0, z1 ] of [ [ L.houseFront, 2.4 ], [ 2.4, 3.3 ], [ 3.3, 4.15 ] ] ) {
 

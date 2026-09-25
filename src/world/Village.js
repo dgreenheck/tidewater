@@ -144,29 +144,29 @@ export class Village {
 		const curtain = () => rand.pick( CURTAINS );
 		const houses = [
 			// front row (just above the beach)
-			{ name: 'A', x: 13.5, z: - 106.5, yaw: 0.12, w: 6.2, d: 5.0, roof: 'gable', roofMat: 'metal', roofColor: R.red, wall: P.turquoise, trim: T.white, accent: T.navy, siding: 1, porch: { depth: 2.1, rail: 'balusters' }, paint: 0.62, stovepipe: true, buoys: - 1, porchPaint: lin( 0x8a9aa0 ) },
-			{ name: 'B', x: 26.5, z: - 112.0, yaw: - 0.08, w: 5.2, d: 4.5, roof: 'hip', roofMat: 'thatch', wall: P.coral, trim: T.cream, accent: T.teal, siding: 2, shutters: 'bahama', paint: 0.55, thatchAge: 0.35, annex: { w: 3.0, d: 2.0, wall: lin( 0xefe2c2 ) } },
-			{ name: 'C', x: 62.5, z: - 106.0, yaw: - 0.1, w: 7.0, d: 5.8, stories: 2, roof: 'gableFront', roofMat: 'metal', galv: true, rust: 0.55, wall: P.cream, trim: T.white, accent: T.blue, siding: 1, porch: { depth: 2.2, rail: 'x' }, paint: 0.7, antenna: true, tank: 1, doorGlass: true },
-			{ name: 'D', x: 79.0, z: - 110.5, yaw: - 0.18, w: 6.0, d: 5.0, roof: 'gable', roofMat: 'metal', roofColor: R.green, wall: P.sky, trim: T.white, accent: T.yellow, siding: 2, porch: { depth: 1.9, width: 4.4, offset: - 0.6, rail: 'balusters' }, doorX: - 0.6, paint: 0.66, gutter: true, woodpile: 1 },
-			{ name: 'E', x: 96.0, z: - 115.5, yaw: - 0.3, w: 5.4, d: 4.6, roof: 'hip', roofMat: 'metal', roofColor: R.teal, wall: P.yellow, trim: T.white, accent: T.green, siding: 1, shutters: 'louver', paint: 0.58, buoys: 1, annex: { w: 3.2, d: 2.0 } },
+			{ name: 'A', x: 13.5, z: - 106.5, yaw: 0.12, w: 7.2, d: 5.0, roof: 'flat', roofMat: 'metal', roofColor: R.grey, wall: P.white, trim: T.cream, accent: T.navy, siding: 6, porch: { depth: 3.0, rail: 'none' }, paint: 10, weather: 0, rust: 0, porchPaint: lin( 0xdcd0c0 ), modernGlass: true },
+			{ name: 'B', x: 26.5, z: - 112.0, yaw: - 0.08, w: 6.2, d: 4.5, roof: 'flat', roofMat: 'metal', roofColor: R.grey, wall: P.cream, trim: T.white, accent: T.teal, siding: 6, paint: 10, weather: 0, rust: 0, porch: { depth: 2.5, rail: 'none' }, modernGlass: true, annex: { w: 3.5, d: 2.5, wall: P.white } },
+			{ name: 'C', x: 62.5, z: - 106.0, yaw: - 0.1, w: 8.0, d: 5.8, stories: 2, roof: 'flat', roofMat: 'metal', galv: true, rust: 0, wall: P.white, trim: T.white, accent: T.blue, siding: 6, porch: { depth: 2.5, rail: 'none' }, paint: 10, weather: 0, modernGlass: true, tank: 1 },
+			{ name: 'D', x: 79.0, z: - 110.5, yaw: - 0.18, w: 7.0, d: 5.0, roof: 'flat', roofMat: 'metal', roofColor: R.grey, wall: P.white, trim: T.white, accent: T.yellow, siding: 6, porch: { depth: 2.5, width: 5.0, offset: - 0.6, rail: 'none' }, doorX: - 0.6, paint: 10, weather: 0, rust: 0, modernGlass: true },
+			{ name: 'E', x: 96.0, z: - 115.5, yaw: - 0.3, w: 6.4, d: 4.6, roof: 'flat', roofMat: 'metal', roofColor: R.grey, wall: P.cream, trim: T.white, accent: T.green, siding: 6, paint: 10, weather: 0, rust: 0, porch: { depth: 2.5, rail: 'none' }, modernGlass: true, annex: { w: 3.8, d: 2.5 } },
 			// middle row
-			{ name: 'F', x: - 3.0, z: - 125.0, yaw: 0.22, w: 5.6, d: 5.0, roof: 'gableFront', roofMat: 'thatch', wall: P.mint, trim: T.white, accent: T.red, siding: 2, porch: { depth: 1.9, rail: 'x' }, paint: 0.5, thatchAge: 0.55, shutters: 'board' },
-			{ name: 'G', x: 16.5, z: - 130.0, yaw: 0.1, w: 6.6, d: 5.6, stories: 2, roof: 'gable', roofMat: 'metal', roofColor: R.blue, wall: P.pink, trim: T.white, accent: T.teal, siding: 1, porch: { depth: 2.2, rail: 'balusters' }, paint: 0.72, chimney: - 1, doorGlass: true },
-			{ name: 'H', x: 57.5, z: - 128.5, yaw: - 0.05, w: 6.0, d: 5.2, roof: 'gableFront', roofMat: 'thatch', wall: P.turquoise, trim: T.cream, accent: T.yellow, siding: 2, porch: { depth: 2.0, rail: 'x' }, paint: 0.55, thatchAge: 0.3, shutters: 'board', woodpile: - 1, annex: { w: 3.4, d: 2.2, x: 0.6, wall: lin( 0x8cc2e0 ) } },
-			{ name: 'I', x: 75.5, z: - 132.5, yaw: - 0.2, w: 5.4, d: 4.6, roof: 'gable', roofMat: 'metal', roofColor: R.red, rust: 0.6, wall: P.cream, trim: T.red, accent: T.red, siding: 1, paint: 0.6, tank: - 1, stovepipe: true },
-			{ name: 'J', x: 96.5, z: - 135.0, yaw: - 0.32, w: 6.2, d: 5.0, roof: 'hip', roofMat: 'metal', roofColor: R.grey, galv: true, rust: 0.7, wall: P.sky, trim: T.white, accent: T.navy, siding: 2, porch: { depth: 1.9, rail: 'balusters' }, paint: 0.6, annex: { w: 3.6, d: 2.0, x: - 0.8 } },
+			{ name: 'F', x: - 3.0, z: - 125.0, yaw: 0.22, w: 6.6, d: 5.0, roof: 'flat', roofMat: 'metal', roofColor: R.grey, wall: P.white, trim: T.white, accent: T.red, siding: 6, porch: { depth: 2.5, rail: 'none' }, paint: 10, weather: 0, rust: 0, modernGlass: true },
+			{ name: 'G', x: 16.5, z: - 130.0, yaw: 0.1, w: 7.6, d: 5.6, stories: 2, roof: 'flat', roofMat: 'metal', roofColor: R.grey, wall: P.cream, trim: T.white, accent: T.teal, siding: 6, porch: { depth: 2.5, rail: 'none' }, paint: 10, weather: 0, rust: 0, modernGlass: true },
+			{ name: 'H', x: 57.5, z: - 128.5, yaw: - 0.05, w: 7.0, d: 5.2, roof: 'flat', roofMat: 'metal', roofColor: R.grey, wall: P.white, trim: T.cream, accent: T.yellow, siding: 6, porch: { depth: 2.5, rail: 'none' }, paint: 10, weather: 0, rust: 0, modernGlass: true, annex: { w: 4.0, d: 2.2, x: 0.6, wall: P.cream } },
+			{ name: 'I', x: 75.5, z: - 132.5, yaw: - 0.2, w: 6.4, d: 4.6, roof: 'flat', roofMat: 'metal', roofColor: R.grey, rust: 0, wall: P.white, trim: T.cream, accent: T.red, siding: 6, paint: 10, weather: 0, porch: { depth: 2.5, rail: 'none' }, modernGlass: true, tank: - 1 },
+			{ name: 'J', x: 96.5, z: - 135.0, yaw: - 0.32, w: 7.2, d: 5.0, roof: 'flat', roofMat: 'metal', roofColor: R.grey, galv: true, rust: 0, wall: P.cream, trim: T.white, accent: T.navy, siding: 6, porch: { depth: 2.5, rail: 'none' }, paint: 10, weather: 0, modernGlass: true, annex: { w: 4.0, d: 2.0, x: - 0.8 } },
 			// back row (plateau)
-			{ name: 'K', x: 3.5, z: - 151.0, yaw: 0.18, w: 6.0, d: 5.2, roof: 'gable', roofMat: 'metal', roofColor: R.green, wall: P.yellow, trim: T.white, accent: T.blue, siding: 1, porch: { depth: 2.0, rail: 'x' }, paint: 0.64, gutter: true },
-			{ name: 'L', x: 30.5, z: - 149.0, yaw: 0.04, w: 7.4, d: 5.6, stories: 2, roof: 'hip', roofMat: 'metal', roofColor: R.red, wall: P.white, trim: T.white, accent: T.green, siding: 1, porch: { depth: 2.3, rail: 'balusters' }, paint: 0.78, antenna: true, chimney: 1, doorGlass: true },
-			{ name: 'M', x: 55.0, z: - 152.5, yaw: - 0.06, w: 5.2, d: 4.8, roof: 'gableFront', roofMat: 'thatch', wall: P.coral, trim: T.white, accent: T.teal, siding: 1, paint: 0.52, thatchAge: 0.45, shutters: 'bahama', annex: { w: 3.0, d: 1.8 } },
-			{ name: 'N', x: 78.5, z: - 156.0, yaw: - 0.22, w: 6.0, d: 5.0, roof: 'gable', roofMat: 'metal', roofColor: R.teal, wall: P.lavender, trim: T.white, accent: T.navy, siding: 2, porch: { depth: 1.9, rail: 'balusters' }, paint: 0.62, tank: 1 },
+			{ name: 'K', x: 3.5, z: - 151.0, yaw: 0.18, w: 7.0, d: 5.2, roof: 'flat', roofMat: 'metal', roofColor: R.grey, wall: P.white, trim: T.white, accent: T.blue, siding: 6, porch: { depth: 2.5, rail: 'none' }, paint: 10, weather: 0, rust: 0, modernGlass: true },
+			{ name: 'L', x: 30.5, z: - 149.0, yaw: 0.04, w: 8.4, d: 5.6, stories: 2, roof: 'flat', roofMat: 'metal', roofColor: R.grey, wall: P.white, trim: T.white, accent: T.green, siding: 6, porch: { depth: 2.5, rail: 'none' }, paint: 10, weather: 0, rust: 0, modernGlass: true },
+			{ name: 'M', x: 55.0, z: - 152.5, yaw: - 0.06, w: 6.2, d: 4.8, roof: 'flat', roofMat: 'metal', roofColor: R.grey, wall: P.cream, trim: T.white, accent: T.teal, siding: 6, paint: 10, weather: 0, rust: 0, porch: { depth: 2.5, rail: 'none' }, modernGlass: true, annex: { w: 3.5, d: 1.8 } },
+			{ name: 'N', x: 78.5, z: - 156.0, yaw: - 0.22, w: 7.0, d: 5.0, roof: 'flat', roofMat: 'metal', roofColor: R.grey, wall: P.white, trim: T.white, accent: T.navy, siding: 6, porch: { depth: 2.5, rail: 'none' }, paint: 10, weather: 0, rust: 0, modernGlass: true, tank: 1 },
 		];
 
 		// stilt fishing huts just above the beach, close to the pier foot (floor ~3 m)
 		const huts = [
-			{ name: 'S1', harbor: true, x: 67.8, z: - 64.6, yaw: 0.05, w: 4.0, d: 4.2, floorY: 3.0, foundation: 'stilts', roof: 'gableFront', roofMat: 'metal', roofColor: ROOFS.rust, rust: 0.8, wall: P.sea, trim: T.white, accent: T.red, siding: 2, paint: 0.52, weather: 0.85, porch: { depth: 1.6, rail: 'x' }, shutters: 'board', closedChance: 0.3, fewWindows: true, rimRaw: true, buoys: 1, porchBench: false, railNet: lin( 0x3f6f5f ) },
-			{ name: 'S2', harbor: true, x: 79.8, z: - 70.4, yaw: - 0.12, w: 4.4, d: 4.0, floorY: 3.05, foundation: 'stilts', roof: 'gableFront', roofMat: 'thatch', thatchAge: 0.6, wall: P.coral, trim: T.cream, accent: T.teal, siding: 2, paint: 0.48, weather: 0.9, porch: { depth: 1.6, rail: 'x' }, shutters: 'board', closedChance: 0.25, fewWindows: true, rimRaw: true, porchBench: false, railNet: lin( 0x9a4a38 ) },
-			{ name: 'S3', harbor: true, x: 37.2, z: - 72.4, yaw: 0.18, w: 4.0, d: 4.0, floorY: 3.15, foundation: 'stilts', roof: 'gable', roofMat: 'thatch', thatchAge: 0.5, wall: P.yellow, trim: T.white, accent: T.blue, siding: 2, paint: 0.5, weather: 0.85, porch: { depth: 1.6, rail: 'x' }, shutters: 'board', closedChance: 0.2, fewWindows: true, rimRaw: true, buoys: - 1, porchBench: false },
+			{ name: 'S1', harbor: true, x: 67.8, z: - 64.6, yaw: 0.05, w: 5.0, d: 4.2, floorY: 3.0, foundation: 'stilts', roof: 'flat', roofMat: 'metal', roofColor: R.grey, rust: 0, wall: P.white, trim: T.white, accent: T.red, siding: 6, paint: 10, weather: 0, porch: { depth: 2.0, rail: 'none' }, shutters: 'none', modernGlass: true },
+			{ name: 'S2', harbor: true, x: 79.8, z: - 70.4, yaw: - 0.12, w: 5.4, d: 4.0, floorY: 3.05, foundation: 'stilts', roof: 'flat', roofMat: 'metal', roofColor: R.grey, rust: 0, wall: P.cream, trim: T.cream, accent: T.teal, siding: 6, paint: 10, weather: 0, porch: { depth: 2.0, rail: 'none' }, shutters: 'none', modernGlass: true },
+			{ name: 'S3', harbor: true, x: 37.2, z: - 72.4, yaw: 0.18, w: 5.0, d: 4.0, floorY: 3.15, foundation: 'stilts', roof: 'flat', roofMat: 'metal', roofColor: R.grey, rust: 0, wall: P.white, trim: T.white, accent: T.blue, siding: 6, paint: 10, weather: 0, porch: { depth: 2.0, rail: 'none' }, shutters: 'none', modernGlass: true },
 		];
 
 		for ( const h of [ ...houses, ...huts ] ) {
@@ -255,8 +255,8 @@ export class Village {
 		this.foundationChecks.push( { x: 44.3, y: g( 44.3, - 106.2 ), z: - 106.2 } );
 		for ( const [ x, z ] of [ [ 37.4, - 115.6 ], [ 38.1, - 116.1 ] ] ) {
 
-			this.inst.add( 'barrel', x, g( x, z ) - 0.02, z, rand.range( 0, 6 ), [ rand.range( 0.85, 1.05 ), 0.92, 0.85 ] );
-			colliders.addCylinder( x, z, 0.32, g( x, z ), g( x, z ) + 0.9, { tag: 'barrel' } );
+			// this.inst.add( 'barrel', x, g( x, z ) - 0.02, z, rand.range( 0, 6 ), [ rand.range( 0.85, 1.05 ), 0.92, 0.85 ] );
+			// colliders.addCylinder( x, z, 0.32, g( x, z ), g( x, z ) + 0.9, { tag: 'barrel' } );
 
 		}
 
@@ -352,14 +352,7 @@ export class Village {
 		};
 
 		cluster( [
-			[ 'barrel', X + 2.4, - 62.4, 0.4 ], [ 'barrel', X + 3.05, - 62.9, 1.9 ], [ 'crate', X + 2.6, - 61.2, 0.1 ],
-			[ 'crate', X + 2.65, - 61.25, 0.4, 0.4 ], [ 'trap', X - 2.6, - 61.0, 0.05 ], [ 'trap', X - 2.65, - 61.6, 0.08 ], [ 'trap', X - 2.6, - 61.3, 0.2, 0.31 ],
-			[ 'crate', X - 3.4, - 62.4, 0.6 ],
-			[ 'trap', 64.5, - 61.6, 0.3 ], [ 'trap', 65.3, - 61.2, 0.15 ], [ 'trap', 64.9, - 61.4, 0.5, 0.31 ], [ 'trap', 64.6, - 61.5, 1.9, 0.62 ],
-			[ 'barrel', 71.3, - 62.3, 0.1 ], [ 'crate', 71.1, - 61.2, 0.3 ], [ 'crate', 71.9, - 61.4, 1.3 ],
-			[ 'trap', 83.2, - 67.4, 0.4 ], [ 'trap', 83.9, - 67.9, 0.2 ], [ 'barrel', 82.6, - 68.9, 0.7 ],
-			[ 'crate', 88.0, - 53.0, 0.2 ], [ 'crate', 88.1, - 53.0, 0.6, 0.4 ], [ 'barrel', 89.0, - 52.2, 0.3 ],
-			[ 'trap', 34.6, - 68.6, 0.3 ], [ 'trap', 35.3, - 68.2, 0.1 ], [ 'crate', 39.6, - 68.9, 0.5 ],
+			// Emptying this to remove hardcoded barrels/crates/traps
 		] );
 
 		// loose buoys and rope coils on the sand
@@ -441,13 +434,7 @@ export class Village {
 		}
 
 		const clutter = [
-			[ 'barrel', 20.4, - 105.2, 0.3 ], [ 'crate', 21.2, - 104.6, 0.8 ], [ 'crate', 21.25, - 104.65, 1.1, 0.4 ],
-			[ 'trap', 69.2, - 110.8, 0.2 ], [ 'trap', 69.3, - 111.4, 0.1 ], [ 'trap', 69.25, - 111.1, 0.3, 0.31 ],
-			[ 'barrel', 86.6, - 118.8, 0.2 ], [ 'crate', 85.9, - 119.6, 0.4 ],
-			[ 'crate', 64.6, - 134.2, 0.3 ], [ 'barrel', 63.9, - 133.4, 1.0 ],
-			[ 'trap', 47.9, - 150.2, 0.6 ], [ 'trap', 48.2, - 150.8, 0.4 ],
-			[ 'barrel', 25.4, - 157.4, 0.5 ], [ 'barrel', 26.1, - 157.8, 1.5 ],
-			[ 'crate', 9.8, - 145.4, 0.2 ], [ 'crate', 91.6, - 128.5, 0.9 ],
+			// Emptying this to remove hardcoded barrels/crates/traps
 		];
 		for ( const [ type, x, z, ry, stack ] of clutter ) {
 

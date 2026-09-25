@@ -363,12 +363,12 @@ export class DebrisPlacer {
 
 		};
 
-		step( 'village', this._village );
-		step( 'boats', this._boatsAndYards );
-		step( 'logs', this._logs );
-		step( 'palms', this._palmLitter );
-		step( 'wrack', this._wrack );
-		step( 'coves', this._coves );
+		// step( 'village', this._village );
+		// step( 'boats', this._boatsAndYards );
+		// step( 'logs', this._logs );
+		// step( 'palms', this._palmLitter );
+		// step( 'wrack', this._wrack );
+		// step( 'coves', this._coves );
 		step( 'mask', this._mask );
 		this.timings = t;
 		return this;
