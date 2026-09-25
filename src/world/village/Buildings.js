@@ -567,8 +567,8 @@ export function buildHouse( ctx, s ) {
 
 		B.box( 'wood', 0, yF_roof - fp / 2 + 0.05, Zf + ft / 2, X * 2 + 2 * ft, fp, ft, { grain: 0, tint: st.trim, data: cF, rx: -ang } );
 		B.box( 'wood', 0, yR - fp / 2 + 0.05, - Zb - ft / 2, X * 2 + 2 * ft, fp, ft, { grain: 0, tint: st.trim, data: cF, rx: -ang } );
-		B.box( 'wood', X + ft / 2, midY - fp / 2 + 0.05, midZ, ft, fp, sideLen, { grain: 0, tint: st.trim, data: cF, rx: -ang } );
-		B.box( 'wood', - X - ft / 2, midY - fp / 2 + 0.05, midZ, ft, fp, sideLen, { grain: 0, tint: st.trim, data: cF, rx: -ang } );
+		B.box( 'wood', X + ft / 2, midY - fp / 2 + 0.05, midZ, ft, fp, sideLen, { grain: 2, tint: st.trim, data: cF, rx: -ang } );
+		B.box( 'wood', - X - ft / 2, midY - fp / 2 + 0.05, midZ, ft, fp, sideLen, { grain: 2, tint: st.trim, data: cF, rx: -ang } );
 
 		// Fill the side wall gaps up to the slanted roof
 		const wData = () => [ rand.next(), st.paint, s.siding ?? 1, st.weather ];
