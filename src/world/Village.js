@@ -149,18 +149,12 @@ export class Village {
 			{ name: 'B', x: 26.5, z: - 112.0, yaw: - 0.08, w: 6.2, d: 4.5, roof: 'flat', roofMat: 'metal', roofColor: R.grey, wall: P.cream, trim: T.white, accent: T.teal, siding: 6, paint: 10, weather: 0, rust: 0, porch: { depth: 2.5, rail: 'none' }, modernGlass: true },
 			{ name: 'C', x: 62.5, z: - 106.0, yaw: - 0.1, w: 8.0, d: 5.8, stories: 2, roof: 'flat', roofMat: 'metal', galv: true, rust: 0, wall: P.white, trim: T.white, accent: T.blue, siding: 6, porch: { depth: 2.5, rail: 'none' }, paint: 10, weather: 0, modernGlass: true },
 			{ name: 'D', x: 79.0, z: - 110.5, yaw: - 0.18, w: 7.0, d: 5.0, roof: 'flat', roofMat: 'metal', roofColor: R.grey, wall: P.white, trim: T.white, accent: T.yellow, siding: 6, porch: { depth: 2.5, width: 5.0, offset: - 0.6, rail: 'none' }, doorX: - 0.6, paint: 10, weather: 0, rust: 0, modernGlass: true },
-			{ name: 'E', x: 96.0, z: - 115.5, yaw: - 0.3, w: 6.4, d: 4.6, roof: 'flat', roofMat: 'metal', roofColor: R.grey, wall: P.cream, trim: T.white, accent: T.green, siding: 6, paint: 10, weather: 0, rust: 0, porch: { depth: 2.5, rail: 'none' }, modernGlass: true },
 			// middle row
 			{ name: 'F', x: - 3.0, z: - 125.0, yaw: 0.22, w: 6.6, d: 5.0, roof: 'flat', roofMat: 'metal', roofColor: R.grey, wall: P.white, trim: T.white, accent: T.red, siding: 6, porch: { depth: 2.5, rail: 'none' }, paint: 10, weather: 0, rust: 0, modernGlass: true },
 			{ name: 'G', x: 16.5, z: - 130.0, yaw: 0.1, w: 7.6, d: 5.6, stories: 2, roof: 'flat', roofMat: 'metal', roofColor: R.grey, wall: P.cream, trim: T.white, accent: T.teal, siding: 6, porch: { depth: 2.5, rail: 'none' }, paint: 10, weather: 0, rust: 0, modernGlass: true },
 			{ name: 'H', x: 57.5, z: - 128.5, yaw: - 0.05, w: 7.0, d: 5.2, roof: 'flat', roofMat: 'metal', roofColor: R.grey, wall: P.white, trim: T.cream, accent: T.yellow, siding: 6, porch: { depth: 2.5, rail: 'none' }, paint: 10, weather: 0, rust: 0, modernGlass: true },
 			{ name: 'I', x: 75.5, z: - 132.5, yaw: - 0.2, w: 6.4, d: 4.6, roof: 'flat', roofMat: 'metal', roofColor: R.grey, rust: 0, wall: P.white, trim: T.cream, accent: T.red, siding: 6, paint: 10, weather: 0, porch: { depth: 2.5, rail: 'none' }, modernGlass: true },
-			{ name: 'J', x: 96.5, z: - 135.0, yaw: - 0.32, w: 7.2, d: 5.0, roof: 'flat', roofMat: 'metal', roofColor: R.grey, galv: true, rust: 0, wall: P.cream, trim: T.white, accent: T.navy, siding: 6, porch: { depth: 2.5, rail: 'none' }, paint: 10, weather: 0, modernGlass: true },
 			// back row (plateau)
-			{ name: 'K', x: 3.5, z: - 151.0, yaw: 0.18, w: 7.0, d: 5.2, roof: 'flat', roofMat: 'metal', roofColor: R.grey, wall: P.white, trim: T.white, accent: T.blue, siding: 6, porch: { depth: 2.5, rail: 'none' }, paint: 10, weather: 0, rust: 0, modernGlass: true },
-			{ name: 'L', x: 30.5, z: - 149.0, yaw: 0.04, w: 8.4, d: 5.6, stories: 2, roof: 'flat', roofMat: 'metal', roofColor: R.grey, wall: P.white, trim: T.white, accent: T.green, siding: 6, porch: { depth: 2.5, rail: 'none' }, paint: 10, weather: 0, rust: 0, modernGlass: true },
-			{ name: 'M', x: 55.0, z: - 152.5, yaw: - 0.06, w: 6.2, d: 4.8, roof: 'flat', roofMat: 'metal', roofColor: R.grey, wall: P.cream, trim: T.white, accent: T.teal, siding: 6, paint: 10, weather: 0, rust: 0, porch: { depth: 2.5, rail: 'none' }, modernGlass: true },
-			{ name: 'N', x: 78.5, z: - 156.0, yaw: - 0.22, w: 7.0, d: 5.0, roof: 'flat', roofMat: 'metal', roofColor: R.grey, wall: P.white, trim: T.white, accent: T.navy, siding: 6, porch: { depth: 2.5, rail: 'none' }, paint: 10, weather: 0, rust: 0, modernGlass: true },
 		];
 
 		// stilt fishing huts just above the beach, close to the pier foot (floor ~3 m)
