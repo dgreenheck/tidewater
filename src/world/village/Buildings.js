@@ -357,35 +357,81 @@ export function buildHouse( ctx, s ) {
 	const rimY = floorY - rimH / 2;
 	const rimTint = s.rimRaw ? [ 1, 1, 1 ] : st.trim;
 	const rimData = () => [ rand.next(), s.rimRaw ? 0 : st.trimPaint, 0, st.weather ];
-	B.box( 'wood', 0, rimY, d / 2 + 0.01, w + 0.08, rimH, 0.06, { grain: 0, tint: rimTint, data: rimData() } );
 	B.box( 'wood', 0, rimY, - d / 2 - 0.01, w + 0.08, rimH, 0.06, { grain: 0, tint: rimTint, data: rimData() } );
+	if ( porch ) {
+		B.box( 'wood', pcx, rimY, d / 2 + pd + 0.01, pw + 0.08, rimH, 0.06, { grain: 0, tint: rimTint, data: rimData() } );
+		B.box( 'wood', pcx + pw / 2 + 0.01, rimY, d / 2 + pd / 2, 0.06, rimH, pd + 0.02, { grain: 2, tint: rimTint, data: rimData() } );
+		B.box( 'wood', pcx - pw / 2 - 0.01, rimY, d / 2 + pd / 2, 0.06, rimH, pd + 0.02, { grain: 2, tint: rimTint, data: rimData() } );
+	} else {
+		B.box( 'wood', 0, rimY, d / 2 + 0.01, w + 0.08, rimH, 0.06, { grain: 0, tint: rimTint, data: rimData() } );
+	}
 	B.box( 'wood', w / 2 + 0.01, rimY, 0, 0.06, rimH, d + 0.02, { grain: 2, tint: rimTint, data: rimData() } );
 	B.box( 'wood', - w / 2 - 0.01, rimY, 0, 0.06, rimH, d + 0.02, { grain: 2, tint: rimTint, data: rimData() } );
 
 	// ------------------------------------------------------------- walls & trim
+	let frontWallH = H;
+	if ( s.roof === 'flat' ) {
+		const pitch = Math.tan( 4 * Math.PI / 180 );
+		const Zb = d / 2 + 0.05;
+		frontWallH = H + ( d / 2 + Zb ) * pitch;
+	}
+	const frontWy = floorY + frontWallH / 2;
 	const wy = floorY + H / 2;
-	B.box( 'wood', 0, wy, d / 2 - t / 2, w, H, t, { grain: 0, tint: s.wall, data: wallData() } );
+
+	if ( s.modernGlass ) {
+
+		const margin = 0.3;
+		const pillarH = frontWallH - margin;
+		const pillarY = floorY + pillarH / 2;
+		const topBarY = floorY + frontWallH - margin / 2;
+
+		// Top solid wall margin
+		B.box( 'wood', 0, topBarY, d / 2 - t / 2, w, margin, t, { grain: 0, tint: s.wall, data: wallData() } );
+		
+		// Side pillars
+		B.box( 'wood', - w / 2 + margin / 2, pillarY, d / 2 - t / 2, margin, pillarH, t, { grain: 0, tint: s.wall, data: wallData() } );
+		B.box( 'wood', w / 2 - margin / 2, pillarY, d / 2 - t / 2, margin, pillarH, t, { grain: 0, tint: s.wall, data: wallData() } );
+		
+		// interior floor matching the deck
+		const npIn = Math.max( 2, Math.round( d / 0.138 ) );
+		const gapIn = ( d - npIn * 0.13 ) / ( npIn + 1 );
+		for ( let i = 0; i < npIn; i ++ ) {
+
+			const zc = - d / 2 + gapIn + 0.13 / 2 + i * ( 0.13 + gapIn );
+			B.box( 'wood', 0, floorY - 0.02, zc, w - 0.1, 0.04, 0.13, { grain: 0, tint: s.porchPaint || [ 1, 1, 1 ], data: WOOD( rand.next(), s.porchPaint ? 10 : 0, s.porchPaint ? 0.68 : 0, 0 ) } );
+
+		}
+
+	} else {
+
+		B.box( 'wood', 0, wy, d / 2 - t / 2, w, H, t, { grain: 0, tint: s.wall, data: wallData() } );
+
+	}
 	B.box( 'wood', 0, wy, - d / 2 + t / 2, w, H, t, { grain: 0, tint: s.wall, data: wallData() } );
 	B.box( 'wood', w / 2 - t / 2, wy, 0, t, H, d - 2 * t, { grain: 2, tint: s.wall, data: wallData() } );
 	B.box( 'wood', - w / 2 + t / 2, wy, 0, t, H, d - 2 * t, { grain: 2, tint: s.wall, data: wallData() } );
 	for ( const sx of [ - 1, 1 ] ) for ( const sz of [ - 1, 1 ] ) {
 
-		B.box( 'wood', sx * ( w / 2 - 0.05 ), wy, sz * ( d / 2 - 0.05 ), 0.135, H + 0.01, 0.135, { grain: 1, tint: st.trim, data: trimData() } );
+		const cornerH = ( sz > 0 && s.roof === 'flat' ) ? frontWallH : H;
+		const cornerY = floorY + cornerH / 2;
+		B.box( 'wood', sx * ( w / 2 - 0.05 ), cornerY, sz * ( d / 2 - 0.05 ), 0.135, cornerH + 0.01, 0.135, { grain: 1, tint: st.trim, data: trimData() } );
 
 	}
 
 	// frieze under the eaves and belt board between storeys
 	const band = ( y, h, proud ) => {
 
-		B.box( 'wood', 0, y, d / 2 + proud / 2, w + 0.02, h, proud, { grain: 0, tint: st.trim, data: trimData() } );
+		if ( ! s.modernGlass ) B.box( 'wood', 0, y, d / 2 + proud / 2, w + 0.02, h, proud, { grain: 0, tint: st.trim, data: trimData() } );
 		B.box( 'wood', 0, y, - d / 2 - proud / 2, w + 0.02, h, proud, { grain: 0, tint: st.trim, data: trimData() } );
 		B.box( 'wood', w / 2 + proud / 2, y, 0, proud, h, d + 0.02, { grain: 2, tint: st.trim, data: trimData() } );
 		B.box( 'wood', - w / 2 - proud / 2, y, 0, proud, h, d + 0.02, { grain: 2, tint: st.trim, data: trimData() } );
 
 	};
 
-	band( yE - 0.1, 0.2, 0.025 );
-	if ( stories > 1 ) band( floorY + storyH, 0.16, 0.03 );
+	if ( ! s.modernGlass ) {
+		band( yE - 0.1, 0.2, 0.025 );
+		if ( stories > 1 ) band( floorY + storyH, 0.16, 0.03 );
+	}
 
 	// ------------------------------------------------------------- roof
 	const roofType = s.roof || 'gable';
@@ -523,8 +569,8 @@ export function buildHouse( ctx, s ) {
 
 		// Fill the side wall gaps up to the slanted roof
 		const wData = () => [ rand.next(), st.paint, s.siding ?? 1, st.weather ];
-		const hBack = yR + ( -d/2 + Zb ) * pitch;
-		const hFront = yR + ( d/2 + Zb ) * pitch;
+		const hBack = yR + ( -d/2 + Zb ) * pitch + 0.02; // +0.02 to hide top face inside roof
+		const hFront = yR + ( d/2 + Zb ) * pitch + 0.02;
 		const lPts = [ V3( -w/2, yE, d/2 ), V3( -w/2, yE, -d/2 ), V3( -w/2, hBack, -d/2 ), V3( -w/2, hFront, d/2 ) ];
 		B.slab( 'wood', lPts, t, { up: V3(-1, 0, 0), uDir: V3(0, 0, 1), tint: s.wall, data: wData() } );
 		const rPts = [ V3( w/2, yE, -d/2 ), V3( w/2, yE, d/2 ), V3( w/2, hFront, d/2 ), V3( w/2, hBack, -d/2 ) ];
@@ -694,29 +740,34 @@ export function buildHouse( ctx, s ) {
 
 			if ( s.modernGlass && wl.front ) {
 
-				const wallSpan = wl.L - 0.2; // 0.1m border on each side
-				const numPanels = Math.max( 1, Math.round( wallSpan / 2.0 ) );
-				const fw = wallSpan / numPanels;
-				const startX = - wallSpan / 2 + fw / 2;
-				const fh = storyH * 0.85; // almost full height
-				const tp = 0.04;
-				const trim = st.trim;
-				const td = () => [ rand.next(), 0.9, 0, 0 ];
-				const py = baseY + 0.15;
+				if ( sIdx === 0 ) {
+					const margin = 0.3; // 30cm de borda de cada lado
+					const wallSpan = wl.L - ( margin * 2 );
+					const numPanels = Math.max( 1, Math.round( wallSpan / 2.0 ) );
+					const fw = wallSpan / numPanels;
+					const startX = - ( wl.L / 2 ) + margin + ( fw / 2 );
+					const tp = 0.04;
+					const fh = frontWallH - margin; // stops below top margin
+					const trim = st.trim;
+					const td = () => [ rand.next(), 0.9, 0, 0 ];
+					const py = floorY; // touches floor directly
 
-				for ( let i = 0; i < numPanels; i ++ ) {
-					
-					const px = startX + i * fw;
-					B.part( 'glass', quad01Part( fw, fh ), px, py + fh / 2, 0.015, { tint: lin( 0xfffaec ), data: [ rand.next(), 2, rand.chance( 0.6 ) ? 1 : 0, 0 ] } );
-					
-					B.box( 'wood', px, py + fh + tp / 2, tp / 2, fw, tp, tp, { grain: 0, skip: 32, tint: trim, data: td() } );
-					B.box( 'wood', px, py - tp / 2, tp / 2, fw, tp, tp, { grain: 0, skip: 32, tint: trim, data: td() } );
-					B.box( 'wood', px - fw / 2, py + fh / 2, tp / 2, tp, fh + 2 * tp, tp, { grain: 1, skip: 44, tint: trim, data: td() } );
-					
-					if ( i === numPanels - 1 ) {
-						B.box( 'wood', px + fw / 2, py + fh / 2, tp / 2, tp, fh + 2 * tp, tp, { grain: 1, skip: 44, tint: trim, data: td() } );
+					for ( let i = 0; i < numPanels; i ++ ) {
+						
+						const px = startX + i * fw;
+						const lit = rand.chance( 0.6 ) ? 1 : 0;
+						B.part( 'modernGlass', quad01Part( fw, fh ), px, py + fh / 2, 0.015, { tint: lin( 0xfffaec ), data: [ rand.next(), 2, lit, 0 ] } );
+						
+						if ( lit ) litWindows.push( B.toWorld( px, py + fh / 2, 0.35 ) );
+						
+						B.box( 'wood', px - fw / 2, py + fh / 2, tp / 2, tp, fh, tp, { grain: 1, skip: 44, tint: trim, data: td() } );
+						
+						if ( i === numPanels - 1 ) {
+							B.box( 'wood', px + fw / 2, py + fh / 2, tp / 2, tp, fh, tp, { grain: 1, skip: 44, tint: trim, data: td() } );
+						}
+
 					}
-
+					B.box( 'wood', 0, py + fh - tp / 2, tp / 2, wallSpan, tp, tp, { grain: 0, skip: 32, tint: trim, data: td() } );
 				}
 
 			} else {
@@ -761,7 +812,7 @@ export function buildHouse( ctx, s ) {
 		// planks
 		const plankW = pw;
 		const plankD = 0.13;
-		const np = Math.max( 2, Math.floor( pd / 0.145 ) );
+		const np = Math.max( 2, Math.round( pd / 0.138 ) ); // ~0.8cm gap target
 		const gap = ( pd - np * plankD ) / ( np + 1 );
 
 		for ( let i = 0; i < np; i ++ ) {
@@ -909,7 +960,7 @@ export function buildHouse( ctx, s ) {
 
 		};
 
-		const stairW = roofType === 'flat' ? pw : 1.2;
+		const stairW = roofType === 'flat' ? Math.min( 2.8, pw ) : 1.2;
 		const gapW = stairW / 2 + 0.08;
 		const gapL = stairX - gapW, gapR = stairX + gapW;
 		
@@ -1118,7 +1169,7 @@ export function buildHouse( ctx, s ) {
 	B.pop();
 
 	// extras placed in world space
-	if ( s.tank ) {
+	if ( false ) {
 
 		const tp = toW( s.tank * ( w / 2 + 1.25 ), - d / 4 );
 		const g = terrain.heightAt( tp.x, tp.z );

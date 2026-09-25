@@ -172,17 +172,11 @@ export class Village {
 		for ( const h of [ ...houses, ...huts ] ) {
 
 			h.curtain = h.curtain || curtain();
-			if ( h.foundation === undefined ) h.foundation = rand.chance( 0.5 ) ? 'stone' : 'posts';
-			if ( h.foundation === 'stone' ) h.stoneStyle = rand.chance( 0.6 ) ? 1 : 0;
+			if ( h.foundation === undefined ) h.foundation = 'posts';
 
 		}
 
-		const sheds = [
-			{ name: 'shed1', x: 21.5, z: - 119.5, yaw: 0.1, wall: lin( 0xb9c9b0 ), door: TRIMS.red },
-			{ name: 'shed2', x: 68.0, z: - 124.0, yaw: - 0.2, wall: lin( 0xd8b8a0 ), door: TRIMS.teal, galv: true },
-			{ name: 'shed3', x: 89.0, z: - 146.0, yaw: - 0.3, wall: lin( 0xa8c4d4 ), door: TRIMS.yellow },
-			{ name: 'shed4', x: 43.5, z: - 155.5, yaw: 0.0, wall: lin( 0xe8d8a8 ), door: TRIMS.blue },
-		];
+		const sheds = [];
 
 		return {
 			houses: [ ...houses, ...huts ],

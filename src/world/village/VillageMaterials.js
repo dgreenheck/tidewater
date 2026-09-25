@@ -494,11 +494,11 @@ fn vlmGlass( uvm: vec2f, aTint: vec3f, seed: f32, kind: f32, lit: f32 ) -> VlmGl
 	let Gl = textureSample( vlgGrime, smpAnisoRepeat, uvm * 0.45 + vec2f( seed * 3.7, seed * 1.3 ) );
 	let edgeD = min( min( uvm.x, 1.0 - uvm.x ), min( uvm.y, 1.0 - uvm.y ) );
 	let frameDirt = 0.0; // ( 0.0, 0.07, edgeD );
-	let curtain = ( 1.0 - smoothstep( 0.18, 0.3, uvm.x ) + smoothstep( 0.7, 0.82, uvm.x ) ) * step( 0.35, seed );
-	let folds = vlmN01( sin( uvm.x * 70.0 + seed * 20.0 ) );
 	let isLantern = step( 0.5, kind ) * step( kind, 1.5 );
 	let isModern = step( 1.5, kind );
-	let modernGlassColor = vec3f( 0.08, 0.15, 0.25 ) * ( Gl.a * 0.3 + 0.7 ); // Much brighter daytime blue reflection
+	let curtain = ( 1.0 - smoothstep( 0.18, 0.3, uvm.x ) + smoothstep( 0.7, 0.82, uvm.x ) ) * step( 0.35, seed ) * ( 1.0 - isModern );
+	let folds = vlmN01( sin( uvm.x * 70.0 + seed * 20.0 ) );
+	let modernGlassColor = vec3f( 0.18, 0.22, 0.23 ) * ( Gl.a * 0.3 + 0.7 );
 	let interior = mix( vec3f( 0.012, 0.014, 0.017 ) * ( Gl.a * 0.8 + 0.6 ), modernGlassColor, isModern );
 	let curtainBright = mix( 0.16, 0.65, isModern ); // Brighter unlit curtain for modern houses
 	var winCol = mix( interior, aTint * curtainBright * ( folds * 0.4 + 0.6 ), curtain );
@@ -702,6 +702,16 @@ export function createVillageMaterials( textures = new VillageTextures() ) {
 		stone: createStoneMaterial( T ),
 		fabric: createFabricMaterial( T ),
 		net: createNetMaterial( T ),
+		modernGlass: createModernGlassMaterial( T ),
 	};
 
+}
+
+export function createModernGlassMaterial( T ) {
+	const m = villageMaterial( { roughness: 0.1, metalness: 0.3, transparent: true, side: DoubleSide, depthWrite: false }, T, [], { surface: /* wgsl */`
+	s.albedo = vec3f( 0.02, 0.08, 0.35 );
+	s.alpha = 0.5;
+` } );
+	m.name = 'VillageModernGlass';
+	return m;
 }
