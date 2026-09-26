@@ -1,6 +1,7 @@
 import { FISH, fishLengthCm } from './FishTable.js';
 import { UPGRADES, nextLevel, FUEL_PRICE } from './Gear.js';
 import { FishPortrait } from './FishPortrait.js';
+import { DRINKS } from './Roadhouse.js';
 
 // DOM for the fishing game, in the look of the rest of the HUD (ui/ui.css tokens, .tw-glass):
 //   top right     purse and cooler / hold load
@@ -450,6 +451,7 @@ export class GameHUD {
 		this.vendor = vendor;
 		this.toggleInventory( false );
 		if ( vendor.kind === 'shop' ) this.renderShop();
+		else if ( vendor.kind === 'bar' ) this.renderBar();
 		else this.renderStand();
 		this.stand.classList.add( 'is-open' );
 		releaseMouse();
@@ -510,6 +512,26 @@ GameHUD.prototype.renderShop = function () {
 	const f = this.stand.querySelector( '[data-fuel]' );
 	if ( f ) f.onclick = () => this.game.refuel();
 	this._setControllerFocus( '[data-fuel], [data-buy]' );
+
+};
+
+GameHUD.prototype.renderBar = function () {
+
+	const s = this.game.state, v = this.vendor;
+	const pad = this.game.app.input.gamepadConnected;
+	const rows = Object.entries( DRINKS ).map( ( [ key, drink ] ) => `<div class="gm-shop-row"><span>${ drink.name }<small>${ drink.note }</small></span><button class="gm-btn" data-drink="${ key }" ${ drink.price > s.money ? 'disabled' : '' }>$${ drink.price }${ pad ? ' (A)' : '' }</button></div>` ).join( '' );
+	this.stand.innerHTML = `
+		<h2>${ v.name }</h2>
+		<p class="gm-sub">${ v.greeting } · You have $${ s.money.toLocaleString() }</p>
+		<div class="gm-list">${ rows }</div>
+		<div class="gm-foot"><span class="gm-sub">${ pad ? 'D-pad select · A order · B / X leave' : 'Your drink will be set on the counter' }</span><button class="gm-btn is-ghost" data-close>Leave (${ pad ? 'B / X' : 'E' })</button></div>`;
+	this.stand.querySelector( '[data-close]' ).onclick = () => this.closeStand();
+	for ( const b of this.stand.querySelectorAll( '[data-drink]' ) ) b.onclick = () => {
+
+		if ( this.game.buyDrink( b.dataset.drink ) ) this.closeStand();
+
+	};
+	this._setControllerFocus( '[data-drink]' );
 
 };
 

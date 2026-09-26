@@ -7,6 +7,7 @@ import { GameState } from './GameState.js';
 import { FishingRod } from './FishingRod.js';
 import { FishStand } from './FishStand.js';
 import { Chandlery } from './Chandlery.js';
+import { Roadhouse, DRINKS } from './Roadhouse.js';
 import { CatchDisplay } from './CatchDisplay.js';
 import { UPGRADES, fuelBurn } from './Gear.js';
 import { GameHUD } from './GameHUD.js';
@@ -36,7 +37,8 @@ export class Game {
 		this.display = new CatchDisplay( { scene: app.scene, stall: this.stand.iceFish() } );
 		this.landing = null; // { species, kg } while the caught fish swings in view
 		this.chandlery = new Chandlery( { scene: app.scene, terrain: app.terrainData, colliders: app.colliders, material: this.stand.material } );
-		this.vendors = [ this.stand.vendor, this.chandlery.vendor ];
+		this.roadhouse = new Roadhouse( { scene: app.scene, terrain: app.terrainData, colliders: app.colliders, material: this.stand.material } );
+		this.vendors = [ this.stand.vendor, this.chandlery.vendor, this.roadhouse.vendor ];
 		// boat upgrades: engine (thrust / top speed) and deck floodlights for night fishing
 		const b = app.boatCtl;
 		this._engineBase = { maxThrust: b.maxThrust, pitchSpeed: b.pitchSpeed };
@@ -107,6 +109,16 @@ export class Game {
 		const r = this.state.buy( key );
 		if ( r ) this.toast( `${ UPGRADES[ key ].name }: ${ r.label }` );
 		return r;
+
+	}
+
+	buyDrink( key ) {
+
+		const drink = DRINKS[ key ];
+		if ( ! drink || ! this.state.buyDrink( drink ) ) return false;
+		this.roadhouse.serve( key );
+		this.toast( `${ drink.name } ordered · Nia is setting it on the counter` );
+		return true;
 
 	}
 
@@ -261,7 +273,8 @@ export class Game {
 		this.updateBoat( dt );
 
 		// the traders
-		for ( const v of this.vendors ) v.update( dt, p.mode === 'walk' ? p.position : null );
+		for ( const v of this.vendors ) if ( v !== this.roadhouse.vendor ) v.update( dt, p.mode === 'walk' ? p.position : null );
+		this.roadhouse.update( dt, p.mode === 'walk' ? p.position : null );
 		this.updateVendors( inp, p );
 
 		// prompts when the player has nothing to say
@@ -356,6 +369,22 @@ export class Game {
 	updateVendors( inp, p ) {
 
 		const hud = this.hud;
+		if ( p.mode === 'walk' && this.roadhouse.canCollect( p.position ) ) {
+
+			if ( ! p.prompt ) p.prompt = { key: 'E', text: 'Pick up your drink' };
+			if ( inp.hit( 'KeyE' ) ) {
+
+				const key = this.roadhouse.collect();
+				if ( key ) {
+
+					this.state.collectDrink( key );
+					this.toast( `${ DRINKS[ key ].name } collected` );
+				}
+
+			}
+			return;
+
+		}
 		let near = null;
 		if ( p.mode === 'walk' ) for ( const v of this.vendors ) if ( v.inRange( p.position ) ) near = v;
 		for ( const v of this.vendors ) v.talking = !! ( hud && hud.standOpen && hud.vendor === v );
