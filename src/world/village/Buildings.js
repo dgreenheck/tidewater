@@ -54,17 +54,17 @@ function gableEndPart( base, hSide, hApex, t ) {
 function windowUnit( B, rand, cx, sillY, ww, wh, st ) {
 
 	// Minimalist window design
-	const tw = 0.12, tp = 0.12; // Deeper frame (0.12) to span the wall thickness (0.1)
-	const zOffset = -0.05; // Center of the wall
+	const tw = 0.12, tp = 0.16; // Deeper frame (0.16) to span the wall thickness (0.14)
+	const zOffset = -0.07; // Center of the wall
 	const trim = st.trim, td = () => [ rand.next(), st.trimPaint, 0, st.weather ];
 	
 	// Frame (drawn INSIDE the ww/wh boundary to avoid overlapping walls and floor)
 	// Left & Right
-	B.box( 'wood', cx - ww / 2 + tw / 2, sillY + wh / 2, zOffset, tw, wh - 2 * tw, tp, { grain: 1, skip: 44, tint: trim, data: td() } );
-	B.box( 'wood', cx + ww / 2 - tw / 2, sillY + wh / 2, zOffset, tw, wh - 2 * tw, tp, { grain: 1, skip: 44, tint: trim, data: td() } );
+	B.box( 'wood', cx - ww / 2 + tw / 2, sillY + wh / 2, zOffset, tw, wh - 2 * tw, tp, { grain: 1, skip: 12, tint: trim, data: td() } );
+	B.box( 'wood', cx + ww / 2 - tw / 2, sillY + wh / 2, zOffset, tw, wh - 2 * tw, tp, { grain: 1, skip: 12, tint: trim, data: td() } );
 	// Top & Bottom
-	B.box( 'wood', cx, sillY + wh - tw / 2, zOffset, ww, tw, tp, { grain: 0, skip: 32, tint: trim, data: td() } );
-	B.box( 'wood', cx, sillY + tw / 2, zOffset, ww, tw, tp, { grain: 0, skip: 32, tint: trim, data: td() } );
+	B.box( 'wood', cx, sillY + wh - tw / 2, zOffset, ww, tw, tp, { grain: 0, tint: trim, data: td() } );
+	B.box( 'wood', cx, sillY + tw / 2, zOffset, ww, tw, tp, { grain: 0, tint: trim, data: td() } );
 
 	if ( st.closed ) {
 
@@ -91,7 +91,7 @@ function windowUnit( B, rand, cx, sillY, ww, wh, st ) {
 	const numPanes = ww < 6 ? 3 : 4; // 2 or 3 vertical lines
 	for ( let i = 1; i < numPanes; i ++ ) {
 		const vx = cx - gW / 2 + ( gW / numPanes ) * i;
-		B.box( 'wood', vx, sillY + wh / 2, zOffset, slatW, gH, slatD, { grain: 1, skip: 44, tint: trim, data: td() } );
+		B.box( 'wood', vx, sillY + wh / 2, zOffset, slatW, gH, slatD, { grain: 1, skip: 12, tint: trim, data: td() } );
 	}
 
 	return lit ? { x: cx, y: sillY + wh / 2 } : null;
@@ -107,10 +107,10 @@ function doorUnit( B, rand, cx, floorY, st ) {
 
 	if ( st.modernGlass ) {
 
-		B.box( 'wood', cx - dw / 2 - tw / 2, floorY + dh / 2, tw / 2, tw, dh, tw, { grain: 1, skip: 44, tint: trim, data: td() } );
-		B.box( 'wood', cx + dw / 2 + tw / 2, floorY + dh / 2, tw / 2, tw, dh, tw, { grain: 1, skip: 44, tint: trim, data: td() } );
-		B.box( 'wood', cx, floorY + dh + tw / 2, tw / 2, dw + 2 * tw, tw, tw, { grain: 0, skip: 32, tint: trim, data: td() } );
-		B.box( 'wood', cx, floorY + tw / 2, tw / 2, dw + 2 * tw, tw, tw, { grain: 0, skip: 32, tint: trim, data: td() } );
+		B.box( 'wood', cx - dw / 2 - tw / 2, floorY + dh / 2, tw / 2, tw, dh, tw, { grain: 1, skip: 12, tint: trim, data: td() } );
+		B.box( 'wood', cx + dw / 2 + tw / 2, floorY + dh / 2, tw / 2, tw, dh, tw, { grain: 1, skip: 12, tint: trim, data: td() } );
+		B.box( 'wood', cx, floorY + dh + tw / 2, tw / 2, dw + 2 * tw, tw, tw, { grain: 0, tint: trim, data: td() } );
+		B.box( 'wood', cx, floorY + tw / 2, tw / 2, dw + 2 * tw, tw, tw, { grain: 0, tint: trim, data: td() } );
 		B.box( 'wood', cx, floorY + dh / 2, 0.02, dw, dh, 0.04, { grain: 1, tint: st.accent, data: [ rand.next(), st.paint, 6, st.weather ] } );
 
 	} else {
