@@ -1,5 +1,6 @@
 import { icon, brandMark } from './icons.js';
 import Stats from 'stats.js';
+import { t, onLocaleChange } from '../i18n/index.js';
 
 // Tidewater UI: settings panel (tabs → folders → controls), HUD, help,
 // photo mode, start overlay and loader. Plain DOM, no dependencies.
@@ -124,13 +125,13 @@ function skyAt( hour ) {
 
 }
 
-const PHASES = [ [ 4.8, 'Night' ], [ 5.6, 'Dawn' ], [ 6.4, 'Sunrise' ], [ 7.2, 'Golden hour' ], [ 10.5, 'Morning' ],
-	[ 13.5, 'Midday' ], [ 16.8, 'Afternoon' ], [ 17.6, 'Golden hour' ], [ 18.4, 'Sunset' ], [ 19.3, 'Dusk' ], [ 24, 'Night' ] ];
+const PHASES = [ [ 4.8, 'night' ], [ 5.6, 'dawn' ], [ 6.4, 'sunrise' ], [ 7.2, 'goldenHour' ], [ 10.5, 'morning' ],
+	[ 13.5, 'midday' ], [ 16.8, 'afternoon' ], [ 17.6, 'goldenHour' ], [ 18.4, 'sunset' ], [ 19.3, 'dusk' ], [ 24, 'night' ] ];
 
 const phaseAt = ( hh ) => {
 
-	for ( const [ end, name ] of PHASES ) if ( hh < end ) return name;
-	return 'Night';
+	for ( const [ end, name ] of PHASES ) if ( hh < end ) return t( 'phases.' + name );
+	return t( 'phases.night' );
 
 };
 

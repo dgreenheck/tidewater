@@ -3,48 +3,74 @@
 // state.upgrades[ key ]++ and the stats follow.
 //
 // Each track: levels[ 0 ] is what you start with; cost is the price of that level (0 for the first).
+import { t } from '../i18n/index.js';
+
 export const UPGRADES = {
 	// rod and reel
-	line: { name: 'Fishing line', levels: [
-		{ cost: 0, label: '8 lb mono', lineKg: 7 },
-		{ cost: 60, label: '15 lb mono', lineKg: 13 },
-		{ cost: 180, label: '30 lb braid', lineKg: 26 },
-		{ cost: 450, label: '60 lb braid', lineKg: 50 },
-	] },
-	reel: { name: 'Reel', levels: [
-		{ cost: 0, label: 'Old spinning reel', reelSpeed: 1.1 },
-		{ cost: 90, label: 'Smooth spinning reel', reelSpeed: 1.6 },
-		{ cost: 320, label: 'Conventional reel', reelSpeed: 2.2 },
-	] },
-	rod: { name: 'Rod', levels: [
-		{ cost: 0, label: 'Hand-me-down rod', castM: 22 },
-		{ cost: 75, label: '7 ft graphite rod', castM: 32 },
-		{ cost: 260, label: '9 ft surf rod', castM: 45 },
-	] },
+	line: {
+		get name() { return t( 'gear.line.name' ); },
+		levels: [
+			{ cost: 0, get label() { return t( 'gear.line.0' ); }, lineKg: 7 },
+			{ cost: 60, get label() { return t( 'gear.line.1' ); }, lineKg: 13 },
+			{ cost: 180, get label() { return t( 'gear.line.2' ); }, lineKg: 26 },
+			{ cost: 450, get label() { return t( 'gear.line.3' ); }, lineKg: 50 },
+		],
+	},
+	reel: {
+		get name() { return t( 'gear.reel.name' ); },
+		levels: [
+			{ cost: 0, get label() { return t( 'gear.reel.0' ); }, reelSpeed: 1.1 },
+			{ cost: 90, get label() { return t( 'gear.reel.1' ); }, reelSpeed: 1.6 },
+			{ cost: 320, get label() { return t( 'gear.reel.2' ); }, reelSpeed: 2.2 },
+		],
+	},
+	rod: {
+		get name() { return t( 'gear.rod.name' ); },
+		levels: [
+			{ cost: 0, get label() { return t( 'gear.rod.0' ); }, castM: 22 },
+			{ cost: 75, get label() { return t( 'gear.rod.1' ); }, castM: 32 },
+			{ cost: 260, get label() { return t( 'gear.rod.2' ); }, castM: 45 },
+		],
+	},
 	// boat
-	hold: { name: 'Fish hold', levels: [
-		{ cost: 0, label: 'Cooler', holdKg: 30 },
-		{ cost: 120, label: 'Ice chest', holdKg: 70 },
-		{ cost: 400, label: 'Insulated fish hold', holdKg: 160 },
-	] },
-	fuel: { name: 'Fuel tank', levels: [
-		{ cost: 0, label: '40 L tank', fuelL: 40 },
-		{ cost: 150, label: '80 L tank', fuelL: 80 },
-		{ cost: 380, label: '150 L tank', fuelL: 150 },
-	] },
-	engine: { name: 'Engine', levels: [
-		{ cost: 0, label: 'Tired diesel', speedMul: 1 },
-		{ cost: 300, label: 'Rebuilt diesel', speedMul: 1.15 },
-		{ cost: 700, label: 'Turbo diesel', speedMul: 1.3 },
-	] },
-	fishFinder: { name: 'Fish finder', levels: [
-		{ cost: 0, label: 'None', finder: false },
-		{ cost: 250, label: 'Fish finder (depth and fish on the HUD)', finder: true },
-	] },
-	lights: { name: 'Boat lights', levels: [
-		{ cost: 0, label: 'Nav lights only', deckLights: false },
-		{ cost: 140, label: 'Deck floodlights for night fishing', deckLights: true },
-	] },
+	hold: {
+		get name() { return t( 'gear.hold.name' ); },
+		levels: [
+			{ cost: 0, get label() { return t( 'gear.hold.0' ); }, holdKg: 30 },
+			{ cost: 120, get label() { return t( 'gear.hold.1' ); }, holdKg: 70 },
+			{ cost: 400, get label() { return t( 'gear.hold.2' ); }, holdKg: 160 },
+		],
+	},
+	fuel: {
+		get name() { return t( 'gear.fuel.name' ); },
+		levels: [
+			{ cost: 0, get label() { return t( 'gear.fuel.0' ); }, fuelL: 40 },
+			{ cost: 150, get label() { return t( 'gear.fuel.1' ); }, fuelL: 80 },
+			{ cost: 380, get label() { return t( 'gear.fuel.2' ); }, fuelL: 150 },
+		],
+	},
+	engine: {
+		get name() { return t( 'gear.engine.name' ); },
+		levels: [
+			{ cost: 0, get label() { return t( 'gear.engine.0' ); }, speedMul: 1 },
+			{ cost: 300, get label() { return t( 'gear.engine.1' ); }, speedMul: 1.15 },
+			{ cost: 700, get label() { return t( 'gear.engine.2' ); }, speedMul: 1.3 },
+		],
+	},
+	fishFinder: {
+		get name() { return t( 'gear.fishFinder.name' ); },
+		levels: [
+			{ cost: 0, get label() { return t( 'gear.fishFinder.0' ); }, finder: false },
+			{ cost: 250, get label() { return t( 'gear.fishFinder.1' ); }, finder: true },
+		],
+	},
+	lights: {
+		get name() { return t( 'gear.lights.name' ); },
+		levels: [
+			{ cost: 0, get label() { return t( 'gear.lights.0' ); }, deckLights: false },
+			{ cost: 140, get label() { return t( 'gear.lights.1' ); }, deckLights: true },
+		],
+	},
 };
 
 export const FUEL_PRICE = 1.5; // $ per litre of diesel at the chandlery

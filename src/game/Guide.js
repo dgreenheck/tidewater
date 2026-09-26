@@ -1,5 +1,6 @@
 import { STAND } from './FishStand.js';
 import { CHANDLERY } from './Chandlery.js';
+import { t, onLocaleChange } from '../i18n/index.js';
 
 // First-play guide:
 //  - an intro (3 cards) the first time the game starts, after the start overlay: the goal, the fishing
@@ -65,51 +66,53 @@ const CSS = /* css */`
 const k = ( ...keys ) => keys.map( ( x ) => `<kbd>${ x }</kbd>` ).join( '' );
 const row = ( keys, text ) => `<div class="gm-guide-row"><span class="k">${ keys }</span><span>${ text }</span></div>`;
 
-const CARDS = [
-	{
-		eyebrow: 'Welcome to ComuIsland',
-		title: 'Fish the island, sell your catch',
-		body: `<p>Catch fish from the <b>beach</b>, the <b>pier</b> or your <b>boat</b>. Different fish bite in the shallows, around the pier, over the reef and out in deep water, and they change with the time of day.</p>
-			<p>Sell your catch to <b>Joe</b> at the fish stand by the pier, then spend the money on upgrades from <b>Marta</b> at the chandlery by the boathouse: stronger line, a faster reel, a bigger hold, a fish finder and lights for fishing at night.</p>`,
-	},
-	{
-		eyebrow: 'Fishing',
-		title: 'Cast, strike, reel',
-		body: `<div class="gm-guide-list">
-			${ row( k( 'R' ), 'Take out the rod (by the water or on the boat)' ) }
-			${ row( k( 'Hold', 'LMB' ), 'Wind up, release to cast. Hold longer to cast farther' ) }
-			${ row( k( 'LMB' ), 'Strike when the bobber is <b>pulled under</b> (dips are only nibbles)' ) }
-			${ row( k( 'Hold', 'LMB' ), 'Reel in. <b>Let go when the tension turns red</b>, or the line snaps' ) }
-			${ row( k( 'RMB' ), 'Reel an empty line back in' ) }
-			${ row( k( 'I' ), 'Your cooler and fish log' ) }
-		</div>`,
-	},
-	{
-		eyebrow: 'Getting around',
-		title: 'Joe and Marta',
-		body: `<div class="gm-guide-list">
-			${ row( k( 'W', 'A', 'S', 'D' ), 'Move, mouse to look, <kbd>Shift</kbd> to run' ) }
-			${ row( k( 'E' ), 'Board the boat, take the helm, talk to Joe and Marta' ) }
-			${ row( k( 'F1' ), 'All controls, and this guide again' ) }
-		</div>
-		<div class="gm-guide-where">
-			<div class="is-joe"><i></i><span><b>Joe</b> · fish stand by the pier</span><em data-where="joe"></em></div>
-			<div class="is-marta"><i></i><span><b>Marta</b> · chandlery by the boathouse</span><em data-where="marta"></em></div>
-		</div>
-		<p style="margin:0;color:var(--tw-ink-3);font-size:var(--tw-fs-sm)">Both are marked on the map in the lower right.</p>`,
-	},
-];
+function getGuideCards() {
 
-const TIPS = {
-	rodOut: 'Hold the <b>left mouse button</b> to wind up and release to cast. Try deeper water, around the pier or over the reef.',
-	nibble: 'The bobber is dipping: something is <b>nibbling</b>. Wait until it is <b>pulled under</b>, then click to strike.',
-	fishOn: '<b>Hold the left mouse button</b> to reel. When the tension needle nears the <b>red</b>, let go until it settles, then reel again.',
-	caught: 'Into the cooler (<kbd>I</kbd>). Sell your catch to <b>Joe</b> at the fish stand by the pier: he is on the map.',
-	full: 'Your cooler is <b>full</b>. Sell to Joe, or buy a bigger hold from Marta at the chandlery.',
-	boat: 'Your boat. <kbd>E</kbd> to board, <kbd>E</kbd> again at the wheel to drive (<kbd>W</kbd><kbd>S</kbd> throttle, <kbd>A</kbd><kbd>D</kbd> steer). Diesel is sold by Marta.',
-	joe: '<b>Joe</b> buys your fish. <kbd>E</kbd> to see what he will pay.',
-	marta: '<b>Marta</b> sells upgrades and diesel. <kbd>E</kbd> to see her stock.',
-};
+	return [
+		{
+			eyebrow: t( 'guide.welcomeEyebrow' ),
+			title: t( 'guide.welcomeTitle' ),
+			body: `<p>${ t( 'guide.welcomeBody1' ) }</p>
+				<p>${ t( 'guide.welcomeBody2' ) }</p>`,
+		},
+		{
+			eyebrow: t( 'guide.fishingEyebrow' ),
+			title: t( 'guide.fishingTitle' ),
+			body: `<div class="gm-guide-list">
+				${ row( k( 'R' ), t( 'guide.fishingR' ) ) }
+				${ row( k( 'Hold', 'LMB' ), t( 'guide.fishingHoldLMB' ) ) }
+				${ row( k( 'LMB' ), t( 'guide.fishingStrikeLMB' ) ) }
+				${ row( k( 'Hold', 'LMB' ), t( 'guide.fishingReelLMB' ) ) }
+				${ row( k( 'RMB' ), t( 'guide.fishingRMB' ) ) }
+				${ row( k( 'I' ), t( 'guide.fishingI' ) ) }
+			</div>`,
+		},
+		{
+			eyebrow: t( 'guide.gettingAroundEyebrow' ),
+			title: t( 'guide.gettingAroundTitle' ),
+			body: `<div class="gm-guide-list">
+				${ row( k( 'W', 'A', 'S', 'D' ), t( 'guide.moveWASD' ) ) }
+				${ row( k( 'E' ), t( 'guide.interactE' ) ) }
+				${ row( k( 'F1' ), t( 'guide.helpF1' ) ) }
+			</div>
+			<div class="gm-guide-where">
+				<div class="is-joe"><i></i><span>${ t( 'guide.whereJoe' ) }</span><em data-where="joe"></em></div>
+				<div class="is-marta"><i></i><span>${ t( 'guide.whereMarta' ) }</span><em data-where="marta"></em></div>
+			</div>
+			<p style="margin:0;color:var(--tw-ink-3);font-size:var(--tw-fs-sm)">${ t( 'guide.mapNotice' ) }</p>`,
+		},
+	];
+
+}
+
+// compass word for the direction from (x, z) to (tx, tz); north is -z
+export function compassWord( x, z, tx, tz ) {
+
+	const a = Math.atan2( tx - x, - ( tz - z ) ); // 0 north, clockwise
+	const W = [ 'n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw' ];
+	return t( 'compass.' + W[ ( ( Math.round( a / ( Math.PI / 4 ) ) % 8 ) + 8 ) % 8 ] );
+
+}
 
 const h = ( tag, cls, html ) => {
 
@@ -119,15 +122,6 @@ const h = ( tag, cls, html ) => {
 	return e;
 
 };
-
-// compass word for the direction from (x, z) to (tx, tz); north is -z
-export function compassWord( x, z, tx, tz ) {
-
-	const a = Math.atan2( tx - x, - ( tz - z ) ); // 0 north, clockwise
-	const W = [ 'north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west' ];
-	return W[ ( ( Math.round( a / ( Math.PI / 4 ) ) % 8 ) + 8 ) % 8 ];
-
-}
 
 export class Guide {
 
@@ -143,15 +137,17 @@ export class Guide {
 		this.seen = this._load();
 		this.el = h( 'div', 'gm-guide tw-interactive', `<div class="gm-guide-card tw-glass" role="dialog" aria-modal="true" aria-live="polite">
 			<div class="gm-guide-eyebrow"></div><h2></h2><div class="gm-guide-body"></div>
-			<div class="gm-guide-foot"><div class="gm-guide-dots">${ CARDS.map( () => '<span></span>' ).join( '' ) }</div>
-			<div class="gm-guide-btns"><span class="gm-guide-hint">Enter · Esc to skip</span><button type="button" class="gm-btn is-ghost gm-guide-skip">Skip</button><button type="button" class="gm-btn gm-guide-next">Next</button></div></div></div>` );
+			<div class="gm-guide-foot"><div class="gm-guide-dots"><span></span><span></span><span></span></div>
+			<div class="gm-guide-btns"><span class="gm-guide-hint">${ t( 'guide.hintSkip' ) }</span><button type="button" class="gm-btn is-ghost gm-guide-skip">${ t( 'guide.skipBtn' ) }</button><button type="button" class="gm-btn gm-guide-next">${ t( 'guide.nextBtn' ) }</button></div></div></div>` );
 		this.card = this.el.firstChild;
 		this.eyebrow = this.el.querySelector( '.gm-guide-eyebrow' );
 		this.title = this.el.querySelector( 'h2' );
 		this.body = this.el.querySelector( '.gm-guide-body' );
 		this.dots = [ ...this.el.querySelectorAll( '.gm-guide-dots span' ) ];
 		this.nextBtn = this.el.querySelector( '.gm-guide-next' );
-		this.el.querySelector( '.gm-guide-skip' ).addEventListener( 'click', ( e ) => {
+		this.skipBtn = this.el.querySelector( '.gm-guide-skip' );
+		this.hintEl = this.el.querySelector( '.gm-guide-hint' );
+		this.skipBtn.addEventListener( 'click', ( e ) => {
 
 			e.stopPropagation();
 			this.close();
@@ -165,9 +161,19 @@ export class Guide {
 		} );
 		ui.root.append( this.el );
 
-		this.coach = h( 'div', 'gm-coach tw-glass', '<span class="gm-coach-eyebrow">Tip</span><span class="gm-coach-text"></span>' );
+		this.coach = h( 'div', 'gm-coach tw-glass', `<span class="gm-coach-eyebrow">${ t( 'guide.tipEyebrow' ) }</span><span class="gm-coach-text"></span>` );
+		this.coachEyebrow = this.coach.querySelector( '.gm-coach-eyebrow' );
 		this.coachText = this.coach.lastChild;
 		( ui.hud || ui.root ).append( this.coach );
+
+		onLocaleChange( () => {
+
+			this.skipBtn.textContent = t( 'guide.skipBtn' );
+			this.hintEl.textContent = t( 'guide.hintSkip' );
+			this.coachEyebrow.textContent = t( 'guide.tipEyebrow' );
+			if ( this.open ) this.show( this.step );
+
+		} );
 
 		this.open = false;
 		this.step = 0;
@@ -232,14 +238,15 @@ export class Guide {
 	// ---- intro
 	show( i ) {
 
+		const cards = getGuideCards();
 		this.step = i;
-		const c = CARDS[ i ];
+		const c = cards[ i ];
 		this.eyebrow.textContent = c.eyebrow;
 		this.title.textContent = c.title;
 		this.body.innerHTML = c.body;
 		this.dots.forEach( ( d, j ) => d.classList.toggle( 'is-on', j === i ) );
-		this.nextBtn.textContent = i === CARDS.length - 1 ? 'Let\'s fish' : 'Next';
-		if ( this.minimap ) this.minimap.highlight( i === CARDS.length - 1 ? [ 'joe', 'marta' ] : [] );
+		this.nextBtn.textContent = i === cards.length - 1 ? t( 'guide.letsFishBtn' ) : t( 'guide.nextBtn' );
+		if ( this.minimap ) this.minimap.highlight( i === cards.length - 1 ? [ 'joe', 'marta' ] : [] );
 		this._whereT = 0;
 		if ( ! this.open ) {
 
@@ -252,7 +259,8 @@ export class Guide {
 
 	next() {
 
-		if ( this.step < CARDS.length - 1 ) this.show( this.step + 1 );
+		const cards = getGuideCards();
+		if ( this.step < cards.length - 1 ) this.show( this.step + 1 );
 		else this.close();
 
 	}
@@ -310,7 +318,8 @@ export class Guide {
 
 			// live direction and distance to Joe and Marta
 			this._whereT -= dt;
-			if ( this._whereT <= 0 && this.step === CARDS.length - 1 ) {
+			const cards = getGuideCards();
+			if ( this._whereT <= 0 && this.step === cards.length - 1 ) {
 
 				this._whereT = 0.25;
 				const x = p.position.x, z = p.position.z;
@@ -368,7 +377,7 @@ export class Guide {
 			this._current = id;
 			this.seen[ id ] = true;
 			this._save();
-			this.coachText.innerHTML = TIPS[ id ];
+			this.coachText.innerHTML = t( 'guide.tips.' + id );
 			this.coach.classList.add( 'is-on' );
 			this._coachT = 7.5;
 

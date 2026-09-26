@@ -3,6 +3,7 @@ import { prepare, mergePrepared, box, cylinder, sphere, rod, torus, mat4 } from 
 import { createPropMaterial, PAT } from './GameMaterials.js';
 import { Vendor } from './Vendor.js';
 import { loadStallAssets, KitBuilder, LAYER, ATLAS, place, Shapes } from './StallKit.js';
+import { t } from '../i18n/index.js';
 
 // The upgrade trader by the boathouse: a scanned work table with a tackle box, spools of line and
 // reels, display shelves of rope and floats behind her, a rack of rods, jerrycans of diesel, fenders,
@@ -40,12 +41,12 @@ export class Chandlery {
 		const local = new Vector3( 0, 0, - 0.75 ).applyAxisAngle( new Vector3( 0, 1, 0 ), CHANDLERY.yaw );
 		const vx = CHANDLERY.x + local.x, vz = CHANDLERY.z + local.z;
 		this.vendor = new Vendor( {
-			name: 'Marta · Chandlery',
+			name: () => t( 'vendors.marta.name' ),
 			kind: 'shop',
 			position: new Vector3( vx, terrain.heightAt( vx, vz ), vz ),
 			yaw: CHANDLERY.yaw,
 			radius: 3.0,
-			greeting: 'Line, reels, a bigger hold, diesel. What do you need?',
+			greeting: () => t( 'vendors.marta.greeting' ),
 			material: this.material,
 			// realistic character (Rocketbox, MIT): the stand-in shows until it has loaded
 			character: { url: ( ( import.meta.env && import.meta.env.BASE_URL ) || '/' ) + 'models/characters/marta.glb', idle: 'idle_neutral_01', talk: 'gestic_talk_neutral_01', greet: 'wave_01' },

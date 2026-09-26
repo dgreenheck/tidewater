@@ -1,6 +1,7 @@
 import * as THREE from '../engine/index.js';
 import { WORLD } from '../world/WorldLayout.js';
 import { HOUSE } from '../world/boat/Wheelhouse.js';
+import { t } from '../i18n/index.js';
 
 const HOUSE_HELM = { x: HOUSE.helmX, z: HOUSE.seatZ };
 
@@ -152,7 +153,6 @@ export class Player {
 			return;
 
 		}
-
 		const look = inp.consumeLook();
 		this.yaw -= look.x * 0.0022;
 		this.pitch = THREE.MathUtils.clamp( this.pitch - look.y * 0.0022, - 1.5, 1.5 );
@@ -160,7 +160,7 @@ export class Player {
 		// (not with a line out or a fish in hand: E belongs to the fishing then)
 		if ( this.nearBoat() && ! this.busy ) {
 
-			this.prompt = { key: 'E', text: 'Board boat' };
+			this.prompt = { key: 'E', text: t( 'player.boardBoat' ) };
 			if ( inp.hit( 'KeyE' ) ) {
 
 				this.boardBoat();
@@ -379,7 +379,7 @@ export class Player {
 				if ( b.tag !== 'ladder' ) continue;
 				if ( Math.hypot( b.center.x - p.x, b.center.z - p.z ) < 1.1 ) {
 
-					this.prompt = { key: 'Space', text: 'Climb ladder' };
+					this.prompt = { key: 'Space', text: t( 'player.climbLadder' ) };
 					if ( inp.down( 'Space' ) || inp.down( 'KeyW' ) ) {
 
 						const top = this.colliders.groundHeightAt( b.center.x, b.center.z, 10 );
@@ -679,7 +679,7 @@ export class Player {
 
 		if ( nearHelm ) {
 
-			this.prompt = { key: 'E', text: 'Take the helm' };
+			this.prompt = { key: 'E', text: t( 'player.takeHelm' ) };
 			if ( inp.hit( 'KeyE' ) ) {
 
 				this.takeHelm();
@@ -694,7 +694,7 @@ export class Player {
 			const atRail = b.model.exitPoints.some( ( e ) => Math.hypot( p.x - e.x, p.z - e.z ) < 1.3 );
 			if ( ep && Math.hypot( p.x - ep.x, p.z - ep.z ) < 1.3 ) {
 
-				this.prompt = { key: 'E', text: 'Step ashore' };
+				this.prompt = { key: 'E', text: t( 'player.stepAshore' ) };
 				if ( inp.hit( 'KeyE' ) ) {
 
 					this.exitBoat( this._ashore );
@@ -704,7 +704,7 @@ export class Player {
 
 			} else if ( atRail ) {
 
-				this.prompt = { key: 'E', text: 'Jump overboard' };
+				this.prompt = { key: 'E', text: t( 'player.jumpOverboard' ) };
 				if ( inp.hit( 'KeyE' ) ) {
 
 					this.exitBoat( null, Math.sign( p.x ) || 1 );
@@ -747,7 +747,7 @@ export class Player {
 		if ( inp.down( 'KeyA' ) ) steer += 1;
 		if ( inp.down( 'KeyD' ) ) steer -= 1;
 		b.setInput( throttle, steer, dt );
-		this.prompt = { key: 'E', text: 'Leave helm   ·   V  camera' };
+		this.prompt = { key: 'E', text: t( 'player.leaveHelm' ) };
 
 		// keep the player attached (for audio / queries)
 		b.toWorld( b.model.helmEye, this.position );

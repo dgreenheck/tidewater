@@ -14,15 +14,15 @@ export class Vendor {
 
 	constructor( { name, kind = 'buyer', position, yaw = 0, radius = 2.6, greeting = '', idle = '', material = null, look = {}, character = null } ) {
 
-		this.name = name;
+		this._name = name;
 		this.kind = kind; // 'buyer' (fish stand) | 'shop' (upgrades)
-		this.greeting = greeting;
-		this.idle = idle;
+		this._greeting = greeting;
+		this._idle = idle;
 		this.radius = radius;
 		this.position = position.clone();
 		this.yaw = yaw;
 		this.group = new Group();
-		this.group.name = 'Vendor:' + name;
+		this.group.name = 'Vendor:' + ( typeof name === 'function' ? name() : name );
 		this.group.position.copy( position );
 		this.group.rotation.y = yaw;
 		this.model = new Group();
@@ -37,6 +37,42 @@ export class Vendor {
 		this.talking = false;
 		this._near = false;
 		if ( character ) this.loadCharacter( character.url, character ).catch( ( e ) => console.warn( 'Vendor: character failed to load', e ) );
+
+	}
+
+	get name() {
+
+		return typeof this._name === 'function' ? this._name() : this._name;
+
+	}
+
+	set name( v ) {
+
+		this._name = v;
+
+	}
+
+	get greeting() {
+
+		return typeof this._greeting === 'function' ? this._greeting() : this._greeting;
+
+	}
+
+	set greeting( v ) {
+
+		this._greeting = v;
+
+	}
+
+	get idle() {
+
+		return typeof this._idle === 'function' ? this._idle() : this._idle;
+
+	}
+
+	set idle( v ) {
+
+		this._idle = v;
 
 	}
 

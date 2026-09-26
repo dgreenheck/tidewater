@@ -53,6 +53,8 @@ const PATHS = {
 	compass: '<circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2.2 4.8-4.8 2.2 2.2-4.8z"/>',
 	anchor: '<circle cx="12" cy="5" r="2"/><path d="M12 7v14M5 12H3a9 9 0 0 0 18 0h-2M8 10h8"/>',
 	fog: '<path d="M4 8h13M3 12h18M6 16h14M9 20h7"/>',
+	globe: '<circle cx="12" cy="12" r="9"/><path d="M3.6 9h16.8M3.6 15h16.8M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/>',
+	gear: '<path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/>',
 
 	// sea states (preset chips)
 	calm: '<path d="M8 13.5a4 4 0 0 1 8 0"/><path d="M3 16.5h18"/><path d="M7 20h10"/>',
@@ -90,6 +92,7 @@ const ALIASES = {
 	night: 'moon', dusk: 'sunset', dawn: 'sunset', sunrise: 'sunset',
 	heading: 'compass', navigation: 'compass', harbor: 'anchor', dock: 'anchor', pier: 'anchor',
 	haze: 'fog', mist: 'fog', shadows: 'shadow', lightning: 'bolt', energy: 'bolt',
+	language: 'globe', lang: 'globe', general: 'gear', system: 'gear',
 };
 
 export function hasIcon( name ) {

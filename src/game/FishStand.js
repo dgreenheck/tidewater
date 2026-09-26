@@ -6,6 +6,7 @@ import { Vendor } from './Vendor.js';
 import { loadStallAssets, KitBuilder, LAYER, ATLAS, place, Shapes } from './StallKit.js';
 import { FishProps } from '../world/fish/FishProps.js';
 import { FISH } from './FishTable.js';
+import { t } from '../i18n/index.js';
 
 // The fish buyer's stall on the beach by the pier: a weathered plank shack with a rusty tin roof,
 // a wooden fish box of crushed ice on the counter, a hanging spring scale, floats, crates, a
@@ -48,13 +49,13 @@ export class FishStand {
 		// (local z 0.12: clear of the shelf at -0.78..-0.48 and the counter top from 0.58)
 		const local = new Vector3( 0.2, 0, 0.12 ).applyAxisAngle( new Vector3( 0, 1, 0 ), STAND.yaw );
 		this.vendor = new Vendor( {
-			name: 'Joe · Fish buyer',
+			name: () => t( 'vendors.joe.name' ),
 			kind: 'buyer',
 			position: new Vector3( STAND.x + local.x, y + STALL_FLOOR, STAND.z + local.z ),
 			yaw: STAND.yaw,
 			radius: 3.2,
-			greeting: 'Let\'s see what you caught. Fair prices, cash.',
-			idle: 'Nothing to sell? The grunts are biting off the pier.',
+			greeting: () => t( 'vendors.joe.greeting' ),
+			idle: () => t( 'vendors.joe.idle' ),
 			material: this.material,
 			// realistic character (Rocketbox, MIT): the stand-in shows until it has loaded
 			character: { url: ( ( import.meta.env && import.meta.env.BASE_URL ) || '/' ) + 'models/characters/joe.glb', idle: 'idle_neutral_01', talk: 'gestic_talk_relaxed_01', greet: 'wave_01' },

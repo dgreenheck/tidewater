@@ -1,6 +1,7 @@
 import { FISH, fishLengthCm } from './FishTable.js';
 import { UPGRADES, nextLevel, FUEL_PRICE } from './Gear.js';
 import { FishPortrait } from './FishPortrait.js';
+import { t, onLocaleChange } from '../i18n/index.js';
 
 // DOM for the fishing game, in the look of the rest of the HUD (ui/ui.css tokens, .tw-glass):
 //   top right     purse and cooler / hold load
@@ -172,11 +173,13 @@ export class GameHUD {
 		style.textContent = CSS;
 		document.head.append( style );
 
-		this.purse = h( 'div', 'gm-purse tw-glass', `<span class="gm-money">$0</span><span class="gm-cooler"><span class="gm-cooler-label">Cooler</span><span class="gm-cooler-bar"><span></span></span><span class="gm-cooler-kg">0 / 30 kg</span></span><span class="gm-gauge gm-fuel"><span>Fuel</span><span class="gm-cooler-bar gm-fuel-bar"><span></span></span><b class="gm-fuel-l">40 L</b></span><span class="gm-gauge gm-sonar"><span>Sonar</span><b class="gm-sonar-d">0 m</b><span class="gm-sonar-dots"></span></span>` );
+		this.purse = h( 'div', 'gm-purse tw-glass', `<span class="gm-money">$0</span><span class="gm-cooler"><span class="gm-cooler-label">${ t( 'hud.cooler' ) }</span><span class="gm-cooler-bar"><span></span></span><span class="gm-cooler-kg">0 / 30 kg</span></span><span class="gm-gauge gm-fuel"><span class="gm-fuel-label">${ t( 'hud.fuel' ) }</span><span class="gm-cooler-bar gm-fuel-bar"><span></span></span><b class="gm-fuel-l">40 L</b></span><span class="gm-gauge gm-sonar"><span class="gm-sonar-label">${ t( 'hud.sonar' ) }</span><b class="gm-sonar-d">0 m</b><span class="gm-sonar-dots"></span></span>` );
 		this.fuelEl = this.purse.querySelector( '.gm-fuel' );
+		this.fuelLabel = this.purse.querySelector( '.gm-fuel-label' );
 		this.fuelBar = this.purse.querySelector( '.gm-fuel-bar > span' );
 		this.fuelL = this.purse.querySelector( '.gm-fuel-l' );
 		this.sonarEl = this.purse.querySelector( '.gm-sonar' );
+		this.sonarLabel = this.purse.querySelector( '.gm-sonar-label' );
 		this.sonarD = this.purse.querySelector( '.gm-sonar-d' );
 		this.sonarDots = this.purse.querySelector( '.gm-sonar-dots' );
 		this.moneyEl = this.purse.querySelector( '.gm-money' );
@@ -186,14 +189,15 @@ export class GameHUD {
 		this.coolerLabel = this.purse.querySelector( '.gm-cooler-label' );
 
 		this.fight = h( 'div', 'gm-fight tw-glass', `
-			<div class="gm-fight-head"><span class="gm-fight-call">Fish on!</span><span class="gm-fight-dist">0 m</span></div>
+			<div class="gm-fight-head"><span class="gm-fight-call">${ t( 'hud.fishOn' ) }</span><span class="gm-fight-dist">0 m</span></div>
 			<div class="gm-tension"><span class="gm-band"></span><span class="gm-danger"></span><span class="gm-needle"></span></div>
-			<div class="gm-stamina"><span>Fish</span><span class="gm-stamina-bar"><span></span></span></div>` );
+			<div class="gm-stamina"><span class="gm-stam-label">${ t( 'hud.fish' ) }</span><span class="gm-stamina-bar"><span></span></span></div>` );
 		this.fCall = this.fight.querySelector( '.gm-fight-call' );
 		this.fDist = this.fight.querySelector( '.gm-fight-dist' );
 		this.fBand = this.fight.querySelector( '.gm-band' );
 		this.fNeedle = this.fight.querySelector( '.gm-needle' );
 		this.fStam = this.fight.querySelector( '.gm-stamina-bar > span' );
+		this.fStamLabel = this.fight.querySelector( '.gm-stam-label' );
 
 		this.bite = h( 'div', 'gm-bite', '!' );
 		this.cast = h( 'div', 'gm-cast', '<span></span>' );
@@ -213,6 +217,7 @@ export class GameHUD {
 		this.standOpen = false;
 		this._last = {};
 		game.state.onChange( () => this.refresh() );
+		onLocaleChange( () => this.refresh() );
 		this.refresh();
 
 	}
@@ -229,7 +234,10 @@ export class GameHUD {
 		const st = s.stats;
 		this.moneyEl.textContent = `$${ s.money.toLocaleString() }`;
 		const kg = s.holdKg;
-		this.coolerLabel.textContent = s.upgrades.hold > 0 ? 'Hold' : 'Cooler';
+		this.coolerLabel.textContent = s.upgrades.hold > 0 ? t( 'hud.hold' ) : t( 'hud.cooler' );
+		if ( this.fuelLabel ) this.fuelLabel.textContent = t( 'hud.fuel' );
+		if ( this.sonarLabel ) this.sonarLabel.textContent = t( 'hud.sonar' );
+		if ( this.fStamLabel ) this.fStamLabel.textContent = t( 'hud.fish' );
 		this.coolerKg.textContent = `${ kg.toFixed( 1 ) } / ${ st.holdKg } kg`;
 		this.coolerBar.style.width = `${ Math.min( 100, kg / st.holdKg * 100 ) }%`;
 		this.coolerEl.classList.toggle( 'is-full', kg > st.holdKg * 0.9 );
@@ -280,11 +288,11 @@ export class GameHUD {
 			this.fBand.style.width = `${ ( fight.band[ 1 ] - fight.band[ 0 ] ) / 1.05 * 100 }%`;
 			this.fStam.style.width = `${ fight.stamina * 100 }%`;
 			this.fDist.textContent = `${ fight.distance.toFixed( 1 ) } m`;
-			let call = 'Reel in', cls = '';
-			if ( fight.tension > 0.88 ) { call = 'Ease off!'; cls = 'is-warn'; }
-			else if ( fight.surge > 0.55 ) { call = 'It\'s running!'; cls = 'is-warn'; }
-			else if ( fight.tension < 0.15 ) { call = 'Slack line!'; cls = 'is-warn'; }
-			else if ( fight.tension >= fight.band[ 0 ] && fight.tension <= fight.band[ 1 ] ) { call = 'Good pressure'; cls = 'is-good'; }
+			let call = t( 'hud.fight.reelIn' ), cls = '';
+			if ( fight.tension > 0.88 ) { call = t( 'hud.fight.easeOff' ); cls = 'is-warn'; }
+			else if ( fight.surge > 0.55 ) { call = t( 'hud.fight.running' ); cls = 'is-warn'; }
+			else if ( fight.tension < 0.15 ) { call = t( 'hud.fight.slack' ); cls = 'is-warn'; }
+			else if ( fight.tension >= fight.band[ 0 ] && fight.tension <= fight.band[ 1 ] ) { call = t( 'hud.fight.goodPressure' ); cls = 'is-good'; }
 			this.fCall.textContent = call;
 			this.fCall.className = 'gm-fight-call ' + cls;
 
@@ -303,13 +311,14 @@ export class GameHUD {
 
 		const f = FISH[ info.species ];
 		const inch = info.cm / 2.54, lb = info.kg * 2.20462;
-		const badge = info.record ? '<span class="gm-badge is-record">★ New record</span>'
-			: info.newSpecies ? '<span class="gm-badge is-new">New species</span>' : '<span class="gm-badge is-plain">Catch</span>';
+		const badge = info.record ? `<span class="gm-badge is-record">★ ${ t( 'catch.newRecord' ) }</span>`
+			: info.newSpecies ? `<span class="gm-badge is-new">${ t( 'catch.newSpecies' ) }</span>` : `<span class="gm-badge is-plain">${ t( 'catch.catch' ) }</span>`;
 		let note;
-		if ( ! info.kept ) note = `<div class="gm-catch-note is-warn">No room in the ${ this.game.state.upgrades.hold > 0 ? 'hold' : 'cooler' } · you let it go</div>`;
-		else if ( info.record ) note = `<div class="gm-catch-note">Previous best <b>${ info.prevBestKg.toFixed( 2 ) } kg</b> · ${ info.prevBestCm } cm. Beaten by ${ ( info.kg - info.prevBestKg ).toFixed( 2 ) } kg.</div>`;
-		else if ( info.newSpecies ) note = '<div class="gm-catch-note">First one in your fish log.</div>';
-		else note = `<div class="gm-catch-note">Your best: ${ info.prevBestKg.toFixed( 2 ) } kg · ${ info.prevBestCm } cm</div>`;
+		const containerName = this.game.state.upgrades.hold > 0 ? t( 'hud.hold' ).toLowerCase() : t( 'hud.cooler' ).toLowerCase();
+		if ( ! info.kept ) note = `<div class="gm-catch-note is-warn">${ t( 'catch.noRoom', { container: containerName } ) }</div>`;
+		else if ( info.record ) note = `<div class="gm-catch-note">${ t( 'catch.previousBest', { prevKg: info.prevBestKg.toFixed( 2 ), prevCm: info.prevBestCm, diffKg: ( info.kg - info.prevBestKg ).toFixed( 2 ) } ) }</div>`;
+		else if ( info.newSpecies ) note = `<div class="gm-catch-note">${ t( 'catch.firstOne' ) }</div>`;
+		else note = `<div class="gm-catch-note">${ t( 'catch.yourBest', { prevKg: info.prevBestKg.toFixed( 2 ), prevCm: info.prevBestCm } ) }</div>`;
 		// splash burst around the fish as it lands in view
 		let drops = '';
 		for ( let i = 0; i < 26; i ++ ) {
@@ -321,6 +330,7 @@ export class GameHUD {
 
 		const c = this.catchCard;
 		c.style.setProperty( '--gm-catch-ms', `${ ms }ms` );
+		const whereFish = info.kept ? ( this.game.state.upgrades.hold > 0 ? t( 'catch.inHold' ) : t( 'catch.inCooler' ) ) : t( 'catch.letGo' );
 		c.innerHTML = `
 			<div class="gm-catch-top">
 				<div class="gm-catch-eyebrow">${ badge }</div>
@@ -330,12 +340,12 @@ export class GameHUD {
 			<div class="gm-catch-stage"><canvas></canvas><div class="gm-splash">${ drops }</div></div>
 			<div class="gm-catch-bottom">
 				<div class="gm-catch-stats">
-					<div class="gm-stat"><span>Length</span><b>${ info.cm }<small>cm</small></b><i>${ inch.toFixed( 1 ) } in</i></div>
-					<div class="gm-stat"><span>Weight</span><b>${ info.kg < 1 ? info.kg.toFixed( 2 ) : info.kg.toFixed( 1 ) }<small>kg</small></b><i>${ lb.toFixed( 1 ) } lb</i></div>
-					<div class="gm-stat is-value"><span>Value</span><b>$${ info.value }</b><i>${ info.kept ? 'in the cooler' : 'let go' }</i></div>
+					<div class="gm-stat"><span>${ t( 'catch.length' ) }</span><b>${ info.cm }<small>cm</small></b><i>${ inch.toFixed( 1 ) } in</i></div>
+					<div class="gm-stat"><span>${ t( 'catch.weight' ) }</span><b>${ info.kg < 1 ? info.kg.toFixed( 2 ) : info.kg.toFixed( 1 ) }<small>kg</small></b><i>${ lb.toFixed( 1 ) } lb</i></div>
+					<div class="gm-stat is-value"><span>${ t( 'catch.value' ) }</span><b>$${ info.value }</b><i>${ whereFish }</i></div>
 				</div>
 				${ note }
-				<div class="gm-catch-foot"><kbd>Click</kbd> or <kbd>E</kbd> to continue<span class="gm-catch-timer"><span></span></span></div>
+				<div class="gm-catch-foot">${ t( 'catch.continueHint' ) }<span class="gm-catch-timer"><span></span></span></div>
 			</div>`;
 		// restart the entrance even when a card is already up
 		c.classList.remove( 'is-on' );
@@ -385,14 +395,14 @@ export class GameHUD {
 	renderInventory() {
 
 		const s = this.game.state;
-		const rows = s.inventory.map( ( f ) => `<div class="gm-row has-cm"><span>${ FISH[ f.species ].name }${ f.record ? '<small>record</small>' : '' }</span><span class="gm-cm">${ f.cm ?? Math.round( fishLengthCm( f.species, f.kg ) ) } cm</span><span class="gm-kg">${ f.kg.toFixed( 2 ) } kg</span><span class="gm-val">$${ f.value }</span><button class="gm-mini" data-release="${ f.id }">Release</button></div>` ).join( '' );
-		const logged = Object.entries( s.log ).filter( ( [ k ] ) => FISH[ k ] ).map( ( [ k, v ] ) => `${ FISH[ k ].name }: ${ v.count } caught, best ${ v.bestKg.toFixed( 2 ) } kg · ${ v.bestCm ?? Math.round( fishLengthCm( k, v.bestKg ) ) } cm` ).join( '<br>' );
+		const rows = s.inventory.map( ( f ) => `<div class="gm-row has-cm"><span>${ FISH[ f.species ].name }${ f.record ? `<small>${ t( 'inventory.recordBadge' ) }</small>` : '' }</span><span class="gm-cm">${ f.cm ?? Math.round( fishLengthCm( f.species, f.kg ) ) } cm</span><span class="gm-kg">${ f.kg.toFixed( 2 ) } kg</span><span class="gm-val">$${ f.value }</span><button class="gm-mini" data-release="${ f.id }">${ t( 'inventory.releaseBtn' ) }</button></div>` ).join( '' );
+		const logged = Object.entries( s.log ).filter( ( [ k ] ) => FISH[ k ] ).map( ( [ k, v ] ) => t( 'inventory.logRow', { name: FISH[ k ].name, count: v.count, bestKg: v.bestKg.toFixed( 2 ), bestCm: v.bestCm ?? Math.round( fishLengthCm( k, v.bestKg ) ) } ) ).join( '<br>' );
 		this.inv.innerHTML = `
-			<h2>${ s.upgrades.hold > 0 ? 'Fish hold' : 'Cooler' }</h2>
-			<p class="gm-sub">${ s.inventory.length } fish · ${ s.holdKg.toFixed( 1 ) } of ${ s.stats.holdKg } kg · worth $${ s.holdValue }</p>
-			<div class="gm-list">${ rows || '<div class="gm-empty">Nothing yet. Cast from the pier, the beach or the boat.</div>' }</div>
-			${ logged ? `<div class="gm-log"><b>Fish log</b><br>${ logged }</div>` : '' }
-			<div class="gm-foot"><span class="gm-sub">Sell at the fish stand by the pier</span><button class="gm-btn is-ghost" data-close>Close (I)</button></div>`;
+			<h2>${ s.upgrades.hold > 0 ? t( 'inventory.fishHold' ) : t( 'inventory.cooler' ) }</h2>
+			<p class="gm-sub">${ t( 'inventory.sub', { count: s.inventory.length, holdKg: s.holdKg.toFixed( 1 ), maxKg: s.stats.holdKg, holdValue: s.holdValue } ) }</p>
+			<div class="gm-list">${ rows || `<div class="gm-empty">${ t( 'inventory.empty' ) }</div>` }</div>
+			${ logged ? `<div class="gm-log"><b>${ t( 'inventory.fishLog' ) }</b><br>${ logged }</div>` : '' }
+			<div class="gm-foot"><span class="gm-sub">${ t( 'inventory.sellHint' ) }</span><button class="gm-btn is-ghost" data-close>${ t( 'inventory.closeBtn' ) }</button></div>`;
 		this.inv.querySelector( '[data-close]' ).onclick = () => this.toggleInventory( false );
 		for ( const b of this.inv.querySelectorAll( '[data-release]' ) ) b.onclick = () => s.release( Number( b.dataset.release ) );
 
@@ -421,13 +431,13 @@ export class GameHUD {
 	renderStand() {
 
 		const s = this.game.state;
-		const v = this.vendor || { name: 'Fish buyer' };
-		const rows = s.inventory.map( ( f ) => `<div class="gm-row has-cm"><span>${ FISH[ f.species ].name }</span><span class="gm-cm">${ f.cm ?? Math.round( fishLengthCm( f.species, f.kg ) ) } cm</span><span class="gm-kg">${ f.kg.toFixed( 2 ) } kg</span><span class="gm-val">$${ f.value }</span><button class="gm-mini" data-sell="${ f.id }">Sell</button></div>` ).join( '' );
+		const v = this.vendor || { name: t( 'stand.defaultBuyer' ) };
+		const rows = s.inventory.map( ( f ) => `<div class="gm-row has-cm"><span>${ FISH[ f.species ].name }</span><span class="gm-cm">${ f.cm ?? Math.round( fishLengthCm( f.species, f.kg ) ) } cm</span><span class="gm-kg">${ f.kg.toFixed( 2 ) } kg</span><span class="gm-val">$${ f.value }</span><button class="gm-mini" data-sell="${ f.id }">${ t( 'stand.sellBtn' ) }</button></div>` ).join( '' );
 		this.stand.innerHTML = `
 			<h2>${ v.name }</h2>
-			<p class="gm-sub">${ s.inventory.length ? v.greeting || 'Let\'s see what you caught.' : v.idle || 'Come back when you\'ve got fish.' }</p>
-			<div class="gm-list">${ rows || '<div class="gm-empty">Your cooler is empty.</div>' }</div>
-			<div class="gm-foot"><button class="gm-btn is-ghost" data-close>Leave (E)</button><button class="gm-btn" data-all ${ s.inventory.length ? '' : 'disabled' }>Sell all · $${ s.holdValue }</button></div>`;
+			<p class="gm-sub">${ s.inventory.length ? v.greeting || t( 'stand.greeting' ) : v.idle || t( 'stand.idle' ) }</p>
+			<div class="gm-list">${ rows || `<div class="gm-empty">${ t( 'stand.empty' ) }</div>` }</div>
+			<div class="gm-foot"><button class="gm-btn is-ghost" data-close>${ t( 'stand.leaveBtn' ) }</button><button class="gm-btn" data-all ${ s.inventory.length ? '' : 'disabled' }>${ t( 'stand.sellAllBtn', { value: s.holdValue } ) }</button></div>`;
 		this.stand.querySelector( '[data-close]' ).onclick = () => this.closeStand();
 		this.stand.querySelector( '[data-all]' ).onclick = () => this.game.sellAll();
 		for ( const b of this.stand.querySelectorAll( '[data-sell]' ) ) b.onclick = () => this.game.sell( [ Number( b.dataset.sell ) ] );
@@ -446,17 +456,17 @@ GameHUD.prototype.renderShop = function () {
 		const next = nextLevel( s.upgrades, key );
 		const btn = next
 			? `<button class="gm-btn" data-buy="${ key }" ${ next.cost > s.money ? 'disabled' : '' }>$${ next.cost }</button>`
-			: '<span class="gm-have">Top of the line</span>';
-		return `<div class="gm-shop-row"><span>${ track.name }: ${ next ? next.label : cur.label }<small>Now: ${ cur.label }</small></span>${ btn }</div>`;
+			: `<span class="gm-have">${ t( 'shop.topOfLine' ) }</span>`;
+		return `<div class="gm-shop-row"><span>${ track.name }: ${ next ? next.label : cur.label }<small>${ t( 'shop.now', { label: cur.label } ) }</small></span>${ btn }</div>`;
 
 	} ).join( '' );
 	const missing = s.stats.fuelL - s.fuelL;
-	const fuelRow = `<div class="gm-shop-row"><span>Diesel · $${ FUEL_PRICE.toFixed( 2 ) } / L<small>Tank: ${ s.fuelL.toFixed( 0 ) } of ${ s.stats.fuelL } L</small></span>${ missing > 0.5 ? `<button class="gm-btn" data-fuel ${ s.money < FUEL_PRICE ? 'disabled' : '' }>Fill · $${ s.refuelCost() }</button>` : '<span class="gm-have">Full</span>' }</div>`;
+	const fuelRow = `<div class="gm-shop-row"><span>${ t( 'shop.diesel' ) } · $${ FUEL_PRICE.toFixed( 2 ) } / L<small>${ t( 'shop.tank', { litres: s.fuelL.toFixed( 0 ), max: s.stats.fuelL } ) }</small></span>${ missing > 0.5 ? `<button class="gm-btn" data-fuel ${ s.money < FUEL_PRICE ? 'disabled' : '' }>${ t( 'shop.fillBtn', { cost: s.refuelCost() } ) }</button>` : `<span class="gm-have">${ t( 'shop.full' ) }</span>` }</div>`;
 	this.stand.innerHTML = `
 		<h2>${ v.name }</h2>
-		<p class="gm-sub">${ v.greeting } · You have $${ s.money.toLocaleString() }</p>
+		<p class="gm-sub">${ t( 'shop.greetingSub', { greeting: v.greeting, money: s.money.toLocaleString() } ) }</p>
 		<div class="gm-list">${ fuelRow }${ rows }</div>
-		<div class="gm-foot"><span class="gm-sub">Upgrades take effect at once</span><button class="gm-btn is-ghost" data-close>Leave (E)</button></div>`;
+		<div class="gm-foot"><span class="gm-sub">${ t( 'shop.upgradesNotice' ) }</span><button class="gm-btn is-ghost" data-close>${ t( 'shop.leaveBtn' ) }</button></div>`;
 	this.stand.querySelector( '[data-close]' ).onclick = () => this.closeStand();
 	for ( const b of this.stand.querySelectorAll( '[data-buy]' ) ) b.onclick = () => this.game.buy( b.dataset.buy );
 	const f = this.stand.querySelector( '[data-fuel]' );
