@@ -2,6 +2,7 @@ import * as THREE from '../engine/index.js';
 import { UI } from './UI.js';
 import { G } from '../core/Globals.js';
 import { GroundBounce } from '../materials/GroundBounce.js';
+import { t, localizeDOM } from '../i18n/index.js';
 
 // Binds the Tidewater UI (panel + HUD) to the running app.
 const SEA = {
@@ -226,6 +227,12 @@ export class AppUI {
 		live.addInfo( { label: 'Frame rate', get: () => `${ ( app.fps || 0 ).toFixed( 0 ) } fps` } );
 		live.addInfo( { label: 'CPU per frame', get: () => `${ ( app.cpuMs || 0 ).toFixed( 2 ) } ms` } );
 		live.addInfo( { label: 'Render size', get: () => `${ app.sceneRenderer.width } × ${ app.sceneRenderer.height }` } );
+		live.addInfo( { label: 'GPU adapter', get: () => {
+
+			const info = app.gpu.adapter?.info;
+			return info && ( info.description || [ info.vendor, info.device ].filter( Boolean ).join( ' · ' ) ) || t( 'Unknown' );
+
+		} } );
 		const quality = perf.addFolder( 'Quality', { icon: 'layers' } );
 		quality.addSlider( { label: 'Render scale', object: s, key: 'renderScale', min: 0.5, max: 1, step: 0.05, format: ( v ) => `${ Math.round( v * 100 ) }%`, tooltip: 'Internal resolution; the temporal upscaler reconstructs the full output resolution.', onChange: ( v ) => app.setRenderScale( v ) } );
 		// anti-aliasing: the TAA with 2..16 jitter positions averaged per pixel, or none
@@ -242,6 +249,7 @@ export class AppUI {
 		quality.addToggle( { label: 'Water reflections', object: s, key: 'ssr', tooltip: 'Screen-space reflections of the pier, boats and hills on the water.', onChange: ( v ) => { app.waterMaterial.params.ssr.value = v ? 1 : 0; } } );
 
 		this._t = 0;
+		localizeDOM( ui.root );
 
 	}
 

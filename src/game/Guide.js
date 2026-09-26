@@ -1,5 +1,6 @@
 import { STAND } from './FishStand.js';
 import { CHANDLERY } from './Chandlery.js';
+import { t, translateHTML } from '../i18n/index.js';
 
 // First-play guide:
 //  - an intro (3 cards) the first time the game starts, after the start overlay: the goal, the fishing
@@ -101,21 +102,21 @@ const CARDS = [
 ];
 
 const TIPS = {
-	rodOut: 'Hold the <b>left mouse button</b> to wind up and release to cast. Try deeper water, around the pier or over the reef.',
-	nibble: 'The bobber is dipping: something is <b>nibbling</b>. Wait until it is <b>pulled under</b>, then click to strike.',
-	fishOn: '<b>Hold the left mouse button</b> to reel. When the tension needle nears the <b>red</b>, let go until it settles, then reel again.',
-	caught: 'Into the cooler (<kbd>I</kbd>). Sell your catch to <b>Joe</b> at the fish stand by the pier: he is on the map.',
-	full: 'Your cooler is <b>full</b>. Sell to Joe, or buy a bigger hold from Marta at the chandlery.',
-	boat: 'Your boat. <kbd>E</kbd> to board, <kbd>E</kbd> again at the wheel to drive (<kbd>W</kbd><kbd>S</kbd> throttle, <kbd>A</kbd><kbd>D</kbd> steer). Diesel is sold by Marta.',
-	joe: '<b>Joe</b> buys your fish. <kbd>E</kbd> to see what he will pay.',
-	marta: '<b>Marta</b> sells upgrades and diesel. <kbd>E</kbd> to see her stock.',
+	rodOut: 'Hold the left mouse button to wind up and release to cast. Try deeper water, around the pier or over the reef.',
+	nibble: 'The bobber is dipping: something is nibbling. Wait until it is pulled under, then click to strike.',
+	fishOn: 'Hold the left mouse button to reel. When the tension needle nears the red, let go until it settles, then reel again.',
+	caught: 'Into the cooler (I). Sell your catch to Joe at the fish stand by the pier: he is on the map.',
+	full: 'Your cooler is full. Sell to Joe, or buy a bigger hold from Marta at the chandlery.',
+	boat: 'Your boat. Press E to board, press E at the wheel to drive (W/S throttle, A/D steer). Marta sells diesel.',
+	joe: 'Joe buys your fish. Press E to see what he will pay.',
+	marta: 'Marta sells upgrades and diesel. Press E to see her stock.',
 };
 
 const h = ( tag, cls, html ) => {
 
 	const e = document.createElement( tag );
 	if ( cls ) e.className = cls;
-	if ( html !== undefined ) e.innerHTML = html;
+	if ( html !== undefined ) e.innerHTML = translateHTML( html );
 	return e;
 
 };
@@ -234,11 +235,11 @@ export class Guide {
 
 		this.step = i;
 		const c = CARDS[ i ];
-		this.eyebrow.textContent = c.eyebrow;
-		this.title.textContent = c.title;
-		this.body.innerHTML = c.body;
+		this.eyebrow.textContent = t( c.eyebrow );
+		this.title.textContent = t( c.title );
+		this.body.innerHTML = translateHTML( c.body );
 		this.dots.forEach( ( d, j ) => d.classList.toggle( 'is-on', j === i ) );
-		this.nextBtn.textContent = i === CARDS.length - 1 ? 'Let\'s fish' : 'Next';
+		this.nextBtn.textContent = t( i === CARDS.length - 1 ? 'Let\'s fish' : 'Next' );
 		if ( this.minimap ) this.minimap.highlight( i === CARDS.length - 1 ? [ 'joe', 'marta' ] : [] );
 		this._whereT = 0;
 		if ( ! this.open ) {
@@ -314,10 +315,10 @@ export class Guide {
 
 				this._whereT = 0.25;
 				const x = p.position.x, z = p.position.z;
-				for ( const [ id, t ] of [ [ 'joe', STAND ], [ 'marta', CHANDLERY ] ] ) {
+				for ( const [ id, target ] of [ [ 'joe', STAND ], [ 'marta', CHANDLERY ] ] ) {
 
 					const el = this.body.querySelector( `[data-where="${ id }"]` );
-					if ( el ) el.textContent = `${ Math.round( Math.hypot( t.x - x, t.z - z ) ) } m ${ compassWord( x, z, t.x, t.z ) }`;
+					if ( el ) el.textContent = `${ Math.round( Math.hypot( target.x - x, target.z - z ) ) } m ${ t( compassWord( x, z, target.x, target.z ) ) }`;
 
 				}
 
@@ -368,7 +369,7 @@ export class Guide {
 			this._current = id;
 			this.seen[ id ] = true;
 			this._save();
-			this.coachText.innerHTML = TIPS[ id ];
+			this.coachText.textContent = t( TIPS[ id ] );
 			this.coach.classList.add( 'is-on' );
 			this._coachT = 7.5;
 

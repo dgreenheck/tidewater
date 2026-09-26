@@ -120,6 +120,9 @@ Add these to the URL, for example `?fly&noAudio`:
 | `noCaustics` | Skip caustics |
 | `noVeg` | Skip vegetation |
 | `noSim` | Skip the swash (shallow-water) simulation |
+| `lang` | Preview a locale, for example `?lang=ja`; supported: `en`, `zh-CN`, `zh-TW`, `ja`, `es`, `ru`, `de`, `fr` |
+
+The game otherwise follows the first supported language in the browser's language preferences and falls back to English. See [the i18n guide](docs/i18n.md) to add or update interface copy.
 
 ## Running locally
 

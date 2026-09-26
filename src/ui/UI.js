@@ -1,4 +1,5 @@
 import { icon, brandMark } from './icons.js';
+import { t, translateHTML, localizeDOM } from '../i18n/index.js';
 
 // Tidewater UI: settings panel (tabs → folders → controls), HUD, help,
 // photo mode, start overlay and loader. Plain DOM, no dependencies.
@@ -25,9 +26,9 @@ function h( tag, cls, attrs ) {
 
 			const v = attrs[ k ];
 			if ( v === undefined || v === null || v === false ) continue;
-			if ( k === 'html' ) e.innerHTML = v;
-			else if ( k === 'text' ) e.textContent = v;
-			else e.setAttribute( k, v === true ? '' : String( v ) );
+			if ( k === 'html' ) e.innerHTML = translateHTML( v );
+			else if ( k === 'text' ) e.textContent = t( v );
+			else e.setAttribute( k, v === true ? '' : String( [ 'aria-label', 'title', 'placeholder', 'alt', 'data-tip', 'data-tip-hint' ].includes( k ) ? t( v ) : v ) );
 
 		}
 
@@ -292,7 +293,7 @@ class Control {
 	setLabel( text ) {
 
 		this.label = String( text );
-		if ( this.labelText ) this.labelText.textContent = this.label;
+		if ( this.labelText ) this.labelText.textContent = t( this.label );
 		return this;
 
 	}
@@ -337,7 +338,7 @@ class Control {
 
 		}
 
-		const rst = h( 'button', 'tw-reset', { type: 'button', tabindex: '-1', 'aria-label': `Reset ${ text }`, 'data-tip': 'Reset to default', html: icon( 'reset' ) } );
+		const rst = h( 'button', 'tw-reset', { type: 'button', tabindex: '-1', 'aria-label': t( 'Reset {label}', { label: t( text ) } ), 'data-tip': 'Reset to default', html: icon( 'reset' ) } );
 		rst.addEventListener( 'click', ( e ) => {
 
 			e.stopPropagation();
@@ -523,7 +524,7 @@ class SliderControl extends Control {
 		if ( txt !== this._txt ) {
 
 			this._txt = txt;
-			this.valueEl.innerHTML = txt;
+			this.valueEl.innerHTML = translateHTML( txt );
 			this.track.setAttribute( 'aria-valuenow', typeof v === 'number' ? v : 0 );
 			this.track.setAttribute( 'aria-valuetext', this.format ? this.valueEl.textContent : `${ this._num( v ) }${ this.unit ? ' ' + this.unit : '' }` );
 
@@ -912,7 +913,7 @@ class SelectControl extends Control {
 
 			} else {
 
-				this.btnText.textContent = i >= 0 ? this.options[ i ].label : String( this.value ?? '—' );
+				this.btnText.textContent = t( i >= 0 ? this.options[ i ].label : String( this.value ?? '—' ) );
 
 			}
 
@@ -1043,7 +1044,7 @@ class ButtonControl extends Control {
 		super( parent, o, 'button' );
 		const variant = o.variant === 'primary' || o.variant === 'ghost' ? o.variant : 'default';
 		this.btn = h( 'button', `tw-btn tw-btn-${ variant }`, { type: 'button' } );
-		this.btn.innerHTML = ( o.icon ? icon( o.icon ) : '' ) + `<span class="tw-btn-text">${ esc( this.label ) }</span>`;
+		this.btn.innerHTML = translateHTML( ( o.icon ? icon( o.icon ) : '' ) + `<span class="tw-btn-text">${ esc( this.label ) }</span>` );
 		if ( o.tooltip ) this.btn.dataset.tip = o.tooltip;
 		this.btn.addEventListener( 'click', ( e ) => {
 
@@ -1066,7 +1067,7 @@ class ButtonControl extends Control {
 	setLabel( text ) {
 
 		this.label = String( text );
-		this.btn.querySelector( '.tw-btn-text' ).textContent = this.label;
+		this.btn.querySelector( '.tw-btn-text' ).textContent = t( this.label );
 		return this;
 
 	}
@@ -1104,7 +1105,7 @@ class PresetsControl extends Control {
 		this.chips = this.presets.map( ( p, i ) => {
 
 			const b = h( 'button', 'tw-chip', { type: 'button', role: 'radio', 'aria-checked': 'false' } );
-			b.innerHTML = ( p.icon ? icon( p.icon ) : '' ) + `<span>${ esc( p.label ) }</span>`;
+			b.innerHTML = translateHTML( ( p.icon ? icon( p.icon ) : '' ) + `<span>${ esc( p.label ) }</span>` );
 			if ( p.tooltip || p.description ) b.dataset.tip = p.tooltip || p.description;
 			b.addEventListener( 'click', () => this.apply( i ) );
 			grid.append( b );
@@ -1740,8 +1741,8 @@ class Folder extends Container {
 		this.el = h( 'section', 'tw-folder' + ( parent instanceof Folder ? ' is-nested' : '' ) );
 		const bodyId = uid( 'tw-fb' );
 		this.head = h( 'button', 'tw-folder-head', { type: 'button', 'aria-expanded': 'true', 'aria-controls': bodyId } );
-		this.head.innerHTML = ( iconName ? icon( iconName, 'tw-folder-ico' ) : '' ) +
-			`<span class="tw-folder-title">${ esc( this.label ) }</span>` + icon( 'chevron-down', 'tw-folder-chev' );
+		this.head.innerHTML = translateHTML( ( iconName ? icon( iconName, 'tw-folder-ico' ) : '' ) +
+			`<span class="tw-folder-title">${ esc( this.label ) }</span>` + icon( 'chevron-down', 'tw-folder-chev' ) );
 		if ( tooltip ) this.head.dataset.tip = tooltip;
 		this.wrap = h( 'div', 'tw-folder-wrap', { id: bodyId } );
 		this.body = h( 'div', 'tw-folder-body' );
@@ -1792,7 +1793,7 @@ class Folder extends Container {
 	setLabel( text ) {
 
 		this.label = String( text );
-		this.head.querySelector( '.tw-folder-title' ).textContent = this.label;
+		this.head.querySelector( '.tw-folder-title' ).textContent = t( this.label );
 		return this;
 
 	}
@@ -1814,7 +1815,7 @@ class Tab extends Container {
 		this.page = h( 'div', 'tw-page', { role: 'tabpanel', id: pageId, 'aria-labelledby': tabId, hidden: true } );
 		this.body = this.page;
 		this.btn = h( 'button', 'tw-tab', { type: 'button', role: 'tab', id: tabId, 'aria-selected': 'false', 'aria-controls': pageId, tabindex: '-1', 'data-tip': this.label } );
-		this.btn.innerHTML = icon( iconName ) + `<span class="tw-tab-label">${ esc( this.label ) }</span>`;
+		this.btn.innerHTML = translateHTML( icon( iconName ) + `<span class="tw-tab-label">${ esc( this.label ) }</span>` );
 		this.railBtn = h( 'button', 'tw-rail-btn', { type: 'button', 'aria-label': this.label, 'data-tip': this.label, 'data-tip-side': 'left' } );
 		this.railBtn.innerHTML = icon( iconName );
 		this.btn.addEventListener( 'click', () => ui.selectTab( id ) );
@@ -1909,6 +1910,7 @@ export class UI {
 		this.tipEl = h( 'div', 'tw-tip', { role: 'tooltip', 'aria-hidden': 'true' } );
 		this.root.append( this.tipEl );
 		this.container.append( this.root );
+		localizeDOM( this.root );
 
 		this._bindGlobal();
 		this._timer = setInterval( () => this._tick(), 250 );
@@ -1924,13 +1926,13 @@ export class UI {
 		// top-left: frame rate, then brand + traversal mode
 		const tl = h( 'div', 'tw-tl' );
 		const stats = this.statsEl = h( 'div', 'tw-stats tw-glass', { 'data-level': 'good', 'aria-hidden': 'true' } );
-		stats.innerHTML = `
+		stats.innerHTML = translateHTML( `
 			<div class="tw-stats-main"><span class="tw-fps">--</span><span class="tw-fps-unit">fps</span></div>
 			<canvas class="tw-spark"></canvas>
 			<div class="tw-stats-sub">
 				<span class="tw-kv"><span class="tw-k">frame</span><span class="tw-v tw-ms">--</span></span>
 				<span class="tw-kv tw-kv-gpu" hidden><span class="tw-k">gpu</span><span class="tw-v tw-gpu">--</span></span>
-			</div>`;
+			</div>` );
 		this.fpsEl = stats.querySelector( '.tw-fps' );
 		this.msEl = stats.querySelector( '.tw-ms' );
 		this.gpuEl = stats.querySelector( '.tw-gpu' );
@@ -1960,13 +1962,13 @@ export class UI {
 
 		// left: depth sounder
 		this.depthEl = h( 'div', 'tw-depth tw-glass', { 'aria-hidden': 'true' } );
-		this.depthEl.innerHTML = `
+		this.depthEl.innerHTML = translateHTML( `
 			<canvas class="tw-depth-tape"></canvas>
 			<span class="tw-depth-mark"></span>
 			<div class="tw-depth-read">
 				<div class="tw-depth-line"><span class="tw-depth-num">0.0</span><span class="tw-unit">m</span></div>
 				<span class="tw-g-lab">Depth</span>
-			</div>`;
+			</div>` );
 		this.depthCanvas = this.depthEl.querySelector( '.tw-depth-tape' );
 		this.depthNum = this.depthEl.querySelector( '.tw-depth-num' );
 
@@ -1974,7 +1976,7 @@ export class UI {
 
 		// the one element that survives photo mode
 		this.photoHint = h( 'div', 'tw-photo-hint' );
-		this.photoHint.innerHTML = '<kbd>P</kbd><span>Exit photo mode</span>';
+		this.photoHint.innerHTML = translateHTML( '<kbd>P</kbd><span>Exit photo mode</span>' );
 
 		this.root.append( hud, this.photoHint );
 
@@ -2021,7 +2023,7 @@ export class UI {
 		}
 
 		const gid = uid( 'tw-rpm' );
-		el.innerHTML = `
+		el.innerHTML = translateHTML( `
 			<div class="tw-thr">
 				<div class="tw-thr-bar"><span class="tw-thr-pos"></span><span class="tw-thr-neg"></span><span class="tw-thr-zero"></span></div>
 				<span class="tw-thr-val">0%</span>
@@ -2045,7 +2047,7 @@ export class UI {
 					<path class="tw-lubber" d="M45.5 1.5h9L50 8.5z"/>
 				</svg>
 				<div class="tw-hdg"><span class="tw-hdg-num">000°</span><span class="tw-hdg-card">N</span></div>
-			</div>`;
+			</div>` );
 		this.bThrPos = el.querySelector( '.tw-thr-pos' );
 		this.bThrNeg = el.querySelector( '.tw-thr-neg' );
 		this.bThrText = el.querySelector( '.tw-thr-val' );
@@ -2103,7 +2105,7 @@ export class UI {
 		this.pages = h( 'div', 'tw-pages' );
 
 		const foot = h( 'footer', 'tw-panel-foot' );
-		foot.innerHTML = '<span><kbd>H</kbd>Hide</span><span><kbd>F1</kbd>Controls</span><span><kbd>P</kbd>Photo mode</span>';
+		foot.innerHTML = translateHTML( '<span><kbd>H</kbd>Hide</span><span><kbd>F1</kbd>Controls</span><span><kbd>P</kbd>Photo mode</span>' );
 		panel.append( head, this.tabBar, this.pages, foot );
 
 		// collapsed state: a slim rail of tab icons
@@ -2449,7 +2451,7 @@ export class UI {
 
 		if ( ! t.isConnected || ( t.classList.contains( 'tw-tab' ) && t.classList.contains( 'is-active' ) ) ) return;
 		const tip = this.tipEl;
-		tip.innerHTML = esc( t.dataset.tip ) + ( t.dataset.tipHint ? `<small>${ esc( t.dataset.tipHint ) }</small>` : '' );
+		tip.innerHTML = translateHTML( esc( t.dataset.tip ) + ( t.dataset.tipHint ? `<small>${ esc( t.dataset.tipHint ) }</small>` : '' ) );
 		tip.classList.add( 'is-on' );
 		const r = t.getBoundingClientRect(), tr = tip.getBoundingClientRect();
 		const left = t.dataset.tipSide === 'left';
@@ -2490,7 +2492,7 @@ export class UI {
 		labels.forEach( ( text, i ) => {
 
 			const it = h( 'button', 'tw-menu-item', { type: 'button', role: 'option', 'aria-selected': String( i === index ), tabindex: '-1' } );
-			it.innerHTML = `<span>${ esc( text ) }</span>${ i === index ? icon( 'check' ) : '' }`;
+			it.innerHTML = translateHTML( `<span>${ esc( text ) }</span>${ i === index ? icon( 'check' ) : '' }` );
 			it.addEventListener( 'click', ( e ) => {
 
 				onPick( i );
@@ -2700,7 +2702,7 @@ export class UI {
 		if ( label === this._mode ) return;
 		this._mode = label;
 		this.modeEl.classList.toggle( 'is-empty', ! label );
-		this.modeText.textContent = label;
+		this.modeText.textContent = t( label );
 		const ic = modeIcon( label );
 		if ( ic !== this._modeIc ) {
 
@@ -2722,14 +2724,14 @@ export class UI {
 		const on = key != null && key !== '';
 		if ( on ) {
 
-			const k = String( key ), t = text == null ? '' : String( text );
-			if ( k !== this._pKey || t !== this._pText ) {
+			const k = String( key ), txt = text == null ? '' : String( text );
+			if ( k !== this._pKey || txt !== this._pText ) {
 
 				this._pKey = k;
-				this._pText = t;
+				this._pText = txt;
 				this.promptKey.textContent = k;
 				this.promptKey.classList.toggle( 'is-wide', k.length > 1 );
-				this.promptText.textContent = t;
+				this.promptText.textContent = t( txt );
 				this.promptEl.classList.remove( 'is-bump' );
 				void this.promptEl.offsetWidth;
 				this.promptEl.classList.add( 'is-bump' );
@@ -3020,7 +3022,7 @@ export class UI {
 	// Brief notification. Returns a function that dismisses it early.
 	toast( text, ms = 2500 ) {
 
-		text = String( text ?? '' );
+		text = t( String( text ?? '' ) );
 		if ( ! text ) return () => {};
 
 		// repeated message: restart its timer instead of stacking duplicates
@@ -3236,9 +3238,10 @@ export class UI {
 
 		if ( status != null ) {
 
-			ld.status = String( status );
+			const source = String( status );
+			ld.status = t( source );
 			if ( ld.statusEl ) ld.statusEl.textContent = ld.status;
-			L.classList.toggle( 'is-compiling', /shader/i.test( ld.status ) );
+			L.classList.toggle( 'is-compiling', /shader/i.test( source ) );
 
 		}
 
@@ -3263,7 +3266,7 @@ export class UI {
 		const ld = this._loaderState();
 		L.classList.add( 'tw-error' );
 		L.classList.remove( 'is-compiling' );
-		ld.status = String( message );
+		ld.status = t( String( message ) );
 		if ( ld.statusEl ) ld.statusEl.textContent = ld.status;
 		ld.stopped = true;
 
