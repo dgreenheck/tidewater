@@ -6,6 +6,8 @@ import { ShadowBlobs } from './ShadowBlobs.js';
 import { SwashProbe } from './SwashProbe.js';
 import { Shorebirds } from './Shorebirds.js';
 import { Shiba } from './Shiba.js';
+import { BoarBatch } from './BoarBatch.js';
+import { Boars } from './Boars.js';
 
 // Water heights for birds on / just above the sea (pelicans skimming, floating, diving): a few
 // WaterQuery slots handed out to whoever asks, read back 1-3 frames later. Falls back to sea level.
@@ -87,6 +89,9 @@ export class Wildlife {
 		this.critterBatch = new CritterBatch();
 		scene.add( this.critterBatch.mesh );
 		this.crabs = new Crabs( { terrain, village, colliders, vegetation } );
+		this.boarBatch = new BoarBatch( { csm } );
+		scene.add( this.boarBatch.mesh );
+		this.boars = new Boars( { terrain, village, colliders, vegetation } );
 		this.blobs = new ShadowBlobs();
 		scene.add( this.blobs.mesh );
 		let probe = null;
@@ -154,6 +159,7 @@ export class Wildlife {
 		const viewer = this.updateViewer( dt, camera, player );
 		this.birdBatch.begin();
 		this.critterBatch.begin();
+		this.boarBatch.begin();
 		this.blobs.begin();
 		if ( this.test ) this.test( this.birdBatch, dt, this.critterBatch, this.blobs );
 		else {
@@ -161,12 +167,14 @@ export class Wildlife {
 			this.birds.update( dt, viewer, this.birdBatch, camera );
 			this.shorebirds.update( dt, viewer, this.birdBatch, camera, this.blobs );
 			this.crabs.update( dt, viewer, this.critterBatch, camera, this.blobs );
+			this.boars.update( dt, viewer, this.boarBatch, camera, this.blobs );
 			this.shiba.update( dt, viewer );
 
 		}
 
 		this.birdBatch.commit();
 		this.critterBatch.commit();
+		this.boarBatch.commit();
 		this.blobs.commit();
 		this.water.endFrame();
 		this.cpuMs += ( performance.now() - t0 - this.cpuMs ) * 0.05;
