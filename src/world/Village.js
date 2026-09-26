@@ -3,7 +3,7 @@ import { mulberry32 } from '../util/Noise.js';
 import { Builder, Batch } from './village/GeoBuilder.js';
 import { createVillageMaterials } from './village/VillageMaterials.js';
 import { VillageTextures } from './village/TextureBaker.js';
-import { buildHouse, buildBoathouse, buildMarketStall, buildShed } from './village/Buildings.js';
+import { buildHouse, buildBoathouse, buildShed } from './village/Buildings.js';
 import { buildBoardwalk } from './village/Boardwalk.js';
 import { buildPier, PIER } from './Pier.js';
 import { G } from '../engine/render/Frame.js';
@@ -125,7 +125,6 @@ export class Village {
 		];
 
 		this.footprints.push( buildBoathouse( ctx( this.harbor ), specs.boathouse ).footprint );
-		this.footprints.push( buildMarketStall( ctx( this.town ), specs.stall ).footprint );
 
 		this._beachProps( ctx( this.harbor ) );
 		this._villageProps( ctx( this.town ) );
@@ -190,7 +189,6 @@ export class Village {
 			houses: [ ...houses, ...huts ],
 			sheds,
 			boathouse: { x: 92.5, z: - 57.5, yaw: - 0.08, wall: lin( 0x8fb3a8 ), paint: 0.58 },
-			stall: { x: 40.2, z: - 113.2, yaw: 0.05 },
 		};
 
 	}
@@ -420,16 +418,14 @@ export class Village {
 
 		// fish drying rack and scattered gear in the village
 		// fishRack( B, 67.0, g( 67.0, - 118.5 ), - 118.5, - 0.25, 2.4, rand.next(), rand );
-		colliders.addBox( new Vector3( 67.0, g( 67.0, - 118.5 ) + 1.0, - 118.5 ), new Vector3( 1.35, 1.0, 0.75 ), - 0.25, { tag: 'rack' } );
-		this.foundationChecks.push( { x: 67.0, y: g( 67.0, - 118.5 ) - 0.2, z: - 118.5 } );
+		// colliders.addBox( new Vector3( 67.0, g( 67.0, - 118.5 ) + 1.0, - 118.5 ), new Vector3( 1.35, 1.0, 0.75 ), - 0.25, { tag: 'rack' } );
+		// this.foundationChecks.push( { x: 67.0, y: g( 67.0, - 118.5 ) - 0.2, z: - 118.5 } );
 		// netRack( B, 5.5, g( 5.5, - 136.5 ), - 136.5, 0.35, 3.0, lin( 0x6a5a8a ), rand.next(), ( lx, lz ) => g( 5.5 + lx * Math.cos( 0.35 ) + lz * Math.sin( 0.35 ), - 136.5 - lx * Math.sin( 0.35 ) + lz * Math.cos( 0.35 ) ) );
-		for ( const sx of [ - 1.5, 1.5 ] ) {
-
-			const px = 5.5 + sx * Math.cos( 0.35 ), pz = - 136.5 - sx * Math.sin( 0.35 );
-			colliders.addCylinder( px, pz, 0.1, g( px, pz ) - 0.4, g( px, pz ) + 2.0, { tag: 'rack' } );
-			this.foundationChecks.push( { x: px, y: g( px, pz ) - 0.4, z: pz } );
-
-		}
+		// for ( const sx of [ - 1.5, 1.5 ] ) {
+		// 	const px = 5.5 + sx * Math.cos( 0.35 ), pz = - 136.5 - sx * Math.sin( 0.35 );
+		// 	colliders.addCylinder( px, pz, 0.1, g( px, pz ) - 0.4, g( px, pz ) + 2.0, { tag: 'rack' } );
+		// 	this.foundationChecks.push( { x: px, y: g( px, pz ) - 0.4, z: pz } );
+		// }
 
 		const clutter = [
 			// Emptying this to remove hardcoded barrels/crates/traps

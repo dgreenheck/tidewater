@@ -1,4 +1,4 @@
-# Tidewater
+# ComuIsland
 
 An island fishing game for the browser. Cast from the pier, the beach or your own boat, fight the fish,
 sell your catch to Joe at the fish stand, and spend it on better gear at Marta's chandlery. Around it is a
