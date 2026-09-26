@@ -26,9 +26,11 @@ export class Shiba {
 		scene.add( this.group );
 		this.model = null;
 		this.behaviorTimer = 5.5;
-		this.reallyCloseRangeSq = 3 * 3;
+		this.reallyCloseRangeSq = 1.5 * 1.5;
 		this.reallyClose = false;
-		this.hasGreetedPlayer = false;
+		// A close approach is special: it may interrupt ordinary idle behaviour, but
+		// only once per minute so the dog does not loop tricks while the player watches.
+		this.closeTrickCooldown = 0;
 		this.visibleRangeSq = 75 * 75;
 		this.ready = this.load();
 
@@ -68,6 +70,7 @@ export class Shiba {
 	playCloseTrick() {
 
 		const action = CLOSE_TRICKS[ Math.floor( Math.random() * CLOSE_TRICKS.length ) ];
+		this.closeTrickCooldown = 60;
 		this.model.play( action, { fade: 0.35, loop: false } );
 
 	}
@@ -75,6 +78,7 @@ export class Shiba {
 	update( dt, viewer = null ) {
 
 		if ( ! this.model ) return;
+		this.closeTrickCooldown = Math.max( 0, this.closeTrickCooldown - dt );
 		const d2 = viewer ? ( viewer.x - this.position.x ) ** 2 + ( viewer.z - this.position.z ) ** 2 : Infinity;
 		if ( d2 > this.visibleRangeSq ) {
 
@@ -91,17 +95,9 @@ export class Shiba {
 			this.reallyClose = reallyClose;
 
 		}
-		// The dog's first close encounter is an immediate friendly trick. Once it has completed,
-		// the normal one-minute cooldown applies before any further animation can begin.
-		if ( enteredCloseRange && ! this.hasGreetedPlayer ) {
-
-			this.hasGreetedPlayer = true;
-			this.playCloseTrick();
-
-		}
-		// Shake and roll over are only allowed while the player remains really close. If they leave midway,
-		// blend back to an ordinary standing or sitting pose instead of finishing it at a distance.
-		if ( ! reallyClose && CLOSE_TRICKS.includes( this.model.current ) ) this.playRestPose();
+		// Within one metre, immediately greet the player with either Shake or Roll over.
+		// The separate cooldown means a later approach only repeats the trick after a minute.
+		if ( enteredCloseRange && this.closeTrickCooldown <= 0 ) this.playCloseTrick();
 		if ( REST_POSES.includes( this.model.current ) ) {
 
 			this.behaviorTimer -= dt;
@@ -109,7 +105,8 @@ export class Shiba {
 
 				if ( reallyClose ) {
 
-					this.playCloseTrick();
+					if ( this.closeTrickCooldown <= 0 ) this.playCloseTrick();
+					else this.behaviorTimer = this.closeTrickCooldown;
 
 				} else {
 
