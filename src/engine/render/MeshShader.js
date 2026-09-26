@@ -206,6 +206,11 @@ ${ fetch }#if !HAS_POSITION
 	o.uv = v.uv;
 	o.color = v.color;
 	o.clip = frame.viewProj * vec4f( wp, 1.0 );
+#if MAIN_DEPTH_PREPASS
+	// A hair behind the colour pass' own depth (reversed Z): the two pipelines may round the
+	// position differently, and the colour fragment must still pass its greater-equal test.
+	o.clip.z *= 0.999999;
+#endif
 #if PASS_MAIN
 	o.curClip = frame.viewProjNoJitter * vec4f( wp, 1.0 );
 	o.prevClip = frame.prevViewProjNoJitter * vec4f( pwp, 1.0 );

@@ -302,6 +302,7 @@ ${ common }
 	// backlit crowns glow at the edges (light through the leaves), like the near canopy
 	s.translucency = vegTranslucency( albedo, in.N, 0.35, in.P );`,
 		} );
+		mat.depthPrepass = true;
 
 		// frame sampler: the frame's direction, the view ray re-projected on its plane
 		mat.modules.push( new ( vegModule.constructor )( {

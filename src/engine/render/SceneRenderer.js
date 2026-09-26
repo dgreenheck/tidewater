@@ -23,6 +23,9 @@ export const SCENE_FORMATS = [ 'rgba16float', 'rgba16float', 'rgba8unorm' ];
 export const DEPTH_FORMAT = 'depth32float';
 
 // Scene renderer (internal resolution = output * scale, upscaled later by TAAU):
+//   0. depth pre-pass of the cut-out foliage (materials with depthPrepass): only the cut-out test
+//      runs, so in 1. hidden foliage layers and the ground behind them fail the depth test before
+//      their full shading (a discarding shader otherwise defeats the GPU's hidden-surface removal)
 //   1. opaque layer -> sceneRT (HDR color + velocity + water mask, reversed-Z float depth), then the
 //      background (sky) where nothing was drawn
 //   2. copies of color / depth -> opaqueCopy (sampled by the water for refraction / absorption), and a
@@ -60,6 +63,7 @@ export class SceneRenderer {
 		this.background = null;
 		this.clearColor = [ 0, 0, 0, 1 ];
 		this.onBeforeWater = null;
+		this.depthPrepass = true;
 
 	}
 
@@ -121,10 +125,18 @@ export class SceneRenderer {
 		const views = rt.textures.map( ( t ) => t.view() );
 		const common = { camera, colorViews: views, colorFormats: rt.formats, depthView: rt.depthTexture.view(), depthFormat: DEPTH_FORMAT, kind: 'main' };
 
+		// 0. foliage depth
+		const prepass = this.depthPrepass;
+		if ( prepass ) mr.render( scene, {
+			camera, label: 'foliage depth', kind: 'depth', castersOnly: false, layerMask: 1 << LAYERS.OPAQUE,
+			filter: ( o ) => o.material && o.material.depthPrepass === true, defines: { MAIN_DEPTH_PREPASS: 1 },
+			depthView: rt.depthTexture.view(), depthFormat: DEPTH_FORMAT, clearDepth: 0,
+		} );
+
 		// 1. opaques + background
 		mr.render( scene, {
 			...common, label: 'opaque', layerMask: 1 << LAYERS.OPAQUE,
-			clearColors: [ this.clearColor, [ 0, 0, 0, 0 ], [ 0, 0, 0, 0 ] ], clearDepth: 0,
+			clearColors: [ this.clearColor, [ 0, 0, 0, 0 ], [ 0, 0, 0, 0 ] ], clearDepth: prepass ? null : 0,
 			after: this.background ? ( rp ) => this.background.draw( rp ) : null,
 		} );
 

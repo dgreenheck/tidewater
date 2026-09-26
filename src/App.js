@@ -28,6 +28,8 @@ import { Village } from './world/Village.js';
 import { Reef } from './world/Reef.js';
 import { BoatModel } from './world/BoatModel.js';
 import { JetSkiModel } from './world/JetSkiModel.js';
+import { HeliModel } from './world/HeliModel.js';
+import { HeliPad } from './world/HeliPad.js';
 import { Rocks } from './world/Rocks.js';
 import { Debris } from './world/Debris.js';
 import { Wildlife } from './world/wildlife/Wildlife.js';
@@ -62,6 +64,7 @@ import { STAND } from './game/FishStand.js';
 import { CHANDLERY } from './game/Chandlery.js';
 import { BoatController } from './player/BoatController.js';
 import { BoatSpray } from './player/BoatSpray.js';
+import { HeliController } from './player/HeliController.js';
 import { WakeSim } from './ocean/WakeSim.js';
 import { Vegetation } from './world/Vegetation.js';
 import { SoundScape } from './audio/SoundScape.js';
@@ -337,6 +340,18 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		this.jetSkiCtl.quaternion.setFromAxisAngle( _up, WORLD.jetSkiDock.heading );
 		this.jetSkiCtl.apply();
 		this.boatSpray = new BoatSpray( { boat: this.boatCtl, spray: this.spray } );
+		// the single-seat helicopter parked on the beach (E next to it to fly)
+		this.heli = new HeliModel();
+		scene.add( this.heli.group );
+		// helipad at the helicopter position
+		this.heliPad = new HeliPad( { position: WORLD.helicopter.position, yaw: WORLD.helicopter.yaw } );
+		scene.add( this.heliPad.group );
+		underwaterMode( this.heli.group, 'lite' );
+		underwaterMode( this.heliPad.group, 'lite' );
+		this.heliCtl = new HeliController( {
+			model: this.heli, terrain: this.terrainData, colliders: this.colliders, query: this.query, spray: this.spray,
+			position: WORLD.helicopter.position, yaw: WORLD.helicopter.yaw,
+		} );
 		// humpback cruising the deep water around the island (model fetched from public/models/whale)
 		this.whale = new Whale( { scene, terrain: this.terrainData, query: this.query, spray: this.spray } );
 		try {
@@ -354,7 +369,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		// interactive wake around the boat (Kelvin pattern, bow/stern waves, prop wash foam)
 		this.wake = new WakeSim( renderer, { terrainGPU: this.terrainGPU, boat: this.boatCtl, colliders: this.colliders } );
 		this.surface.wake = this.wake;
-		this.player = new Player( { camera, input: this.input, terrain: this.terrainData, colliders: this.colliders, query: this.query, boat: this.boatCtl, jetSki: this.jetSkiCtl, reef: this.reef } );
+		this.player = new Player( { camera, input: this.input, terrain: this.terrainData, colliders: this.colliders, query: this.query, boat: this.boatCtl, jetSki: this.jetSkiCtl, heli: this.heliCtl, reef: this.reef } );
 		// birds, beach crabs, sanderlings (after spray / query / boat, which they use)
 		this.wildlife = new Wildlife( {
 			scene, renderer, terrain: this.terrainData, terrainGPU: this.terrainGPU, shore: this.shore,
@@ -559,7 +574,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 			this.fly.setPose( this.camera.position.clone(), e.y, e.x );
 			this.fly.velocity.set( 0, 0, 0 );
 
-		} else if ( this.player.mode !== 'boat' && this.player.mode !== 'deck' ) {
+		} else if ( this.player.mode !== 'boat' && this.player.mode !== 'deck' && this.player.mode !== 'heli' ) {
 
 			this.dropPlayerAtCamera();
 
@@ -673,6 +688,8 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		this.jetSkiCtl.update( dt );
 		this.jetSki.update( dt );
 		this.boatSpray.update( dt );
+		this.heliCtl.update( dt, this.player.waterH );
+		this.heli.updateStick( this.heliCtl.tilt, this.heliCtl.roll );
 		this.wake.update( dt );
 		if ( this.freeCam ) this.fly.update( dt );
 		else if ( ! ( this.game.hud?.standOpen || this.game.hud?.invOpen || this.game.hud?.catchOpen ) ) this.player.update( dt );
@@ -688,6 +705,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		this.query.setCamera( this.camera.position.x, this.camera.position.z );
 		this.boatCtl.queueQueries();
 		this.jetSkiCtl.queueQueries();
+		this.heliCtl.queueQuery();
 		this.query.update();
 		if ( this.query.cpuValid ) {
 
@@ -785,7 +803,11 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 			windDir: G.windDir.value,
 			daylight: 1 - G.night.value,
 			nearPier: Math.abs( p.x - WORLD.pier.x ) < 12 && p.z > WORLD.pier.zStart - 5 && p.z < WORLD.pier.zEnd + 8,
-			boat: {
+			// the helicopter's engine plays through the boat engine's channel (no water sounds in the air)
+			boat: this.player.mode === 'heli' ? {
+				active: true, rpm: 0.35 + 0.65 * this.heliCtl.spool, throttle: 1, speed: 0, air: true,
+				position: this.heli.group.position, listenerInside: this.player.heliCam === 'first',
+			} : {
 				active: this.boatCtl.driven || this.jetSkiCtl.driven, rpm: this.boatCtl.driven ? this.boatCtl.rpm : this.jetSkiCtl.rpm, throttle: this.boatCtl.driven ? this.boatCtl.throttle : this.jetSkiCtl.throttle, speed: this.boatCtl.driven ? this.boatCtl.velocity.length() : this.jetSkiCtl.velocity.length(),
 				position: this.boatCtl.driven ? this.boat.group.position : this.jetSki.group.position, listenerInside: ( this.player.mode === 'boat' || this.player.mode === 'jetski' ) && this.player.camMode === 'first',
 			},

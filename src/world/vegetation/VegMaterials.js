@@ -504,6 +504,7 @@ export function createPlantLeafMaterial() {
 	if ( isLeaf ) { s.translucency = vegTranslucency( albedo, in.N, select( 0.3, 0.2, isBroad ), in.P ); }`,
 		shadow: 'return vegPlantMask( in );',
 	} );
+	mat.depthPrepass = true;
 	return mat;
 
 }
@@ -721,6 +722,7 @@ export function createCanopyMaterial( leafAtlas ) {
 	if ( ! isBark ) { s.translucency = vegTranslucency( albedo, geoN, 0.5, in.P ) * ( ao * 0.6 + 0.4 ); }`,
 		shadow: 'return vegCanopyMask( in, vegCanopyLeaf( in ) );',
 	} );
+	mat.depthPrepass = true;
 	return mat;
 
 }

@@ -384,7 +384,7 @@ export class MeshRenderer {
 
 	// ------------------------------------------------------------------------------ draw lists
 
-	collect( scene, { camera, layerMask = 0xffffffff, filter = null, kind = 'main', cull = true } ) {
+	collect( scene, { camera, layerMask = 0xffffffff, filter = null, kind = 'main', cull = true, castersOnly = kind === 'depth' } ) {
 
 		const opaque = [];
 		const transparent = [];
@@ -402,7 +402,7 @@ export class MeshRenderer {
 		const visit = ( o ) => {
 
 			if ( ! o.visible && ! all ) return;
-			if ( o.isMesh && o.material && o.geometry && ( o.layers.mask & layerMask ) !== 0 && ( ! filter || filter( o ) ) && ( kind !== 'depth' || o.castShadow ) ) {
+			if ( o.isMesh && o.material && o.geometry && ( o.layers.mask & layerMask ) !== 0 && ( ! filter || filter( o ) ) && ( ! castersOnly || o.castShadow ) ) {
 
 				if ( all || ! cull || ! camera || o.frustumCulled === false || this._inFrustum( o ) ) {
 

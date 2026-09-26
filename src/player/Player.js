@@ -1,6 +1,7 @@
 import * as THREE from '../engine/index.js';
 import { WORLD } from '../world/WorldLayout.js';
 import { HOUSE } from '../world/boat/Wheelhouse.js';
+import { HELI } from '../world/HeliModel.js';
 
 const HOUSE_HELM = { x: HOUSE.helmX, z: HOUSE.seatZ };
 
@@ -32,9 +33,11 @@ const HELM_REACH = 0.75; // m from the helm seat to take the wheel
 //   deck : aboard, walking in the boat's frame (it moves and rocks under you); E at the helm
 //          takes the wheel, E near a pier / the beach steps ashore
 //   boat : at the helm, driving; V toggles helm (1st person) / chase (3rd person) camera, E stands up
+//   heli : flying the helicopter; mouse turns, W A S D tilts, Space / C climb / descend, Shift fast,
+//          V toggles seat / chase camera, E gets out once landed
 export class Player {
 
-	constructor( { camera, input, terrain, colliders, query, boat, jetSki = null, reef = null, audio = null } ) {
+	constructor( { camera, input, terrain, colliders, query, boat, jetSki = null, heli = null, reef = null, audio = null } ) {
 
 		this.camera = camera;
 		this.input = input;
@@ -43,6 +46,7 @@ export class Player {
 		this.query = query;
 		this.boat = boat;
 		this.jetSki = jetSki;
+		this.heli = heli;
 		this.reef = reef;
 		this.audio = audio;
 
@@ -79,6 +83,12 @@ export class Player {
 		this.camPos = new THREE.Vector3();
 		this.camInit = false;
 		this.wasUnder = false;
+		// helicopter cameras (the mouse turns the helicopter; its y pitches the view / the chase orbit)
+		this.heliCam = 'first';
+		this.heliPitch = 0.18;
+		this.heliDist = 11;
+		this.heliCamPos = new THREE.Vector3();
+		this.heliCamInit = false;
 
 		// on deck: position and heading in the boat frame (+Z forward, yaw 0 looks forward)
 		this.deckPos = new THREE.Vector3();
@@ -138,6 +148,15 @@ export class Player {
 
 	}
 
+	nearHeli() {
+
+		const h = this.heli;
+		if ( ! h || ! h.grounded ) return false;
+		const d = Math.hypot( h.position.x - this.position.x, h.position.z - this.position.z );
+		return d < 2.6 && Math.abs( h.position.y - this.position.y ) < 2.2;
+
+	}
+
 	// ------------------------------------------------------------------ update
 
 	update( dt ) {
@@ -160,6 +179,12 @@ export class Player {
 			return;
 
 		}
+		if ( this.mode === 'heli' ) {
+
+			this.updateHeli( dt );
+			return;
+
+		}
 
 		if ( this.mode === 'deck' ) {
 
@@ -173,7 +198,17 @@ export class Player {
 		this.pitch = THREE.MathUtils.clamp( this.pitch - look.y * 0.0022, - 1.5, 1.5 );
 
 		// (not with a line out or a fish in hand: E belongs to the fishing then)
-		if ( this.nearBoat() && ! this.busy ) {
+		if ( this.nearHeli() && ! this.busy ) {
+
+			this.prompt = { key: 'E', text: 'Fly helicopter' };
+			if ( inp.hit( 'KeyE' ) ) {
+
+				this.enterHeli();
+				return;
+
+			}
+
+		} else if ( this.nearBoat() && ! this.busy ) {
 
 			this.prompt = { key: 'E', text: 'Board boat' };
 			if ( inp.hit( 'KeyE' ) ) {
@@ -925,6 +960,123 @@ export class Player {
 			this.camera.lookAt( target );
 
 		}
+
+	}
+
+// ------------------------------------------------------------------ helicopter
+
+	enterHeli() {
+
+		const h = this.heli;
+		this.mode = 'heli';
+		h.occupied = true;
+		this.velocity.set( 0, 0, 0 );
+		this.heliPitch = 0.18;
+		this.heliCamInit = false;
+		this._camY = null;
+		if ( this.audio ) this.audio.engineStart();
+
+	}
+
+	// climb out on the right-hand side: onto the ground, or into the sea if it sits on the water
+	leaveHeli() {
+
+		const h = this.heli;
+		h.occupied = false;
+		h.controls.fwd = h.controls.side = h.controls.climb = 0;
+		const s = Math.sin( h.yaw ), c = Math.cos( h.yaw );
+		const x = h.position.x + c * 1.4, z = h.position.z - s * 1.4;
+		const g = this.groundAt( x, z, h.position.y + 1.0 );
+		this.waterH = this.waterMean = h.waterH;
+		this.velocity.set( 0, 0, 0 );
+		this.yaw = h.yaw;
+		this.pitch = - 0.05;
+		this._camY = null;
+		if ( h.waterH - g > SWIM_DEPTH ) {
+
+			this.mode = 'swim';
+			this.floating = true;
+			this.position.set( x, h.waterH - SWIM_EYE, z );
+			if ( this.audio ) this.audio.splash( 0.4, this.position );
+
+		} else {
+
+			this.mode = 'walk';
+			this.position.set( x, g, z );
+			this.grounded = true;
+
+		}
+
+		if ( this.audio ) this.audio.engineStop();
+
+	}
+
+	updateHeli( dt ) {
+
+		const inp = this.input;
+		const h = this.heli;
+		const look = inp.consumeLook();
+		const wheel = inp.consumeWheel();
+
+		if ( inp.hit( 'KeyV' ) ) this.heliCam = this.heliCam === 'first' ? 'third' : 'first';
+		if ( inp.hit( 'KeyE' ) && h.grounded ) {
+
+			this.leaveHeli();
+			return;
+
+		}
+
+		// stick and collective (applied by the controller next frame); the mouse turns it now
+		const c = h.controls;
+		c.fwd = ( inp.down( 'KeyW' ) ? 1 : 0 ) - ( inp.down( 'KeyS' ) ? 1 : 0 );
+		c.side = ( inp.down( 'KeyD' ) ? 1 : 0 ) - ( inp.down( 'KeyA' ) ? 1 : 0 );
+		c.climb = ( inp.down( 'Space' ) ? 1 : 0 ) - ( inp.down( 'KeyC' ) || inp.down( 'ControlLeft' ) ? 1 : 0 );
+		c.boost = inp.down( 'ShiftLeft' ) || inp.down( 'ShiftRight' );
+		// the rotor has to be turning to yaw it (tail rotor authority)
+		h.yaw -= look.x * 0.0022 * ( 0.25 + 0.75 * h.spool );
+		h.apply();
+
+		if ( h.spool < 1 ) this.prompt = { key: '…', text: `Rotor spinning up ${ Math.round( h.spool * 100 ) }%   ·   E  get out` };
+		else if ( h.grounded ) this.prompt = { key: 'Space', text: 'Take off   ·   E  get out   ·   V  camera' };
+		else this.prompt = { key: 'W A S D', text: `Fly · Space / C  up / down · Shift  fast · V  camera   ·   ${ Math.round( h.speed * 3.6 ) } km/h  ${ Math.round( h.altitude ) } m` };
+
+		// keep the player with the machine (water queries, audio, wildlife)
+		h.toWorld( HELI.seat, this.position );
+		this.position.y -= 0.5;
+
+		if ( this.heliCam === 'first' ) {
+
+			this.pitch = THREE.MathUtils.clamp( this.pitch - look.y * 0.0022, - 1.3, 1.1 );
+			h.toWorld( HELI.eye, this.camera.position );
+			// the head half follows the airframe's tilt
+			this.camera.quaternion.setFromEuler( _e.set( this.pitch - h.tilt * 0.5, h.yaw, - h.roll * 0.5 ) );
+
+		} else {
+
+			this.heliPitch = THREE.MathUtils.clamp( this.heliPitch + look.y * 0.003, - 0.35, 1.3 );
+			this.heliDist = THREE.MathUtils.clamp( this.heliDist * ( 1 + wheel * 0.08 ), 5, 45 );
+			const target = _v.set( h.position.x, h.position.y + 1.6, h.position.z );
+			const cp = Math.cos( this.heliPitch );
+			const want = _v2.set(
+				target.x + Math.sin( h.yaw ) * cp * this.heliDist,
+				target.y + Math.sin( this.heliPitch ) * this.heliDist,
+				target.z + Math.cos( h.yaw ) * cp * this.heliDist,
+			);
+			want.y = Math.max( want.y, this.groundAt( want.x, want.z, want.y + 1 ) + 0.6, this.waterH + 0.6 );
+			if ( ! this.heliCamInit ) {
+
+				this.heliCamPos.copy( want );
+				this.heliCamInit = true;
+
+			}
+
+			this.heliCamPos.lerp( want, 1 - Math.exp( - dt * 5 ) );
+			this.camera.position.copy( this.heliCamPos );
+			this.camera.lookAt( target );
+
+		}
+
+		this._camY = this.camera.position.y;
 
 	}
 

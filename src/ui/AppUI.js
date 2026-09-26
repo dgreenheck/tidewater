@@ -269,6 +269,7 @@ export class AppUI {
 
 		const mode = p.mode === 'boat' ? `Boat · ${ p.camMode === 'first' ? '1st' : '3rd' } person`
 			: p.mode === 'deck' ? 'On deck'
+			: p.mode === 'heli' ? `Helicopter · ${ p.heliCam === 'first' ? '1st' : '3rd' } person`
 			: p.mode === 'swim' ? ( app.camera.position.y < ( app.cameraWaterHeight ?? 0 ) - 0.3 ? 'Diving' : 'Swimming' ) : 'Walking';
 		ui.setMode( mode );
 		if ( p.prompt ) {
