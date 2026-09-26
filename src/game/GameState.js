@@ -12,6 +12,7 @@ export class GameState {
 
 		this.storage = storage;
 		this.money = 0;
+		this.drinks = []; // drinks collected from Nia's counter
 		this.inventory = []; // { id, species, kg, cm, value, caughtAt (game hours), record }
 		this.log = {}; // species -> { count, bestKg, bestCm }
 		// the last addFish: { species, kg, cm, value, newSpecies, record, prevBestKg, prevBestCm, kept } (the catch card)
@@ -123,6 +124,21 @@ export class GameState {
 
 	}
 
+	buyDrink( drink ) {
+
+		if ( ! drink || ! Number.isFinite( drink.price ) || ! this.spend( drink.price ) ) return false;
+		return true;
+
+	}
+
+	collectDrink( key ) {
+
+		this.drinks.push( { key, boughtAt: Date.now() } );
+		this.save();
+		this.emit();
+
+	}
+
 	// buy the next level of an upgrade track; returns the new level entry or null
 	buy( key ) {
 
@@ -188,7 +204,7 @@ export class GameState {
 
 	toJSON() {
 
-		return { v: 1, money: this.money, inventory: this.inventory, log: this.log, upgrades: this.upgrades, fuel: this.fuel, nextId: this._nextId };
+		return { v: 1, money: this.money, inventory: this.inventory, log: this.log, drinks: this.drinks, upgrades: this.upgrades, fuel: this.fuel, nextId: this._nextId };
 
 	}
 
@@ -200,6 +216,7 @@ export class GameState {
 		// saves from before lengths were recorded
 		for ( const f of this.inventory ) if ( ! Number.isFinite( f.cm ) ) f.cm = Math.round( fishLengthCm( f.species, f.kg ) );
 		this.log = d.log && typeof d.log === 'object' ? d.log : {};
+		this.drinks = Array.isArray( d.drinks ) ? d.drinks.filter( ( drink ) => drink && typeof drink.key === 'string' ) : [];
 		for ( const [ k, v ] of Object.entries( this.log ) ) if ( FISH[ k ] && v && v.bestKg > 0 && ! Number.isFinite( v.bestCm ) ) v.bestCm = Math.round( fishLengthCm( k, v.bestKg ) );
 		this.upgrades = { ...defaultUpgrades(), ...( d.upgrades || {} ) };
 		this.fuel = Number.isFinite( d.fuel ) ? d.fuel : null;
