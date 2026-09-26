@@ -37,7 +37,7 @@ export class Roadhouse {
 			name: 'Nia · Roadhouse', kind: 'bar', position: new Vector3( vx, terrain.heightAt( vx, vz ), vz ), yaw: ROADHOUSE.yaw,
 			radius: 3.1, greeting: 'Cold drinks, good shade. What are you having?', idle: 'Come by when you need a cold drink.',
 			material: this.material,
-			character: { url: ( ( import.meta.env && import.meta.env.BASE_URL ) || '/' ) + 'models/characters/marta.glb', idle: 'idle_neutral_01', talk: 'gestic_talk_neutral_01', greet: 'wave_01' },
+			character: { url: ( ( import.meta.env && import.meta.env.BASE_URL ) || '/' ) + 'models/characters/nia.glb', idle: 'idle_neutral_01', talk: 'gestic_talk_neutral_01', greet: 'wave_01' },
 			look: { shirt: 0x5b7664, trousers: 0x2d3434, apron: 0x8b5438, hat: 0xb9855c, hair: 0x2a1d16, skin: 0x9c6548 },
 		} );
 		scene.add( this.vendor.group );

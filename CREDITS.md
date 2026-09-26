@@ -53,7 +53,7 @@ US government work in the public domain. The reference photographs used while mo
 
 ## Characters: `public/models/characters/`
 
-The vendors (`joe.glb`, `marta.glb`) are avatars `Wood_Male_01` and `Female_Adult_04` and their
+The vendors (`joe.glb`, `marta.glb`, `nia.glb`) are avatars `Wood_Male_01`, `Female_Adult_04`, and `Female_Adult_08` and their
 idle, talk, wave and shrug animations from the [Microsoft Rocketbox Avatar Library](https://github.com/microsoft/Microsoft-Rocketbox)
 (© Microsoft Corporation, MIT license, included as `LICENSE-Rocketbox.md`), converted with
 `tools/characters/` (textures resized, animations retargeted and baked). Paper: M. Gonzalez-Franco

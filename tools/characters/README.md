@@ -1,9 +1,9 @@
 # Characters
 
-The vendors (Joe at the fish stand, Marta at the chandlery) are avatars from the
+The vendors (Joe at the fish stand, Marta at the chandlery, and Nia at the roadhouse) are avatars from the
 [Microsoft Rocketbox](https://github.com/microsoft/Microsoft-Rocketbox) library (MIT license,
 `public/models/characters/LICENSE-Rocketbox.md`), converted offline to one GLB each
-(`public/models/characters/joe.glb`, `marta.glb`): mesh (~7.5k triangles, 80-bone Bip01 skin),
+(`public/models/characters/joe.glb`, `marta.glb`, `nia.glb`): mesh (~7.5k triangles, 80-bone Bip01 skin),
 1024² textures and the clips below.
 
     tools/characters/build.sh [workdir]      # fetch -> textures -> Blender -> public/models/characters/
