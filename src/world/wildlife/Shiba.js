@@ -13,6 +13,9 @@ export const SHIBA = { x: _shibaSpot.x, z: _shibaSpot.z, yaw: 5 * Math.PI / 12 }
 const REST_POSES = [ '0|standing_0', '0|sitting_0' ];
 const CLOSE_TRICKS = [ '0|shake_0', '0|rollover_0' ];
 const DISTANT_BEHAVIORS = [ ...REST_POSES, '0|play_dead_0' ];
+// The dog is usually resting. Updating that subtle motion at 20 fps is visually smooth while
+// avoiding needless skinning work on every rendered frame.
+const IDLE_ANIMATION_INTERVAL = 1 / 20;
 
 export class Shiba {
 
@@ -32,6 +35,7 @@ export class Shiba {
 		// only once per minute so the dog does not loop tricks while the player watches.
 		this.closeTrickCooldown = 0;
 		this.visibleRangeSq = 75 * 75;
+		this.idleAnimationElapsed = 0;
 		this.ready = this.load();
 
 	}
@@ -43,7 +47,14 @@ export class Shiba {
 		for ( const material of model.materials ) material.underwaterLighting = 'lite';
 		// The bind-pose bounds cover this compact animal well enough. Unlike the generic character
 		// default, allow normal frustum culling so panning away from the beach skips its draw/shadows.
-		for ( const mesh of model.meshes ) mesh.frustumCulled = true;
+		for ( const mesh of model.meshes ) {
+
+			mesh.frustumCulled = true;
+			// A small moving animal does not need to be rendered into the sun shadow maps.
+			// This removes multiple expensive skinned-mesh passes when looking around Joe's stall.
+			mesh.castShadow = false;
+
+		}
 		model.group.scale.set( 0.01, 0.01, 0.01 );
 		this.model = model;
 		model.onClipEnd = () => this.playRestPose();
@@ -83,6 +94,7 @@ export class Shiba {
 		if ( d2 > this.visibleRangeSq ) {
 
 			this.group.visible = false;
+			this.idleAnimationElapsed = 0;
 			this.model.hold();
 			return;
 
@@ -120,8 +132,28 @@ export class Shiba {
 
 		}
 		// Keep the pose uploaded, but do not spend CPU animating a character that cannot be seen.
-		if ( d2 > 3600 ) this.model.hold();
-		else this.model.update( dt );
+		if ( d2 > 3600 ) {
+
+			this.idleAnimationElapsed = 0;
+			this.model.hold();
+
+		} else if ( CLOSE_TRICKS.includes( this.model.current ) || d2 <= this.reallyCloseRangeSq ) {
+
+			// The player-facing Shake/Roll over reaction stays fluid and immediate.
+			this.idleAnimationElapsed = 0;
+			this.model.update( dt );
+
+		} else {
+
+			this.idleAnimationElapsed += dt;
+			if ( this.idleAnimationElapsed >= IDLE_ANIMATION_INTERVAL ) {
+
+				this.model.update( this.idleAnimationElapsed );
+				this.idleAnimationElapsed = 0;
+
+			}
+
+		}
 
 	}
 
