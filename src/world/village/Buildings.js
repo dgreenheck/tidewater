@@ -53,13 +53,18 @@ function gableEndPart( base, hSide, hApex, t ) {
 
 function windowUnit( B, rand, cx, sillY, ww, wh, st ) {
 
-	const tw = 0.085, tp = 0.035;
+	// Minimalist window design
+	const tw = 0.12, tp = 0.12; // Deeper frame (0.12) to span the wall thickness (0.1)
+	const zOffset = -0.05; // Center of the wall
 	const trim = st.trim, td = () => [ rand.next(), st.trimPaint, 0, st.weather ];
-	B.box( 'wood', cx - ww / 2 - tw / 2, sillY + wh / 2, tp / 2, tw, wh + 0.02, tp, { grain: 1, skip: 44, tint: trim, data: td() } );
-	B.box( 'wood', cx + ww / 2 + tw / 2, sillY + wh / 2, tp / 2, tw, wh + 0.02, tp, { grain: 1, skip: 44, tint: trim, data: td() } );
-	B.box( 'wood', cx, sillY + wh + 0.06, tp / 2 + 0.004, ww + 2 * tw + 0.05, 0.12, tp + 0.008, { grain: 0, skip: 32, tint: trim, data: td() } );
-	B.box( 'wood', cx, sillY + wh + 0.13, 0.04, ww + 2 * tw + 0.1, 0.025, 0.075, { grain: 0, tint: trim, data: td() } );
-	B.box( 'wood', cx, sillY - 0.025, 0.045, ww + 2 * tw + 0.08, 0.045, 0.09, { grain: 0, rx: 0.1, tint: trim, data: td() } );
+	
+	// Frame (drawn INSIDE the ww/wh boundary to avoid overlapping walls and floor)
+	// Left & Right
+	B.box( 'wood', cx - ww / 2 + tw / 2, sillY + wh / 2, zOffset, tw, wh - 2 * tw, tp, { grain: 1, skip: 44, tint: trim, data: td() } );
+	B.box( 'wood', cx + ww / 2 - tw / 2, sillY + wh / 2, zOffset, tw, wh - 2 * tw, tp, { grain: 1, skip: 44, tint: trim, data: td() } );
+	// Top & Bottom
+	B.box( 'wood', cx, sillY + wh - tw / 2, zOffset, ww, tw, tp, { grain: 0, skip: 32, tint: trim, data: td() } );
+	B.box( 'wood', cx, sillY + tw / 2, zOffset, ww, tw, tp, { grain: 0, skip: 32, tint: trim, data: td() } );
 
 	if ( st.closed ) {
 
@@ -74,63 +79,19 @@ function windowUnit( B, rand, cx, sillY, ww, wh, st ) {
 
 	}
 
-	// sash frame, glass, muntins
-	B.box( 'wood', cx, sillY + 0.03, 0.012, ww, 0.06, 0.024, { grain: 0, skip: 35, tint: trim, data: td() } );
-	B.box( 'wood', cx, sillY + wh - 0.03, 0.012, ww, 0.06, 0.024, { grain: 0, skip: 35, tint: trim, data: td() } );
-	B.box( 'wood', cx, sillY + wh / 2, 0.016, ww, 0.045, 0.03, { grain: 0, skip: 35, tint: trim, data: td() } );
-	B.box( 'wood', cx - ww / 2 + 0.025, sillY + wh / 2, 0.012, 0.05, wh, 0.024, { grain: 1, skip: 44, tint: trim, data: td() } );
-	B.box( 'wood', cx + ww / 2 - 0.025, sillY + wh / 2, 0.012, 0.05, wh, 0.024, { grain: 1, skip: 44, tint: trim, data: td() } );
-	B.box( 'wood', cx, sillY + wh / 2, 0.01, 0.022, wh - 0.1, 0.018, { grain: 1, skip: 44, tint: trim, data: td() } );
 	const lit = rand.chance( st.litChance ?? 0.6 ) ? 1 : 0;
-	B.part( 'glass', quad01Part( ww - 0.05, wh - 0.05 ), cx, sillY + wh / 2, 0.004, { tint: st.curtain, data: [ rand.next(), 0, lit, 0 ] } );
+	// Glass (double-sided so it renders perfectly from inside the house too)
+	const gW = ww - 2 * tw;
+	const gH = wh - 2 * tw;
+	B.part( 'modernGlass', quad01Part( gW, gH ), cx, sillY + wh / 2, zOffset, { tint: st.curtain, data: [ rand.next(), 0, lit, 0 ] } );
+	B.part( 'modernGlass', quad01Part( gW, gH ), cx, sillY + wh / 2, zOffset, { ry: Math.PI, tint: st.curtain, data: [ rand.next(), 0, lit, 0 ] } );
 
-	if ( st.shutters === 'louver' || st.shutters === 'board' ) {
-
-		const sw = ww / 2 + 0.03, sh = wh + 0.05;
-		const pat = st.shutters === 'louver' ? 4 : 3;
-		for ( const s of [ - 1, 1 ] ) {
-
-			const hx = cx + s * ( ww / 2 + tw );
-			const open = rand.range( 0.02, 0.45 );
-			B.pushAt( hx, 0, 0.03, - s * open );
-			B.box( 'wood', s * ( sw / 2 + 0.01 ), sillY + wh / 2, 0.016, sw, sh, 0.028, { grain: 0, tint: st.accent, data: [ rand.next(), st.paint, pat, st.weather ] } );
-			if ( pat === 4 ) {
-
-				for ( const yy of [ sillY + wh / 2 - sh / 2 + 0.035, sillY + wh / 2 + sh / 2 - 0.035 ] ) {
-
-					B.box( 'wood', s * ( sw / 2 + 0.01 ), yy, 0.033, sw, 0.06, 0.012, { grain: 0, skip: 32, tint: st.accent, data: [ rand.next(), st.paint, 0, st.weather ] } );
-
-				}
-
-				for ( const xx of [ 0.03, sw - 0.03 ] ) {
-
-					B.box( 'wood', s * ( xx + 0.01 ), sillY + wh / 2, 0.033, 0.055, sh - 0.12, 0.012, { grain: 1, skip: 44, tint: st.accent, data: [ rand.next(), st.paint, 0, st.weather ] } );
-
-				}
-
-			}
-
-			B.pop();
-
-		}
-
-	} else if ( st.shutters === 'bahama' ) {
-
-		const bw = ww + 2 * tw + 0.08, bh = wh + 0.12;
-		const hy = sillY + wh + 0.14;
-		const ang = rand.range( 0.45, 0.75 );
-		B.pushAt( cx, hy, 0.05, 0, - ang );
-		B.box( 'wood', 0, - bh / 2, 0.015, bw, bh, 0.03, { grain: 0, tint: st.accent, data: [ rand.next(), st.paint, 4, st.weather ] } );
-		B.box( 'wood', 0, - bh + 0.03, 0.035, bw, 0.06, 0.015, { grain: 0, tint: st.accent, data: [ rand.next(), st.paint, 0, st.weather ] } );
-		B.pop();
-		// prop sticks
-		const tipY = hy - Math.cos( ang ) * bh, tipZ = 0.05 + Math.sin( ang ) * bh;
-		for ( const s of [ - 1, 1 ] ) {
-
-			B.rod( 'wood', [ cx + s * ( bw / 2 - 0.08 ), sillY - 0.02, 0.07 ], [ cx + s * ( bw / 2 - 0.08 ), tipY + 0.02, tipZ - 0.02 ], 0.012, 0.012, { segs: 4, data: WOOD( rand.next(), 0.8 ) } );
-
-		}
-
+	// Thin vertical slats to represent giant glass doors
+	const slatW = 0.04, slatD = 0.04;
+	const numPanes = ww < 6 ? 3 : 4; // 2 or 3 vertical lines
+	for ( let i = 1; i < numPanes; i ++ ) {
+		const vx = cx - gW / 2 + ( gW / numPanes ) * i;
+		B.box( 'wood', vx, sillY + wh / 2, zOffset, slatW, gH, slatD, { grain: 1, skip: 44, tint: trim, data: td() } );
 	}
 
 	return lit ? { x: cx, y: sillY + wh / 2 } : null;
@@ -382,8 +343,8 @@ export function buildHouse( ctx, s ) {
 
 	if ( s.modernGlass ) {
 
-		const topMargin = 0.5; // Increased from 0.3 to reduce window height
-		const sideMargin = 0.3;
+		const topMargin = 0.6; // Top solid wall margin
+		const sideMargin = 0.5;
 		const pillarH = frontWallH - topMargin;
 		const pillarY = floorY + pillarH / 2;
 		const topBarY = floorY + frontWallH - topMargin / 2;
@@ -759,8 +720,11 @@ export function buildHouse( ctx, s ) {
 			if ( s.modernGlass && wl.front ) {
 
 				if ( sIdx === 0 ) {
-					// O interior agora fica totalmente aberto e acessível!
-					// Janelas e molduras foram removidas para abrir a fachada.
+					// Minimalist huge front glass door/window
+					const winW = w - 1.0; // Width of the front opening (w - 2 * sideMargin)
+					const winH = frontWallH - 0.6; // Height of the front opening (frontWallH - topMargin)
+					const lit = windowUnit( B, rand, 0, floorY, winW, winH, { ...st, closed: false, litChance: 0.8 } );
+					if ( lit ) litWindows.push( B.toWorld( lit.x, lit.y, 0.35 ) );
 				}
 
 			} else {
@@ -1190,7 +1154,7 @@ export function buildHouse( ctx, s ) {
 	if ( s.modernGlass ) {
 		// Assoalho (walkable)
 		fr.addBoxL( 0, ( bodyBot + floorY ) / 2, 0, w / 2 + 0.06, ( floorY - bodyBot ) / 2, d / 2 + 0.06, { walkable: true, solid: true, tag: 'house_floor' } );
-		
+
 		// Paredes ao redor (traseira e laterais)
 		const wallH = roofTop - floorY;
 		const cY = floorY + wallH / 2;

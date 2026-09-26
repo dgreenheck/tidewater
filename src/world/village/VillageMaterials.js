@@ -709,8 +709,8 @@ export function createVillageMaterials( textures = new VillageTextures() ) {
 
 export function createModernGlassMaterial( T ) {
 	const m = villageMaterial( { roughness: 0.1, metalness: 0.3, transparent: true, side: DoubleSide, depthWrite: false }, T, [], { surface: /* wgsl */`
-	s.albedo = vec3f( 0.02, 0.08, 0.35 );
-	s.alpha = 0.5;
+	s.albedo = vec3f( 0.9, 0.95, 1.0 );
+	s.alpha = 0.15;
 ` } );
 	m.name = 'VillageModernGlass';
 	return m;

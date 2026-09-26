@@ -164,14 +164,23 @@ export class Village {
 			{ name: 'S3', harbor: true, x: 37.2, z: - 72.4, yaw: 0.18, w: 5.0, d: 4.0, floorY: 3.15, foundation: 'stilts', roof: 'flat', roofMat: 'metal', roofColor: R.grey, rust: 0, wall: P.white, trim: T.white, accent: T.blue, siding: 6, paint: 10, weather: 0, porch: { depth: 2.0, rail: 'none' }, shutters: 'none', modernGlass: true },
 		];
 
+		let colorBag = [];
 		for ( const h of [ ...houses, ...huts ] ) {
 
 			h.curtain = h.curtain || curtain();
 			if ( h.foundation === undefined ) h.foundation = 'posts';
 			
-			// Randomize house and annex wall colors using pastel tones, white, and light grey
-			h.wall = rand.pick( [ P.coral, P.pink, P.sky, P.mint, P.yellow, P.turquoise, P.lavender, P.sea, P.white, P.lightGrey ] );
-			if ( h.annex ) h.annex.wall = h.wall;
+			if ( colorBag.length === 0 ) {
+				colorBag = [ P.coral, P.pink, P.sky, P.mint, P.yellow, P.turquoise, P.lavender, P.sea, P.white, P.lightGrey ];
+				for ( let i = colorBag.length - 1; i > 0; i-- ) {
+					const j = Math.floor( rand.next() * ( i + 1 ) );
+					[ colorBag[ i ], colorBag[ j ] ] = [ colorBag[ j ], colorBag[ i ] ];
+				}
+			}
+
+			if ( h.name === 'S1' ) h.wall = P.cream;
+			else if ( h.name === 'S2' ) h.wall = P.yellow;
+			else h.wall = colorBag.pop();
 
 		}
 
@@ -553,6 +562,16 @@ export class Village {
 
 			const mesh = new Mesh( fabric.build(), mats.fabric );
 			mesh.name = 'village_fabric';
+			mesh.receiveShadow = true;
+			mesh.castShadow = false;
+			this.meshes.push( mesh );
+		}
+		
+		const modernGlassBatch = take( 'modernGlass' );
+		if ( modernGlassBatch && modernGlassBatch.vcount > 0 ) {
+
+			const mesh = new Mesh( modernGlassBatch.build(), mats.modernGlass );
+			mesh.name = 'village_modernGlass';
 			mesh.receiveShadow = true;
 			mesh.castShadow = false;
 			this.meshes.push( mesh );
