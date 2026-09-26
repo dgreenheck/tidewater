@@ -28,8 +28,8 @@ export const WORLD = {
 	reef: { center: new THREE.Vector3( - 78, 0, 58 ), radius: 58 },
 
 	spawn: { position: new THREE.Vector3( 18, 0, - 60 ), yaw: Math.PI }, // kept clear of rocks, plants and debris
-	// where the player starts: on the boardwalk up from the pier foot, looking down it toward the pier
-	start: { position: new THREE.Vector3( 53.6, 0, - 77 ), yaw: Math.PI },
+	// where the player starts: inside the cream beach house (S1) facing the ocean
+	start: { position: new THREE.Vector3( 67.8, 0, - 64.6 ), yaw: Math.PI },
 
 	// Incoming swell direction (unit, travel direction)
 	swellDir: new THREE.Vector2( - 0.12, - 1 ).normalize(),

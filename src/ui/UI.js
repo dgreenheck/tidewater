@@ -2173,8 +2173,6 @@ export class UI {
 		const el = this.startEl = h( 'div', 'tw-start tw-interactive', { hidden: true } );
 		el.innerHTML = `
 			<div class="tw-start-inner">
-				${ brandMark( 'tw-start-mark' ) }
-				<div class="tw-start-title">TIDEWATER</div>
 				<button type="button" class="tw-start-cta"><span class="tw-start-pulse" aria-hidden="true"></span>${ icon( 'mouse' ) }<span>Click to explore</span></button>
 				<div class="tw-start-keys">
 					<span><span class="tw-wasd"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span>Move</span>

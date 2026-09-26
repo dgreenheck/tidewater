@@ -336,7 +336,7 @@ export function buildHouse( ctx, s ) {
 	if ( s.roof === 'flat' ) {
 		const pitch = Math.tan( 4 * Math.PI / 180 );
 		const Zb = d / 2 + 0.05;
-		frontWallH = H + ( d / 2 + Zb ) * pitch;
+		frontWallH = H + ( d / 2 + Zb ) * pitch - 0.05;
 	}
 	const frontWy = floorY + frontWallH / 2;
 	const wy = floorY + H / 2;

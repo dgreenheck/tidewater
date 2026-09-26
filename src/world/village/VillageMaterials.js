@@ -367,7 +367,7 @@ export function createRoofMetalMaterial( T ) {
 	let rustIn = clamp( rustAmt + 0.15 + replaced * 0.2 + ( macroV.r - 0.4 ) * 0.5, 0.0, 1.0 );
 	// rust channel quantiles: 50% 0.25, 70% 0.31, 90% 0.42 -> rust 0.4 ~10%, 0.6 ~25%, 0.8 ~45%
 	let thr = mix( 0.62, 0.23, rustIn ) - eave * 0.2;
-	let rust = smoothstep( thr - 0.04, thr + 0.04, M.r );
+	let rust = 0.0; // smoothstep( thr - 0.04, thr + 0.04, M.r );
 	let fade = clamp( M.b * 0.7 + macroV.b * 0.3, 0.0, 1.0 );
 
 	let paintCol = mix( aTint, aTint * 0.7 + vec3f( 0.12, 0.1, 0.085 ), fade * 0.55 ) * ( sheetR * 0.16 + 0.9 );

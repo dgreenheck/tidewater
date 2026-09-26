@@ -7,6 +7,10 @@ settings:
 importers:
 
   .:
+    dependencies:
+      stats.js:
+        specifier: ^0.17.0
+        version: 0.17.0
     devDependencies:
       vite:
         specifier: ^8.3.0
@@ -251,6 +255,9 @@ packages:
     resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
     engines: {node: '>=0.10.0'}
 
+  stats.js@0.17.0:
+    resolution: {integrity: sha512-hNKz8phvYLPEcRkeG1rsGmV5ChMjKDAWU7/OJJdDErPBNChQXxCo3WZurGpnWc6gZhAzEPFad1aVgyOANH1sMw==}
+
   tinyglobby@0.2.17:
     resolution: {integrity: sha512-wXR/dYpcqKmfWpEdZjiKJOwCNFndD0DMnrW/cYjVGttEkBfVgcLFHoNrlj47mjOVic9yyNu65alsgF4NQyTa2g==}
     engines: {node: '>=12.0.0'}
@@ -452,6 +459,8 @@ snapshots:
       '@rolldown/binding-win32-x64-msvc': 1.2.10
 
   source-map-js@1.2.1: {}
+
+  stats.js@0.17.0: {}
 
   tinyglobby@0.2.17:
     dependencies:
