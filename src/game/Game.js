@@ -12,6 +12,7 @@ import { UPGRADES, fuelBurn } from './Gear.js';
 import { GameHUD } from './GameHUD.js';
 import { Minimap } from './Minimap.js';
 import { Guide } from './Guide.js';
+import { t, formatNumber, formatCurrency, tn } from '../i18n/index.js';
 
 // how long the catch card stays up unless dismissed (ms)
 const CATCH_CARD_MS = 9000;
@@ -105,7 +106,7 @@ export class Game {
 	buy( key ) {
 
 		const r = this.state.buy( key );
-		if ( r ) this.toast( `${ UPGRADES[ key ].name }: ${ r.label }` );
+		if ( r ) this.toast( t( '{item}: {upgrade}', { item: t( UPGRADES[ key ].name ), upgrade: t( r.label ) } ) );
 		return r;
 
 	}
@@ -116,7 +117,7 @@ export class Game {
 		if ( l > 0 ) {
 
 			this._fuelOut = false;
-			this.toast( `Filled up · ${ l.toFixed( 0 ) } L` );
+			this.toast( t( 'Filled up · {litres} L', { litres: formatNumber( l, { maximumFractionDigits: 0 } ) } ) );
 
 		}
 
@@ -360,7 +361,7 @@ export class Game {
 		for ( const v of this.vendors ) v.talking = !! ( hud && hud.standOpen && hud.vendor === v );
 		if ( hud && hud.standOpen && ( ! near || near !== hud.vendor ) ) hud.closeStand();
 		if ( ! near || this.fight || this._cardDismissed || ( hud && hud.catchOpen ) ) return;
-		if ( ! p.prompt ) p.prompt = { key: 'E', text: hud && hud.standOpen ? 'Leave' : `Talk to ${ near.name.split( ' ·' )[ 0 ] }` };
+		if ( ! p.prompt ) p.prompt = { key: 'E', text: hud && hud.standOpen ? 'Leave' : t( 'Talk to {name}', { name: near.name.split( ' ·' )[ 0 ] } ) };
 		if ( inp.hit( 'KeyE' ) ) {
 
 			if ( ! hud ) {
@@ -377,7 +378,7 @@ export class Game {
 	sellAll() {
 
 		const r = this.state.sell();
-		if ( r.count ) this.toast( `Sold ${ r.count } fish for $${ r.total }` );
+		if ( r.count ) this.toast( tn( 'fish.sold', r.count, { amount: formatCurrency( r.total ) } ) );
 		if ( this.app.audio && this.app.audio.coin ) this.app.audio.coin();
 		return r;
 
@@ -386,7 +387,7 @@ export class Game {
 	sell( ids ) {
 
 		const r = this.state.sell( ids );
-		if ( r.count ) this.toast( `Sold for $${ r.total }` );
+		if ( r.count ) this.toast( t( 'Sold for {amount}', { amount: formatCurrency( r.total ) } ) );
 		return r;
 
 	}
@@ -525,8 +526,16 @@ export class Game {
 			if ( this.hud ) this.landing = { species: f.species, kg: f.kg, card: info, cardT: 0 };
 			else {
 
-				if ( entry ) this.toast( `${ info.record ? 'New record! ' : '' }${ name } · ${ entry.kg.toFixed( 2 ) } kg · $${ entry.value }`, 3600 );
-				else this.toast( `${ name } · ${ f.kg.toFixed( 1 ) } kg · no room in the ${ this.state.upgrades.hold > 0 ? 'hold' : 'cooler' }, let it go`, 3600 );
+				if ( entry ) this.toast( t( info.record ? 'New record! {name} · {weight} kg · {amount}' : '{name} · {weight} kg · {amount}', {
+					name: t( name ),
+					weight: formatNumber( entry.kg, { minimumFractionDigits: 2, maximumFractionDigits: 2 } ),
+					amount: formatCurrency( entry.value ),
+				} ), 3600 );
+				else this.toast( t( '{name} · {weight} kg · no room in the {container}, let it go', {
+					name: t( name ),
+					weight: formatNumber( f.kg, { minimumFractionDigits: 1, maximumFractionDigits: 1 } ),
+					container: t( this.state.upgrades.hold > 0 ? 'hold' : 'cooler' ),
+				} ), 3600 );
 				this.landing = { species: f.species, kg: f.kg };
 
 			}
