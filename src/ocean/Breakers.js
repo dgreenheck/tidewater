@@ -115,10 +115,10 @@ fn breakersSprayShadow( p: vec3f, seedTag: f32 ) -> f32 {
 		if ( c2.w > 0.5 && Ld < -0.02 ) {
 			let root = c0.xyz;
 			let b = c0.w;
-			let H = c1.w;
+			let Xi = c1.w; // lip throw
 			let q = clamp( b / 0.9, 0.0, 1.0 ) * ( 1.0 - smoothstep( 1.0, 1.3, b ) );
 			// vertical plane through the crest (moved forward under the overhanging lip)
-			let plane = root.xz + d2 * ( H * 0.8 * q * 0.6 );
+			let plane = root.xz + d2 * ( Xi * q * 0.6 );
 			let s = dot( p.xz - plane, d2 ); // > 0: in front of it
 			let tau = s / - Ld;
 			let yRay = p.y + L.y * tau; // height of the ray toward the sun where it crosses the plane
@@ -254,7 +254,10 @@ fn breakersProcessCrest( i: u32, pc: vec2f, m: f32 ) {
 	let ground = terrainHeightAt( pc );
 	let depth = frame.seaLevel - ground;
 	let A = shoreWaveAmp( m, along );
-	let cr = shoreCrest( A, depth ); // ( b, H, trough, lipThrow )
+	// breaker type from the bottom slope under the crest: ( plunge, surge ) (see shoreBreakerType)
+	var kt = vec2f( 1.0, 0.0 );
+	if ( shoreP.breakerTypes > 0.0 ) { kt = shoreBreakerType( pc, dir, A ); }
+	let cr = shoreCrest( A, depth, kt ); // ( b, H, trough, lipThrow )
 	let b = cr.x;
 	let env = smoothstep( 26.0, 13.0, depth ) * sat( ph.exposure * 1.4 ) * shoreP.enabled;
 
@@ -262,23 +265,26 @@ fn breakersProcessCrest( i: u32, pc: vec2f, m: f32 ) {
 	if ( b > -0.6 && env > 0.3 && depth > 0.12 ) {
 		let c = sqrt( clamp( depth, 0.3, 25.0 ) * BRK_GRAVITY );
 		let lam = c * shoreP.period;
-		let s0 = shoreShape( 0.0, A, depth, lam );
+		let s0 = shoreShape( 0.0, A, depth, lam, kt );
 		let ub = 0.4 / lam;
-		let s1 = shoreShape( ub, A, depth, lam );
+		let s1 = shoreShape( ub, A, depth, lam, kt );
 		let fd = breakersFftDisp( pc, depth );
 		let d3 = vec3f( dir.x, 0.0, dir.y );
 		let root = vec3f( pc.x, frame.seaLevel, pc.y ) + d3 * ( s0.x * env ) + vec3f( 0.0, s0.y * env, 0.0 ) + fd;
 		let back = vec3f( pc.x, frame.seaLevel, pc.y ) + d3 * ( s1.x * env - 0.4 ) + vec3f( 0.0, s1.y * env, 0.0 ) + fd;
 		let H = cr.y * env;
+		// how far the lip is thrown (0.8 H on a plunging wave, 0 on a spilling one): stored in place of H,
+		// which the lip sheet and the spray shadow only used for this
+		let Xi = cr.w * env;
 		let trough = frame.seaLevel + cr.z * env + fd.y;
 		// slot by wave parity (neighbouring stations agree on it), id = wave index mod 1024, + 1 (0 = none)
 		let slot = u32( m - floor( m * 0.5 ) * 2.0 );
 		let id = m - floor( m / 1024.0 ) * 1024.0 + 1.0;
 		let k = i * 6u + slot * 3u;
 		breakersCrestW[ k ] = vec4f( root, b );
-		breakersCrestW[ k + 1u ] = vec4f( back, H );
+		breakersCrestW[ k + 1u ] = vec4f( back, Xi );
 		breakersCrestW[ k + 2u ] = vec4f( dir, trough, id );
-${ spray ? '		breakersEmit( i, slot, root, dir, b, H, trough, c, m, depth, shoreBore( A, depth ) );' : '' }
+${ spray ? '		breakersEmit( i, slot, root, dir, b, H, Xi, kt.x, trough, c, m, depth, shoreBore( A, depth, kt ) );' : '' }
 	}
 }
 
@@ -399,7 +405,8 @@ fn breakersCount( rate: f32, gain: f32, seed: u32, salt: u32 ) -> u32 {
 	return u32( floor( rate * gain + sprayRand( seed, salt ) ) );
 }
 
-fn breakersEmit( i: u32, slot: u32, root: vec3f, dir: vec2f, b: f32, H: f32, trough: f32, c: f32, m: f32, depth: f32, bore: vec4f ) {
+// Xi: how far the lip is thrown; kP: plunging 1 .. spilling 0 (shoreBreakerType)
+fn breakersEmit( i: u32, slot: u32, root: vec3f, dir: vec2f, b: f32, H: f32, Xi: f32, kP: f32, trough: f32, c: f32, m: f32, depth: f32, bore: vec4f ) {
 	let camFade = smoothstep( breakersP.emitRange, breakersP.emitRange * 0.35, length( root - breakersP.cameraPos ) );
 	let gain = breakersP.spray * camFade * frame.dt;
 	// the many sub-pixel drops and ligaments take the ring budget; the few, visible spray and mist
@@ -416,7 +423,6 @@ fn breakersEmit( i: u32, slot: u32, root: vec3f, dir: vec2f, b: f32, H: f32, tro
 	let Eb = pow( min( Hb, 2.0 ) / 0.6, 1.7 );
 	let Wt = bore.y;
 	let q = clamp( b / 0.9, 0.0, 1.0 );
-	let Xi = H * 0.8;
 	let Yi = max( root.y - trough, 0.05 );
 	let seed = i * 7919u + u32( m - floor( m / 64.0 ) * 64.0 ) * 31u;
 	// integer part: which crest made the particle (its wave shadow, see sprayShadow); fraction: random
@@ -427,12 +433,15 @@ fn breakersEmit( i: u32, slot: u32, root: vec3f, dir: vec2f, b: f32, H: f32, tro
 	let C = BrkCtx( root, d3, tg, Yi, Wt, wB, trough, xr, Xi, q );
 
 	// ---- stages of the breaker (weights 0..1)
-	let lipShed = smoothstep( 0.5, 0.75, b ) * ( 1.0 - smoothstep( 0.86, 0.93, b ) );
+	// (the lip, its splash-up and the barrel spit belong to a plunging wave: a spilling one has none, its
+	// roller starts on the crest as soon as it breaks)
+	let lipShed = smoothstep( 0.5, 0.75, b ) * ( 1.0 - smoothstep( 0.86, 0.93, b ) ) * kP;
 	// the splash-up is a fast burst (~0.15-0.2 s) as the lip hits the trough; its mist lingers
-	let impact = smoothstep( 0.87, 0.92, b ) * ( 1.0 - smoothstep( 1.0, 1.14, b ) );
-	let haze = smoothstep( 0.9, 1.0, b ) * ( 1.0 - smoothstep( 1.2, 1.5, b ) );
-	let spit = smoothstep( 0.98, 1.08, b ) * ( 1.0 - smoothstep( 1.15, 1.3, b ) );
-	let roller = smoothstep( 1.05, 1.3, b ) * smoothstep( 0.06, 0.25, Hb );
+	let impact = smoothstep( 0.87, 0.92, b ) * ( 1.0 - smoothstep( 1.0, 1.14, b ) ) * kP;
+	let haze = smoothstep( 0.9, 1.0, b ) * ( 1.0 - smoothstep( 1.2, 1.5, b ) ) * kP;
+	let spit = smoothstep( 0.98, 1.08, b ) * ( 1.0 - smoothstep( 1.15, 1.3, b ) ) * kP;
+	let rollStart = mix( smoothstep( 0.05, 0.45, b ) * 0.6, smoothstep( 1.05, 1.3, b ), kP );
+	let roller = max( rollStart, smoothstep( 1.05, 1.3, b ) ) * smoothstep( 0.06, 0.25, Hb );
 	let clash = roller * smoothstep( 0.1, 0.2, depth ) * smoothstep( 0.7, 0.35, depth );
 	let drift = smoothstep( 9.0, 15.0, offshore ) * smoothstep( -0.4, 0.1, b ) * ( 1.0 - smoothstep( 0.75, 0.9, b ) );
 
@@ -660,12 +669,14 @@ const BRK_NV: f32 = ${ f( NV ) };
 	let root = c0.xyz;
 	let b = c0.w;
 	let back = c1.xyz;
-	let H = c1.w;
 	let d3 = vec3f( c2.x, 0.0, c2.y );
 	let trough = c2.z;
 	let q = clamp( b / 0.9, 0.0, 1.35 );
-	let Xi = max( H * 0.8, 0.05 );
+	let XiW = c1.w; // lip throw of this wave (0 on a spilling wave, see breakersProcessCrest)
+	let Xi = max( XiW, 0.05 );
 	let Yi = max( root.y - trough, 0.05 );
+	// lip throw relative to the wave (~ how much it plunges): spilling crests have no thrown curtain
+	let plunge = smoothstep( 0.12, 0.4, XiW / ( 0.8 * Yi ) );
 	// profile parameter: k = 0, 1 on the back of the crest (-1, -0.45), then 0..1 along the curtain
 	let pv = select( select( ( k - 2.0 ) / ( BRK_NV - 3.0 ), -0.45, k < 1.5 ), -1.0, k < 0.5 );
 	let xl = Xi * q * max( pv, 0.0 );
@@ -681,7 +692,7 @@ const BRK_NV: f32 = ${ f( NV ) };
 	// the cap fades in over the crest; the whole lip fades out once it has become whitewater
 	let capA = smoothstep( -1.0, -0.1, pv );
 	// once the jet has re-entered the water the curtain is gone (the splash and the roller take over)
-	o.vLipFade = capA * smoothstep( 0.02, 0.12, q ) * ( 1.0 - smoothstep( 1.0, 1.2, b ) );
+	o.vLipFade = capA * smoothstep( 0.02, 0.12, q ) * ( 1.0 - smoothstep( 1.0, 1.2, b ) ) * plunge;
 	v.useWorld = true;
 	v.worldPos = select( vec3f( 0.0, -1e5, 0.0 ), P, valid );
 	v.worldNormal = o.vLipN;

@@ -213,7 +213,8 @@ for ( let i = 0; i < breakers.NS * 2; i ++ ) if ( crest[ i * 12 + 11 ] > 0.5 ) {
 }
 
 const head = new Uint32Array( await readBuffer( spray.head.getGPU(), 16 ) );
-console.log( 'crests', nCrest, 'max b', bMax.toFixed( 2 ), 'max H', hMax.toFixed( 2 ), 'spray emitted', head[ 0 ] );
+// (the crest's second vec4 .w is the lip throw: 0.8 H on a plunging wave, less on a spilling one)
+console.log( 'crests', nCrest, 'max b', bMax.toFixed( 2 ), 'max lip throw', hMax.toFixed( 2 ), 'spray emitted', head[ 0 ] );
 console.log( 'errors', errors );
 await new Promise( ( r ) => setTimeout( r, 300 ) );
 process.exit( errors ? 1 : 0 );
