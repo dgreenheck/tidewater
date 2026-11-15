@@ -22,10 +22,13 @@ import { G, GRAVITY } from '../engine/render/Frame.js';
 //   struct ShorePhase { sh: vec4f, T: f32, dir: vec2f, exposure: f32, along: f32, s: f32 }
 //   fn shorePhaseAt( xz: vec2f ) -> ShorePhase
 //   fn shoreWaveAmp( m: f32, along: f32 ) -> f32
-//   fn shoreShape( u, A, d, lam ) -> vec4f                     ( x, y, foam, b )
-//   fn shoreCrest( A, d ) -> vec4f                             ( b, H, trough, lipThrow )   (crestParams)
-//   fn shoreBore( A, d ) -> vec4f                              ( Hb, Wt, Xc, wBore )        (boreParams)
-//   fn shoreBreakDepth( xz, dir, u, lam, d ) -> f32
+//   fn shoreShape( u, A, d, lam, kt ) -> vec4f                 ( x, y, foam, b )
+//   fn shoreCrest( A, d, kt ) -> vec4f                         ( b, H, trough, lipThrow )   (crestParams)
+//   fn shoreBore( A, d, kt ) -> vec4f                          ( Hb, Wt, Xc, wBore )        (boreParams)
+//   fn shoreBreakDepth( xz, dir, u, lam, d, A ) -> vec3f       ( depth under the crest, kt )
+//   fn shoreBreakerType( xz, dir, A ) -> vec2f                 kt = ( plunge, surge ), see below
+//     (kt: breaker type from the Iribarren number of the bottom slope: plunge 0 = spilling .. 1 = plunging,
+//      surge 0..1 on very steep bottoms; vec2f( 1.0, 0.0 ) = always plunging, the behaviour before types)
 //   fn shoreDirAt( xz: vec2f ) -> vec3f                        ( dir.x, dir.z, exposure ) (buildDirTexture)
 //   struct ShoreMedium { scatter: vec3f, absorb: vec3f };  fn shoreSurfMedium( xz, depth ) -> ShoreMedium
 //   fn shoreCrestPath( lagXZ: vec2f, depth: f32, Tv: vec3f ) -> f32
@@ -71,8 +74,11 @@ fn ${ name }( xz: vec2f, depth: f32, groundH: f32 ) -> ShoreSample {
 	let A0 = shoreWaveAmp( m, along );
 	let An = shoreWaveAmp( m + sign( u ), along );
 	let A = mix( A0, An, smoothstep( 0.32, 0.5, abs( u ) ) * 0.5 );
-	// the breaking state of the whole wave comes from the depth under its crest
-	let dB = shoreBreakDepth( xz, dir, u, lam, d );
+	// the breaking state of the whole wave comes from the depth under its crest, and its breaker type
+	// (spilling / plunging / surging) from the bottom slope there
+	let brk = shoreBreakDepth( xz, dir, u, lam, d, A );
+	let dB = brk.x;
+	let kt = brk.yz;
 
 	// offshore fade-in (FFT covers deep water) and fade on land (the swash sheet takes over there)
 	let env = smoothstep( 26.0, 13.0, d ) * smoothstep( -0.25, 0.05, d ) * sat( exposure * 1.4 ) * shoreP.enabled;
@@ -81,12 +87,12 @@ fn ${ name }( xz: vec2f, depth: f32, groundH: f32 ) -> ShoreSample {
 	let e = 0.15;
 	var face = 0.0;
 	var roller = 0.0;
-${ mode === 'world' ? `	let r = shoreWorld( u, A, dB, lam, env );
-	let s0 = vec4f( r.z, r.y, r.x, r.w );` : mode === 'normal' ? `	let pair = shoreShapePair( u, - e / lam, A, dB, lam );
+${ mode === 'world' ? `	let r = shoreWorld( u, A, dB, lam, env, kt );
+	let s0 = vec4f( r.z, r.y, r.x, r.w );` : mode === 'normal' ? `	let pair = shoreShapePair( u, - e / lam, A, dB, lam, kt );
 	let s0 = pair.s0;
 	let s1 = pair.s1;
 	face = s1.z * env;
-	roller = s1.w * env;` : `	let s0 = shoreShape( u, A, dB, lam );` }
+	roller = s1.w * env;` : `	let s0 = shoreShape( u, A, dB, lam, kt );` }
 
 	var disp = vec3f( dir.x * s0.x, s0.y, dir.y * s0.x ) * env;
 
@@ -186,6 +192,8 @@ export class ShoreWaves {
 			// face through a shoulder where the lip is still falling (peeling), not a vertical cut
 			breakSpan: [ 'f32', 0.13 ],
 			curl: [ 'f32', 1.0 ],
+			// breaker type from the bottom slope (1) or every wave plunging (0, the look before breaker types)
+			breakerTypes: [ 'f32', 1.0 ],
 			runup: [ 'f32', 1.0 ],
 			enabled: [ 'f32', 1.0 ],
 			turbidity: [ 'f32', 0.16 ], // sediment + bubble scattering in the surf zone (1/m)
@@ -201,6 +209,7 @@ export class ShoreWaves {
 		this.gamma = F.gamma;
 		this.breakSpan = F.breakSpan;
 		this.curl = F.curl;
+		this.breakerTypes = F.breakerTypes;
 		this.runup = F.runup;
 		this.enabled = F.enabled;
 		this.turbidity = F.turbidity;
@@ -265,6 +274,8 @@ struct ShorePhase { sh: vec4f, T: f32, dir: vec2f, exposure: f32, along: f32, s:
 struct ShoreBreak {
 	db: f32, b: f32, Ash: f32, p: f32, meanP: f32, crestPeak: f32, yc: f32, yt: f32,
 	H: f32, wBore: f32, Xi: f32, Hb: f32, ycB: f32, ytB: f32, Xc: f32, Wt: f32,
+	k: f32, // plunging 1 .. spilling 0
+	sg: f32, // surging 0..1 (very steep bottom: the wave surges up without curling over)
 };
 
 struct ShoreProfile { x: f32, y: f32, b: f32, foam: f32, face: f32, roller: f32 };
@@ -319,8 +330,32 @@ fn shoreWaveAmp( m: f32, along: f32 ) -> f32 {
 
 // ------------------------------------------------------------ cross-section shape
 
-fn shoreBreakParams( A: f32, d: f32 ) -> ShoreBreak {
+// Breaker type from the bottom slope where the wave breaks (Battjes 1974): the Iribarren number
+// xi0 = tan(beta) / sqrt( H0 / L0 ) with the offshore height H0 and wavelength L0 = g T^2 / 2 pi.
+//   xi0 < ~0.5   spilling: the crest crumbles into a roller that spreads down a sloping front; the wave
+//                loses height gradually across a wide surf zone (gentle bottoms, bars, big swell)
+//   ~0.5 .. 3.3  plunging: the lip is thrown clear and lands in the trough (a barrel)
+//   xi0 > ~3.3   surging: the wave runs up a steep bottom almost without breaking
+// The same bottom gives bigger waves of a set a lower xi0 than the small ones: they spill more.
+// Returns ( plunge 0..1, surge 0..1 ); shoreP.breakerTypes = 0 gives every wave the plunging shape.
+fn shoreBreakerSlope( p: vec2f, dir: vec2f ) -> f32 {
+	// over ~8 m: the slope of the bottom the wave feels, not ripples or single rocks
+	return ( terrainHeightAt( p + dir * 4.0 ) - terrainHeightAt( p - dir * 4.0 ) ) * 0.125;
+}
+fn shoreBreakerTypeOf( slope: f32, A: f32 ) -> vec2f {
+	let L0 = SHORE_GRAVITY * shoreP.period * shoreP.period / SHORE_TAU;
+	let xi0 = max( slope, 0.0 ) / sqrt( max( 2.0 * A, 0.02 ) / L0 );
+	let kt = vec2f( smoothstep( 0.32, 0.75, xi0 ), smoothstep( 2.6, 4.2, xi0 ) );
+	return mix( vec2f( 1.0, 0.0 ), kt, shoreP.breakerTypes );
+}
+fn shoreBreakerType( p: vec2f, dir: vec2f, A: f32 ) -> vec2f {
+	return shoreBreakerTypeOf( shoreBreakerSlope( p, dir ), A );
+}
+
+fn shoreBreakParams( A: f32, d: f32, kt: vec2f ) -> ShoreBreak {
 	var P: ShoreBreak;
+	P.k = kt.x;
+	P.sg = kt.y;
 	// break depth for this wave (Green's law shoaling, H = gamma d)
 	P.db = pow( A * 3.556 / shoreP.gamma, 0.8 );
 	P.b = ( P.db - d ) / ( P.db * shoreP.breakSpan ); // <0 shoaling, 0..1 plunging, >1 bore
@@ -332,16 +367,21 @@ fn shoreBreakParams( A: f32, d: f32 ) -> ShoreBreak {
 	P.yc = P.Ash * 2.0 * ( 1.0 - P.meanP ) * P.crestPeak; // crest height
 	P.yt = P.Ash * -2.0 * P.meanP * P.crestPeak; // trough level
 	P.H = P.yc - P.yt;
-	P.wBore = smoothstep( 0.85, 1.35, P.b );
-	P.Xi = P.H * 0.8; // lip throw at impact
+	// plunging: the tube collapses into the bore right after the lip lands; spilling: the roller grows
+	// from the crest and the wave turns into a bore gradually over the whole surf zone
+	P.wBore = mix( smoothstep( 0.0, 1.6, P.b ), smoothstep( 0.85, 1.35, P.b ), P.k );
+	P.Xi = P.H * 0.8 * P.k; // lip throw at impact (no thrown lip on a spilling wave)
 	// bore height, limited by the depth and fading out in the last few decimetres
 	P.Hb = min( P.H * 0.6, max( d, 0.0 ) * 0.75 ) * ( smoothstep( 0.0, 0.3, d ) * 0.7 + 0.3 );
 	P.ycB = mix( P.yc, P.yt * 0.6 + P.Hb, P.wBore ); // crest / roller top
 	P.ytB = mix( P.yt, P.yt * 0.6, P.wBore ); // trough
 	// the collapsing crest moves to where the lip landed (no shift once the bore has run out of height)
-	P.Xc = mix( 0.0, P.Xi - P.Hb * 0.55, P.wBore ) * smoothstep( 0.03, 0.3, P.Hb );
-	// horizontal extent of the face: concave tube face while plunging, short convex roller front on the bore
-	P.Wt = mix( P.H * mix( 0.25, 0.55, smoothstep( 0.1, 0.9, P.b ) ), P.Hb * 0.6 + 0.08, P.wBore );
+	// (a spilling wave throws no lip: its crest doesn't jump forward)
+	P.Xc = mix( 0.0, max( P.Xi - P.Hb * 0.55, 0.0 ), P.wBore ) * smoothstep( 0.03, 0.3, P.Hb );
+	// horizontal extent of the face: concave tube face while plunging, a sloping front (~35 deg) under the
+	// roller of a spilling wave, short convex roller front on the bore
+	let WtBreak = mix( P.H * 1.4, P.H * mix( 0.25, 0.55, smoothstep( 0.1, 0.9, P.b ) ), P.k );
+	P.Wt = mix( WtBreak, P.Hb * 0.6 + 0.08, P.wBore );
 	return P;
 }
 
@@ -365,14 +405,28 @@ fn shoreWhitewater( xi: f32, lam: f32, P: ShoreBreak ) -> f32 {
 	let landed = smoothstep( 0.86, 0.99, P.b );
 	let spread = sat( ( P.b - 0.9 ) / 0.45 );
 	let reach = P.Xi * 0.25 + spread * ( P.Xi * 0.9 + 1.0 ); // radius around the plunge point
-	let impact = landed * smoothstep( reach, reach * 0.6, abs( xi - P.Xi ) ) * ( 1.0 - smoothstep( 1.4, 1.9, P.b ) );
+	let impact = landed * smoothstep( reach, reach * 0.6, abs( xi - P.Xi ) ) * ( 1.0 - smoothstep( 1.4, 1.9, P.b ) ) * P.k;
+	// spilling: the crest crumbles first, then the white roller spreads down the front as the wave keeps
+	// breaking (cover: the fraction of the front under the roller, from the crest), with a short foamy
+	// tail on the back of the crest
+	var spill = 0.0;
+	if ( P.k < 1.0 ) {
+		let cover = sat( 0.12 + P.b * 0.75 );
+		let sf = ( xi - P.Xc ) / max( P.Wt, 0.05 );
+		let onFront = smoothstep( cover + 0.12, cover - 0.06, sf );
+		let onBack = exp( ( xi - P.Xc ) / max( P.H, 0.2 ) * 2.5 );
+		spill = ( 1.0 - P.k ) * smoothstep( -0.15, 0.3, P.b ) * select( onBack, onFront, xi >= P.Xc );
+	}
 	let toe = P.Xc + P.Wt;
 	// the collapsing tube turns white from its foot (next to the plunge point) up to the crest
 	let faceFill = shoreFaceFill( P.b, sat( ( xi - P.Xc ) / max( P.Wt, 0.05 ) ) );
 	let ahead = exp( ( xi - toe ) * -3.0 ) * P.wBore;
 	let behind = exp( ( P.Xc - xi ) / lam * -16.0 ) * P.wBore;
-	let roller = select( select( max( faceFill, P.wBore ), behind, xi < P.Xc ), ahead, xi > toe );
-	return sat( max( impact, roller ) );
+	// (a spilling wave's bore weight grows from the start of breaking: squared, so the front isn't washed
+	// with faint foam all over before the roller has spread down it)
+	let wFill = mix( P.wBore * P.wBore, P.wBore, P.k );
+	let roller = select( select( max( faceFill, wFill ), behind * wFill / max( P.wBore, 1e-3 ), xi < P.Xc ), ahead * wFill / max( P.wBore, 1e-3 ), xi > toe );
+	return sat( max( max( impact, roller ), spill ) );
 }
 
 // the cross-section for break parameters P (see shoreBreakParams)
@@ -393,9 +447,14 @@ fn shoreProfile( u: f32, lam: f32, P: ShoreBreak, withFoam: bool ) -> ShoreProfi
 	// exponentially behind the bore.
 	let uf = 0.09;
 	let inFace = u > - uf;
-	let th = clamp( - u / uf, 0.0, 1.0 ) * ${ f( Math.PI / 2 ) };
-	let fx = mix( 1.0 - cos( th ), sin( th ), P.wBore );
-	let fy = mix( 1.0 - sin( th ), cos( th ), P.wBore );
+	let sF = clamp( - u / uf, 0.0, 1.0 );
+	let th = sF * ${ f( Math.PI / 2 ) };
+	// face shape from the crest (0) to its foot (1): concave tube face (plunging), a smooth sloping front
+	// flat at both ends (spilling: the roller sits on its upper part), convex roller front (bore)
+	let fxBreak = mix( sF, 1.0 - cos( th ), P.k );
+	let fyBreak = mix( 1.0 - sF * sF * ( 3.0 - 2.0 * sF ), 1.0 - sin( th ), P.k );
+	let fx = mix( fxBreak, sin( th ), P.wBore );
+	let fy = mix( fyBreak, cos( th ), P.wBore );
 	let sTr = clamp( ( - u - uf ) / ( 0.5 - uf ), 0.0, 1.0 );
 	let ul = u * lam;
 	let xFront = select( mix( P.Xc + P.Wt, lam * 0.5, sTr ), P.Xc + P.Wt * fx, inFace ) + ul;
@@ -404,7 +463,8 @@ fn shoreProfile( u: f32, lam: f32, P: ShoreBreak, withFoam: bool ) -> ShoreProfi
 	let yBack = P.ytB + ( P.ycB - P.ytB ) * mix( cb, exp( u * -7.0 ), P.wBore );
 	let xBack = P.Xc * exp( u * -6.0 ) * smoothstep( 0.5, 0.35, u ) + xPre * ( 1.0 - P.wBore );
 	let front = u < 0.0;
-	let wC = smoothstep( -0.35, 0.25, P.b ) * shoreP.curl;
+	// (a surging wave keeps most of its unbroken shape as it runs up the steep bottom)
+	let wC = smoothstep( -0.35, 0.25, P.b ) * shoreP.curl * ( 1.0 - P.sg * 0.7 );
 	var r: ShoreProfile;
 	r.x = mix( xPre, select( xBack, xFront, front ), wC );
 	r.y = mix( yPre, select( yBack, yFront, front ), wC );
@@ -416,23 +476,27 @@ fn shoreProfile( u: f32, lam: f32, P: ShoreBreak, withFoam: bool ) -> ShoreProfi
 		let onFace = front && inFace;
 		let faceFill = shoreFaceFill( P.b, fx );
 		// the clear, concave face of a plunging wave (WaterSurface keeps the foam carried by the water off it)
-		r.face = select( 0.0, 1.0, onFace ) * smoothstep( -0.4, 0.0, P.b ) * ( 1.0 - faceFill );
-		// turbulent relief of the whitewater roller (m): its front and the top it tumbles over
-		r.roller = select( exp( u * -25.0 ), select( 0.0, 1.0, inFace ), front ) * P.wBore * P.Hb * wC;
+		// (only a plunging wave has one: a spilling front is covered by its roller)
+		r.face = select( 0.0, 1.0, onFace ) * smoothstep( -0.4, 0.0, P.b ) * ( 1.0 - faceFill ) * P.k;
+		// turbulent relief of the whitewater roller (m): its front and the top it tumbles over. A spilling
+		// wave carries a smaller roller on its crest from the moment it starts to break.
+		let wRoll = max( P.wBore, ( 1.0 - P.k ) * smoothstep( -0.1, 0.4, P.b ) );
+		let hRoll = mix( P.H * 0.3, P.Hb, P.wBore );
+		r.roller = select( exp( u * -25.0 ), select( 0.0, 1.0, inFace ), front ) * wRoll * mix( hRoll, P.Hb, P.k ) * wC;
 	}
 	return r;
 }
 
 // ( x, y, foam, b )
-fn shoreShape( u: f32, A: f32, d: f32, lam: f32 ) -> vec4f {
-	let s = shoreProfile( u, lam, shoreBreakParams( A, d ), true );
+fn shoreShape( u: f32, A: f32, d: f32, lam: f32, kt: vec2f ) -> vec4f {
+	let s = shoreProfile( u, lam, shoreBreakParams( A, d, kt ), true );
 	return vec4f( s.x, s.y, s.foam, s.b );
 }
 
 // the cross-section at u and at u + du (for the surface normal) in one call:
 // ( x0, y0, foam, b ), ( x1, y1, face, roller )
-fn shoreShapePair( u: f32, du: f32, A: f32, d: f32, lam: f32 ) -> ShorePair {
-	let P = shoreBreakParams( A, d );
+fn shoreShapePair( u: f32, du: f32, A: f32, d: f32, lam: f32, kt: vec2f ) -> ShorePair {
+	let P = shoreBreakParams( A, d, kt );
 	let s0 = shoreProfile( u, lam, P, true );
 	let s1 = shoreProfile( u + du, lam, P, false );
 	return ShorePair( vec4f( s0.x, s0.y, s0.foam, s0.b ), vec4f( s1.x, s1.y, s0.face, s0.roller ) );
@@ -442,8 +506,8 @@ fn shoreShapePair( u: f32, du: f32, A: f32, d: f32, lam: f32 ) -> ShorePair {
 // the water height there (the parcel shown at this point rests ~x up-wave: first-order inverse
 // of the horizontal displacement, which is large on a breaking wave)
 // ( foam, height, displacement of the parcel resting here, b )
-fn shoreWorld( u: f32, A: f32, d: f32, lam: f32, env: f32 ) -> vec4f {
-	let P = shoreBreakParams( A, d );
+fn shoreWorld( u: f32, A: f32, d: f32, lam: f32, env: f32, kt: vec2f ) -> vec4f {
+	let P = shoreBreakParams( A, d, kt );
 	let s0 = shoreProfile( u, lam, P, false );
 	let s1 = shoreProfile( u + s0.x * env / lam, lam, P, false );
 	return vec4f( shoreWhitewater( - u * lam, lam, P ), s1.y, s0.x, P.b );
@@ -451,14 +515,15 @@ fn shoreWorld( u: f32, A: f32, d: f32, lam: f32, env: f32 ) -> vec4f {
 
 // the bore that follows the plunge: roller height Hb, horizontal extent of its front Wt, forward
 // shift of the crest Xc (to where the lip landed), bore weight (0 while plunging .. 1)
-fn shoreBore( A: f32, d: f32 ) -> vec4f {
-	let P = shoreBreakParams( A, d );
+fn shoreBore( A: f32, d: f32, kt: vec2f ) -> vec4f {
+	let P = shoreBreakParams( A, d, kt );
 	return vec4f( P.Hb, P.Wt, P.Xc, P.wBore );
 }
 
 // breaking progress b, wave height H, trough level (relative to mean) and how far the lip is thrown
-fn shoreCrest( A: f32, d: f32 ) -> vec4f {
-	let P = shoreBreakParams( A, d );
+// (0 for a spilling wave)
+fn shoreCrest( A: f32, d: f32, kt: vec2f ) -> vec4f {
+	let P = shoreBreakParams( A, d, kt );
 	return vec4f( P.b, P.yc - P.yt, P.ytB, P.Xi );
 }
 
@@ -467,10 +532,18 @@ fn shoreCrest( A: f32, d: f32 ) -> vec4f {
 // in shallower water and would otherwise "break" first (whitewater creeping up the foot of a still
 // glassy face). Near the troughs it hands over to the local depth, where the neighbouring wave
 // takes over (the profile stays continuous at u = +-0.5). u: local phase, lam: local wavelength.
-fn shoreBreakDepth( xz: vec2f, dir: vec2f, u: f32, lam: f32, d: f32 ) -> f32 {
+// The breaker type is the wave's too (the bottom slope under its crest), with the same hand-over.
+// ( depth, kt.x, kt.y ); A: the wave's amplitude
+fn shoreBreakDepth( xz: vec2f, dir: vec2f, u: f32, lam: f32, d: f32, A: f32 ) -> vec3f {
 	let pc = xz + dir * ( u * lam );
 	let dc = frame.seaLevel - terrainHeightAt( pc );
-	return mix( dc, d, smoothstep( 0.3, 0.5, abs( u ) ) );
+	let w = smoothstep( 0.3, 0.5, abs( u ) );
+	var kt = vec2f( 1.0, 0.0 );
+	if ( shoreP.breakerTypes > 0.0 ) {
+		kt = shoreBreakerType( pc, dir, A );
+		if ( w > 0.0 ) { kt = mix( kt, shoreBreakerType( xz, dir, A ), w ); }
+	}
+	return vec3f( mix( dc, d, w ), kt );
 }
 
 // ------------------------------------------------------------ cheap wave direction lookup
@@ -537,7 +610,8 @@ fn shoreCrestPath( p: vec2f, d: f32, T: vec3f ) -> f32 {
 		let m = floor( ph.s + 0.5 );
 		let u = ph.s - m;
 		let A = shoreWaveAmp( m, ph.along );
-		let P = shoreBreakParams( A, shoreBreakDepth( p, ph.dir, u, lam, d ) );
+		let brk = shoreBreakDepth( p, ph.dir, u, lam, d, A );
+		let P = shoreBreakParams( A, brk.x, brk.yz );
 		let s0 = shoreProfile( u, lam, P, false );
 		let y0 = s0.y * env;
 		// only the upper part of steep (nearly breaking) waves is thin enough to see through

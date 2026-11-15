@@ -33,6 +33,7 @@ export class AppUI {
 			period: shore.period.value,
 			gamma: shore.gamma.value,
 			curl: shore.curl.value,
+			breakerTypes: shore.breakerTypes.value > 0.5,
 			caustics: app.caustics ? app.caustics.strength.value : 1,
 			time: app.settings.timeOfDay,
 			advance: app.settings.timeSpeed !== 0,
@@ -126,6 +127,7 @@ export class AppUI {
 		surf.addSlider( { label: 'Wave period', object: s, key: 'period', min: 5, max: 16, step: 0.1, unit: 's', onChange: ( v ) => { shore.period.value = v; } } );
 		surf.addSlider( { label: 'Breaking depth ratio', object: s, key: 'gamma', min: 0.5, max: 1.1, step: 0.01, tooltip: 'Waves break when height exceeds this fraction of the depth.', onChange: ( v ) => { shore.gamma.value = v; } } );
 		surf.addSlider( { label: 'Curl', object: s, key: 'curl', min: 0, max: 1.5, step: 0.01, onChange: ( v ) => { shore.curl.value = v; } } );
+		surf.addToggle( { label: 'Breaker types', object: s, key: 'breakerTypes', tooltip: 'Spilling, plunging or surging breakers from the slope of the bottom where each wave breaks. Off: every wave plunges.', onChange: ( v ) => { shore.breakerTypes.value = v ? 1 : 0; } } );
 		if ( app.breakers ) {
 
 			s.spray = app.breakers.params.spray.value;
