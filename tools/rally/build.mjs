@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,10 +20,17 @@ const bindgen = candidates.find( command => {
 } );
 if ( ! bindgen ) throw new Error( 'Install wasm-bindgen-cli 0.2.114, or set WASM_BINDGEN to its executable. See docs/rally-integration.md.' );
 
-// Panic messages embed source file paths: remap the home directory to ~ for reproducible output.
-const rustflags = [ process.env.RUSTFLAGS, `--remap-path-prefix=${ homedir() }=~` ].filter( Boolean ).join( ' ' );
+// Rust panic locations are embedded even in release builds. Use stable package
+// and dependency paths, including when Cargo reads the checkout via a symlink.
+const cargoHome = process.env.CARGO_HOME || resolve( homedir(), '.cargo' );
+const existing = process.env.CARGO_ENCODED_RUSTFLAGS?.split( '\x1f' ) ?? ( process.env.RUSTFLAGS || '' ).split( /\s+/ ).filter( Boolean );
+const flags = [ ...existing, `--remap-path-prefix=${ homedir() }=home`,
+	`--remap-path-prefix=${ realpathSync( cargoHome ) }=cargo`,
+	`--remap-path-prefix=${ realpathSync( root ) }=.`, `--remap-path-prefix=${ resolve( root ) }=.` ];
 run( 'cargo', [ 'build', '--locked', '--manifest-path', 'rally-physics/Cargo.toml', '--target', 'wasm32-unknown-unknown', '--release', '-j', '6' ],
-	{ ...process.env, RUSTFLAGS: rustflags } );
-run( bindgen, [ '--target', 'web', '--out-dir', 'public/rally', '--out-name', 'rally_physics',
-	'rally-physics/target/wasm32-unknown-unknown/release/tidewater_rally_physics.wasm' ] );
+	{ ...process.env, CARGO_ENCODED_RUSTFLAGS: flags.join( '\x1f' ) } );
+const target = resolve( root, process.env.CARGO_TARGET_DIR || 'rally-physics/target' );
+run( bindgen, [ '--target', 'web', '--remove-name-section', '--remove-producers-section', '--out-dir', 'public/rally', '--out-name', 'rally_physics',
+	resolve( target, 'wasm32-unknown-unknown/release/tidewater_rally_physics.wasm' ) ] );
+run( process.execPath, [ 'tools/distribution-assets.mjs', 'pack', 'physics' ] );
 console.log( 'Built the Rally physics module in public/rally.' );

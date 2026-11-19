@@ -38,8 +38,8 @@ to explore, and always comes back. Code: `src/player/Cockatoo.js`. Model: `publi
 - Rebuild the shipped (sourced) model with its turnaround, or (second line) the procedural fallback:
 
 ```sh
-/Applications/Blender.app/Contents/MacOS/Blender -b -P tools/cockatoo/cockatoo_import.py -- --render /tmp/cockatoo-turn
-/Applications/Blender.app/Contents/MacOS/Blender -b -P tools/cockatoo/cockatoo_build.py -- --render /tmp/cockatoo-turn
+blender -b -P tools/cockatoo/cockatoo_import.py -- --render test-results/cockatoo-turn
+blender -b -P tools/cockatoo/cockatoo_build.py -- --render test-results/cockatoo-turn
 ```
 
 ## Rig and poses

@@ -29,6 +29,8 @@
 import { Vector3 } from '../engine/index.js';
 import { Prop, PROP_KINDS, stain } from './Props.js';
 import { Tumbles } from './Tumble.js';
+import { collideWalker } from './ArticulatedContacts.js';
+import { SwimMotor } from '../player/SwimForces.js';
 import { SPRAY } from '../fx/Spray.js';
 
 const PLAYER_R = 0.3, BODY_R = 0.27, SEAT_R = 0.28, KNEES = 0.4, FLINCH = { r: 1.75, speed: 2.2 };   // m from the seat (the row in front of their knees), m/s
@@ -98,6 +100,7 @@ export class Contact {
 		for ( const p of H.grid.near( pl.position.x, pl.position.z, 1.4, _near ) ) {
 
 			if ( ! p.world ) continue;
+			if ( p.knock?.rag?.rd.phase === 'sim' ) continue; // actual segment contacts run in Tumbles.collide
 			const dy = pl.position.y - p.world.y;
 			if ( dy < - 0.8 || dy > 1.5 ) continue;
 			// seated: the benches keep you off their knees, so running close past them is the knock
@@ -111,8 +114,7 @@ export class Contact {
 			const sit = p.posture === 'sit', r = PLAYER_R + ( sit ? SEAT_R : BODY_R ), kx = sit ? Math.sin( p.yaw || 0 ) * KNEES : 0, kz = sit ? Math.cos( p.yaw || 0 ) * KNEES : 0;
 			let dx = p.world.x + kx - pl.position.x, dz = p.world.z + kz - pl.position.z, d = Math.hypot( dx, dz );
 			if ( d >= r ) continue;
-			if ( d < 1e-3 ) { dx = Math.sin( pl.yaw || 0 ); dz = Math.cos( pl.yaw || 0 ); d = 1e-3; }
-			const nx = dx / d, nz = dz / d;             // world, from the player to them
+			const nx = d < 1e-6 ? Math.sin( pl.yaw || 0 ) : dx / d, nz = d < 1e-6 ? Math.cos( pl.yaw || 0 ) : dz / d;             // world, from the player to them
 			pl.position.x -= nx * ( r - d ); pl.position.z -= nz * ( r - d );
 			pushed = true;
 			if ( p.knock || t < ( p.bumpUntil || 0 ) ) continue;
@@ -131,7 +133,7 @@ export class Contact {
 			if ( ! kind ) continue;
 			// the knock along the normal, 1D with a little bounce: the speed they carry off, the speed you keep
 			const mp = MASS.player, mn = kid ? MASS.kid : MASS.adult, vOut = ( 1 + BOUNCE ) * mp * vn / ( mp + mn ), vKeep = Math.max( 0, ( mp - BOUNCE * mn ) * vn / ( mp + mn ) );
-			if ( kind !== 'nudge' && kind !== 'flinch' && ! aboard && pl.velocity ) {
+			if ( kind !== 'nudge' && kind !== 'flinch' && kind !== 'tumble' && ! aboard && pl.velocity ) {
 
 				const ux = lx / ll, uz = lz / ll, cut = pl.velocity.x * ux + pl.velocity.z * uz - vKeep;
 				if ( cut > 0 ) { pl.velocity.x -= ux * cut; pl.velocity.z -= uz * cut; }
@@ -140,7 +142,23 @@ export class Contact {
 			// a nudge steps aside, off the line you came on; the rest go straight back
 			let ox = nx, oz = nz;
 			if ( kind === 'nudge' ) { const s = across >= 0 ? - 1 : 1; ox = nx * 0.5 + nz * s; oz = nz * 0.5 - nx * s; const l = Math.hypot( ox, oz ); ox /= l; oz /= l; }
-			this.start( p, kind, ox, oz, Math.min( 1, Math.max( 0.2, ( vn - 1 ) / 5 ) ), null, front, vOut, over );
+			const physical = kind === 'tumble' ? { position: p.world.clone(), velocity: ( p._bv || new Vector3() ).clone(), mass: mn, supported: true } : null;
+			this.start( p, kind, ox, oz, Math.min( 1, Math.max( 0.2, ( vn - 1 ) / 5 ) ), null, front, vOut, over, physical );
+			if ( p.knock?.rag && kind === 'tumble' ) {
+				// The broad upright overlap selects the reaction, but its radial
+				// correction is replaced by contact against the actual physical limbs.
+				pl.position.x += nx * ( r - d ); pl.position.z += nz * ( r - d );
+				let incoming = pl.velocity.clone();
+				if ( aboard ) incoming = ship.toWorld( _w.copy( deck.local ).add( deck.vel ), new Vector3() ).sub( ship.toWorld( deck.local, new Vector3() ) ).add( ship.velocityAt( pl.position, new Vector3() ) );
+				const before = incoming.clone(), contacts = collideWalker( p.knock.rag.rd, pl, { velocity: incoming, restitution: BOUNCE } );
+				pl.velocity.copy( incoming );
+				if ( aboard ) {
+					const delta = incoming.clone().sub( before ), localDelta = ship.toLocal( _w.copy( pl.position ).add( delta ), new Vector3() ).sub( ship.toLocal( pl.position, new Vector3() ) );
+					deck.vel.add( localDelta );
+				}
+				p.knock.contacts = contacts;
+				p.knock.impulse = contacts.reduce( ( sum, c ) => sum + c.impulse, 0 );
+			}
 			this.last = { id: p.id, kind: p.knock?.kind, vn: + vn.toFixed( 2 ), vOut: + vOut.toFixed( 2 ), vKeep: + vKeep.toFixed( 2 ), front: + front.toFixed( 2 ), far: p.knock?.far };
 
 		}
@@ -190,14 +208,14 @@ export class Contact {
 	}
 
 	// v: the speed the knock gave them (m/s, along n), for the shove's distance and the tumble's launch
-	start( p, kind, nx, nz, s = 0.5, at = null, front = 1, v = 0, over = false ) {
+	start( p, kind, nx, nz, s = 0.5, at = null, front = 1, v = 0, over = false, physical = null ) {
 
 		const t = this.hub.t, b = p.brain;
 		if ( ! p.off ) p.off = new Vector3();
 		const narrow = p.footing && p.footing() !== 'open';
-		if ( narrow && ! over && ( kind === 'fall' || kind === 'dive' || kind === 'tumble' ) ) kind = kind === 'dive' ? 'jump' : 'stagger';
+		if ( narrow && ! over && ! physical && ( kind === 'fall' || kind === 'dive' || kind === 'tumble' ) ) kind = kind === 'dive' ? 'jump' : 'stagger';
 		if ( kind === 'tumble' && ! this.tumbles.can( p ) ) kind = front > - 0.3 ? 'fall' : 'stagger';
-		const k = p.knock = { kind, over, t0: t, nx, nz, s, v, stage: 0, off0: p.off.clone(), front, said: false, up: false, fetch: null, pick: 0 };
+		const k = p.knock = { kind, physical, over, t0: t, nx, nz, s, v, stage: 0, off0: p.off.clone(), front, said: false, up: false, fetch: null, pick: 0 };
 		if ( kind === 'tumble' && ! this.tumble( p, k ) ) k.kind = kind = front > - 0.3 ? 'fall' : 'stagger';
 		if ( kind === 'stagger' && v > 0 ) {
 
@@ -216,25 +234,59 @@ export class Contact {
 
 	}
 
-	// Knocked flat: what they held flies, then the ragdoll takes them from where they stand, moving back
-	// at part of v, the rest a knock at the chest (from the front: onto the back; from behind: the belly)
+	// The rig inherits the observed body velocity. An actual contact supplies its
+	// point impulse separately; neither an upward kick nor automatic spin is added.
 	tumble( p, k ) {
 
-		const v = Math.max( 2.2, k.v ), g = p.group.position, h = p.model._tumble?.k ?? 1, bv = p._bv || _q.set( 0, 0, 0 );
-		// over the side: out and up over the rail, carried on at the deck's own speed
-		const out = k.over ? 2.2 : v * 0.5, up = k.over ? 2.6 : 0.3, vel = { x: bv.x + k.nx * out, y: up, z: bv.z + k.nz * out };
+		const g = p.group.position, bv = p._bv || _q.set( 0, 0, 0 );
+		const vel = k.physical?.velocity ?? { x: bv.x + k.nx * k.v, y: bv.y, z: bv.z + k.nz * k.v };
 		this.drop( p, k );
-		k.rag = this.tumbles.start( p, vel, { x: k.nx * v * 30, y: 0, z: k.nz * v * 30 }, { x: g.x - k.nx * 0.12, y: g.y + 1.3 * h, z: g.z - k.nz * 0.12 } );
-		if ( k.rag ) k.rag.rd.waterY = SEA;
+		k.rag = this.tumbles.start( p, vel, null, null );
+		if ( k.rag ) { k.rag.rd.disasterField = this.hub.app.disasters?.field; k.rag.rd.waterY = k.rag.rd.disasterField?.waterAt(g.x,g.z) ?? SEA; }
 		if ( k.rag && k.over ) this.wet.add( p );
 		return !! k.rag;
 
 	}
 
+	// Environmental falls inherit their measured velocity. Forces, including subsequent
+	// debris impulses, determine the motion; no scripted throw is added to a disaster.
+	environment( p, velocity = p.evacuation?.velocity ?? p._bv ) {
+		if ( p.knock?.rag && ! p.knock.sw && p.knock.rag.rd.phase !== 'idle' ) { const r=p.knock.rag.rd;if(r.phase!=='sim'){r.phase='sim';r.t=0;r.rest=0;p.knock.up=false;}return p.knock; }
+		if ( p.knock?.physical ) return p.knock;
+		velocity = p.knock?.sw?.velocity || velocity;
+		const mass = p.brain?.type === 'kid' ? 35 : 72;
+		const physical = { position: p.world.clone(), velocity: velocity?.clone?.() ?? new Vector3(velocity?.x??0,velocity?.y??0,velocity?.z??0), mass, supported: !!p.evacuation?.grounded };
+		// A mild animation cannot keep control once an external load topples it.
+		if(p.knock){p.knock=null;p.bumpUntil=0;}
+		this.start(p,'tumble',1,0,.7,null,1,0,false,physical);
+		return p.knock;
+	}
+
+	// Missing/unloaded skeletons, or a future population above the explicit64-rig
+	// capacity, retain a physical72/35kg capsule. Its animated limbs are not an
+	// articulated ragdoll; Tumbles.state exposes the fallback count separately.
+	environmentBody( p, k, dt, O ) {
+		const b=k.physical,F=this.hub.app.disasters?.field,P=this.hub.app.player,C=this.hub.app.colliders;
+		if(!b||k.rag)return;
+		const count=Math.max(1,Math.ceil(dt/(1/120))),h=dt/count;
+		for(let i=0;i<count;i++){
+			const center=_q.copy(b.position).add(_l.set(0,.85,0));
+			const a=F?.acceleration(center,b.velocity,{mass:b.mass,area:.7,volume:b.mass/1000,height:1.7,supported:b.supported,dt:h},{})??{ax:0,ay:0,az:0};
+			b.velocity.x+=a.ax*h;b.velocity.y+=(a.ay-9.81)*h;b.velocity.z+=a.az*h;
+			const oldY=b.position.y;b.position.addScaledVector(b.velocity,h);
+			const walker=this.hub.evacuation?.walker,local=walker?.at(b.position.x,b.position.z)??C;
+			const floor=walker?walker.ground(b.position.x,b.position.z,Math.max(oldY,b.position.y)+.35):P.groundAt(b.position.x,b.position.z,Math.max(oldY,b.position.y)+.35);
+			b.supported=b.position.y<=floor+.001;
+			if(b.supported){b.position.y=floor;b.velocity.y=Math.max(0,b.velocity.y);const speed=Math.hypot(b.velocity.x,b.velocity.z),friction=Math.max(0,1-.6*9.81*h/Math.max(1e-6,speed));b.velocity.x*=friction;b.velocity.z*=friction;}
+			const x=b.position.x,z=b.position.z;if(local.resolveCapsule(b.position,.27,1.7,.35)){if(Math.abs(b.position.x-x)>.0001)b.velocity.x=0;if(Math.abs(b.position.z-z)>.0001)b.velocity.z=0;}
+		}
+		_want.copy(b.position).sub(p.base);O.free=true;
+	}
+
 	// A body into the sea: the island's spray (thrown droplets, a burst of spray, mist over it) and the big splash
 	splash( at, s ) {
 
-		const A = this.hub.app, S = A.spray, k = Math.min( 1.4, Math.max( 0.35, s ) );
+		const A = this.hub.app, SEA = A.disasters?.field.waterAt(at.x,at.z) ?? 0, S = A.spray, k = Math.min( 1.4, Math.max( 0.35, s ) );
 		if ( S ) {
 
 			_sp.set( at.x, SEA + 0.05, at.z );
@@ -277,7 +329,12 @@ export class Contact {
 	// In the sea after the ragdoll floated up: treading water, a line
 	dunk( p, k, R, a ) {
 
-		k.sw = { p, at: new Vector3( R.at.x, SEA, R.at.z ), target: null, state: 'tread', t0: a, waiting: false };
+		const field = this.hub.app.disasters?.field, water = field?.waterAt( R.at.x, R.at.z ) ?? SEA, neck = 1.5 * ( p.model._tumble?.k ?? 1 );
+		const mass = p.brain?.type === 'kid' ? 35 : 72, height = p.brain?.type === 'kid' ? 1.25 : 1.7;
+		const velocity = new Vector3();
+		if ( k.rag ) for ( const b of k.rag.rd.bodies ) velocity.addScaledVector( new Vector3( b.v.x, b.v.y, b.v.z ), b.m / mass );
+		k.sw = { p, at: new Vector3( R.at.x, water - neck + 0.05, R.at.z ), velocity, motor: new SwimMotor( { mass, volume: mass / 1000, height, area: 0.18 * ( height / 1.8 ) ** 2 } ), target: null, state: 'tread', t0: a, waiting: false };
+		k.physical = null;
 		k.up = true; k.upAt = a;
 		p.yaw = R.yaw;
 		this.wet.add( p );
@@ -290,7 +347,7 @@ export class Contact {
 	// The nearest dry land or low ramp a swimmer can walk up (24 bearings, 3 m steps, 120 m)
 	shore( at ) {
 
-		const P = this.hub.app.player;
+		const P = this.hub.app.player, SEA = this.hub.app.disasters?.field.waterAt(at.x,at.z) ?? 0;
 		let best = null, bd = 120;
 		for ( let i = 0; i < 24; i ++ ) {
 
@@ -319,8 +376,9 @@ export class Contact {
 	// The swimmer: tread, swim for the target (the shore, or where rescue() sent them), wade out, a word, home
 	swimming( p, k, a, O, dt ) {
 
-		const S = k.sw, P = this.hub.app.player, e = a - S.t0, neck = 1.5 * ( p.model._tumble?.k ?? 1 );
+		const S = k.sw, P = this.hub.app.player, SEA = this.hub.app.disasters?.field.waterAt(S.at.x,S.at.z) ?? 0, e = a - S.t0, neck = 1.5 * ( p.model._tumble?.k ?? 1 );
 		O.free = true; O.lockYaw = S.state === 'tread';
+		const command = new Vector3();
 		if ( S.state === 'tread' ) {
 
 			this.clip( p, 'tread' );
@@ -331,23 +389,33 @@ export class Contact {
 			const dx = S.target.x - S.at.x, dz = S.target.z - S.at.z, d = Math.hypot( dx, dz ), g = P.groundAt( S.at.x, S.at.z, SEA + 0.6 );
 			S.state = g > SEA - WADE ? 'wade' : 'swim';
 			if ( S.state === 'wade' ) { this.clip( p, 'walk_neutral_01' ) || this.play( p, 'walk', { fade: 0.4 } ); O.walk = true; } else this.clip( p, 'swim' );
-			const sp = Math.min( d, ( S.state === 'wade' ? 0.9 : SWIM ) * dt );
-			if ( d > 1e-3 ) { S.at.x += dx / d * sp; S.at.z += dz / d * sp; O.face = Math.atan2( dx, dz ); }
+			const sp = Math.min( d / Math.max( dt, 1e-6 ), S.state === 'wade' ? 0.9 : SWIM );
+			if ( d > 1e-3 ) { command.set( dx / d * sp, 0, dz / d * sp ); O.face = Math.atan2( dx, dz ); }
 			if ( g > SEA + 0.02 ) { S.state = 'out'; S.t0 = a; this.wet.delete( p ); p.brain.speak( this.hub.t, 'ashore', 1, true ); this.play( p, p.brain.keepAway || p.brain.traits.humour < 0.4 ? 'angry' : 'shrug', { fade: 0.3, loop: false } ); }
 			else if ( d < 0.3 ) { S.state = 'tread'; S.waiting = true; S.target = null; S.t0 = a; }
 
 		} else if ( e > 3 ) {
 
-			// out, dripping: home on foot over dry land, else (her deck, over the water) once nobody is looking
+			// Recovery keeps the reached shore. No offscreen jump across the sea.
 			this.wet.delete( p );
 			p.swim = null;
-			if ( this.dry( S.at, p.base ) ) { _want.set( S.at.x - p.base.x, 0, S.at.z - p.base.z ); p.knock = null; return; }
-			if ( ! this.seen( S.at ) ) { _want.set( 0, 0, 0 ); p.knock = null; return; }
+			p.recoverAt?.( S.at );
+			_want.copy( S.at ).sub( p.base ); p.knock = null; return;
 
 		}
 		p.swim = S;
 		const g = P.groundAt( S.at.x, S.at.z, SEA + 0.6 );
-		S.at.y = S.state === 'swim' || S.state === 'tread' ? SEA - neck + 0.05 : S.state === 'wade' ? Math.max( g, SEA - WADE ) : g;
+		S.velocity ||= new Vector3();
+		S.motor ||= new SwimMotor( { mass: p.brain?.type === 'kid' ? 35 : 72 } );
+		if ( S.state !== 'out' ) {
+			const body = { position: S.at.clone().add( _q.set( 0, neck - 0.05, 0 ) ), velocity: S.velocity, environment: this.hub.app.disasters?.field };
+			S.motor.advance( body, command, dt );
+			const targetY = S.state === 'wade' ? Math.max( g, SEA - WADE ) : SEA - neck + 0.05;
+			S.velocity.y += Math.max( - 9.81, Math.min( 9.81, ( targetY - S.at.y ) * 16 - S.velocity.y * 8 ) ) * dt;
+			S.at.addScaledVector( S.velocity, dt );
+			if ( S.at.y < g ) { S.at.y = g; S.velocity.y = Math.max( 0, S.velocity.y ); }
+			this.hub.app.colliders?.resolveCapsule( S.at, BODY_R, 1.7, 0.3 );
+		} else S.at.y = g;
 		_want.set( S.at.x - p.base.x, S.at.y - p.base.y, S.at.z - p.base.z );
 
 	}
@@ -407,14 +475,14 @@ export class Contact {
 		const k = p.knock, O = this.out, t = this.hub.t, o = p.off, it = p.item;
 		// the place's own velocity (a walk, her deck under way): a knock carries it on
 		const bp = p._bp || ( p._bp = p.base.clone() ), bv = p._bv || ( p._bv = new Vector3() );
-		if ( dt > 0 ) { bv.set( ( p.base.x - bp.x ) / dt, 0, ( p.base.z - bp.z ) / dt ); if ( bv.lengthSq() > 144 ) bv.set( 0, 0, 0 ); }
+		if ( dt > 0 ) { bv.copy( p.base ).sub( bp ).multiplyScalar( 1 / dt ); if ( bv.lengthSq() > 10000 ) bv.set( 0, 0, 0 ); }
 		bp.copy( p.base );
 		if ( it && it.state !== 'held' && it.fly( p.base, t ) && it.def.spill ) this.spill( p, it );
 		this.fade( dt );
 		if ( ! k && ( ! o || ( o.lengthSq() < 1e-6 && ! p.brain.keepAway ) ) ) return null;
 		O.hold = !! k; O.drop = 0; O.tilt = 0; O.arms = 0; O.legs = 0; O.stepL = 0; O.stepR = 0; O.face = null; O.walk = false; O.lockYaw = false; O.rag = false; O.free = false;
 		_want.copy( o );
-		if ( k ) this.knock( p, k, t - k.t0, O, dt );
+		if ( k ) { this.knock( p, k, t - k.t0, O, dt ); this.environmentBody(p,k,dt,O); }
 		else this.settle( p, dt, O );
 		// every step onto walkable ground only (the gangway, the walkway's edge, her rail)
 		if ( O.free || ! p.canStand || _want.distanceToSquared( o ) < 1e-8 || p.canStand( _w.copy( p.base ).add( _want ), p.base ) ) o.copy( _want );
@@ -468,14 +536,16 @@ export class Contact {
 				if ( k.sw ) return this.swimming( p, k, a, O, dt );
 				if ( ! k.up ) {
 
+					rd.waterY = this.hub.app.disasters?.field.waterAt(rd.focus.x,rd.focus.z) ?? SEA;
 					rd.update( dt );
-					if ( ! k.splashed && rd.phase === 'sim' && rd.pelvis.x.y < SEA + 0.25 && rd.pelvis.v.y < - 1 ) { k.splashed = true; this.splash( rd.pelvis.x, Math.min( 1.4, - rd.pelvis.v.y / 5 ) ); }
-					if ( rd.phase === 'sim' || rd.phase === 'getup' || rd.phase === 'swim' ) { _want.set( rd.focus.x - p.base.x, 0, rd.focus.z - p.base.z ); O.rag = true; O.free = true; return; }
+					if ( ! k.splashed && rd.phase === 'sim' && rd.pelvis.x.y < rd.waterY + 0.25 && rd.pelvis.v.y < - 1 ) { k.splashed = true; this.splash( rd.pelvis.x, Math.min( 1.4, - rd.pelvis.v.y / 5 ) ); }
+					if ( rd.phase === 'sim' || rd.phase === 'getup' || rd.phase === 'swim' ) { _want.set( rd.focus.x - p.base.x, rd.focus.y - p.base.y, rd.focus.z - p.base.z ); O.rag = true; O.free = true; return; }
 					// on their feet (or it gave up): where the get-up left them, facing its way
 					const R = rd.result;
 					this.tumbles.end( p, r, R.water );
 					if ( R.water ) { this.dunk( p, k, R, a ); return this.swimming( p, k, a, O, dt ); }
-					_want.set( R.at.x - p.base.x, 0, R.at.z - p.base.z );
+					p.recoverAt?.( R.at );
+					_want.set( R.at.x - p.base.x, R.at.y - p.base.y, R.at.z - p.base.z );
 					p.yaw = R.yaw; k.up = true; k.upAt = a; k.upT = + ( a ).toFixed( 2 );
 					this.after( p, k );
 					return;
@@ -518,6 +588,7 @@ export class Contact {
 	// Up again: a glare, a laugh or a shrug by personality, and a line (a spilt coffee gets its own).
 	after( p, k ) {
 
+		if ( p.evacuation ) { k.fetch=null;return; }
 		const b = p.brain, T = b.traits, t = this.hub.t;
 		const key = b.keepAway ? 'angry' : T.humour > 0.7 ? 'laugh' : 'shrug';
 		if ( ! this.play( p, key, { fade: 0.3, loop: false } ) ) this.play( p, 'shrug', { fade: 0.3, loop: false } );
@@ -575,6 +646,7 @@ export class Contact {
 	// Over to what they dropped, down for it (a crouch), back up, and home.
 	fetch( p, k, a, O, dt ) {
 
+		if ( p.evacuation ) { p.knock=null;return; }
 		const it = k.fetch;
 		if ( ! it || it !== p.item || it.state === 'held' ) { p.knock = null; return; }
 		if ( it.state === 'air' ) return;

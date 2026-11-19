@@ -57,6 +57,36 @@ export class RallyPhysics {
         return ret !== 0;
     }
     /**
+     * Static connection frame without a duplicate collider. IDs share prop namespace.
+     * @param {number} id
+     * @param {Float32Array} pose
+     * @returns {boolean}
+     */
+    add_structure_anchor(id, pose) {
+        const ptr0 = passArrayF32ToWasm0(pose, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.rallyphysics_add_structure_anchor(this.__wbg_ptr, id, ptr0, len0);
+        return ret !== 0;
+    }
+    /**
+     * Connection parameters: point compliance m/N, angular compliance rad/(N m),
+     * force capacity N, moment capacity N m, dissipative relaxation rate s^-1.
+     * @param {number} id
+     * @param {number} a
+     * @param {number} b
+     * @param {Float32Array} anchor
+     * @param {Float32Array} parameters
+     * @returns {boolean}
+     */
+    add_structure_joint(id, a, b, anchor, parameters) {
+        const ptr0 = passArrayF32ToWasm0(anchor, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArrayF32ToWasm0(parameters, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.rallyphysics_add_structure_joint(this.__wbg_ptr, id, a, b, ptr0, len0, ptr1, len1);
+        return ret !== 0;
+    }
+    /**
      * As `add_boxes`, with a surface code per record (0 sand, 1 soil, 2 rock, 3 asphalt, 4 gravel,
      * 5 wood, 7 wet sand): a terminal's paved lanes read as asphalt, its boardwalks as wood.
      * Records past the end of `surfaces`, or with an unknown code, are wood.
@@ -71,14 +101,33 @@ export class RallyPhysics {
         wasm.rallyphysics_add_surface_boxes(this.__wbg_ptr, ptr0, len0, ptr1, len1);
     }
     /**
+     * Runs the fixed steps owed for `seconds` and returns how many ran.
      * @param {number} seconds
      * @param {number} throttle
      * @param {number} brake
      * @param {number} steer
      * @param {number} handbrake
+     * @returns {number}
      */
     advance(seconds, throttle, brake, steer, handbrake) {
-        wasm.rallyphysics_advance(this.__wbg_ptr, seconds, throttle, brake, steer, handbrake);
+        const ret = wasm.rallyphysics_advance(this.__wbg_ptr, seconds, throttle, brake, steer, handbrake);
+        return ret >>> 0;
+    }
+    /**
+     * Equal-and-opposite contact impulse in N s at a world point. This changes
+     * both linear and angular momentum; no persistent force is left behind.
+     * @param {number} id
+     * @param {Float32Array} value
+     * @param {Float32Array} point
+     * @returns {boolean}
+     */
+    apply_prop_impulse(id, value, point) {
+        const ptr0 = passArrayF32ToWasm0(value, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArrayF32ToWasm0(point, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.rallyphysics_apply_prop_impulse(this.__wbg_ptr, id, ptr0, len0, ptr1, len1);
+        return ret !== 0;
     }
     /**
      * Render interpolation. Whole fixed steps run per call, so a display frame can get zero,
@@ -90,6 +139,62 @@ export class RallyPhysics {
      */
     blend() {
         const ret = wasm.rallyphysics_blend(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * Rebuild only exported island colliders after structural failure. Terrain, vehicles,
+     * dynamic debris and ferry platforms are deliberately kept in the same solver world.
+     */
+    clear_island_statics() {
+        wasm.rallyphysics_clear_island_statics(this.__wbg_ptr);
+    }
+    /**
+     * Exact car rigid-body snapshot: position3, quaternion4, linear3, angular3.
+     * @returns {Float32Array}
+     */
+    disaster_car_state() {
+        const ret = wasm.rallyphysics_disaster_car_state(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * Contact-point velocity (m/s) and inverse effective mass (1/kg), including
+     * the actual body's rotational inertia. Empty for non-dynamic/invalid bodies.
+     * @param {number} id
+     * @param {Float32Array} point
+     * @param {Float32Array} normal
+     * @returns {Float32Array}
+     */
+    disaster_contact(id, point, normal) {
+        const ptr0 = passArrayF32ToWasm0(point, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArrayF32ToWasm0(normal, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.rallyphysics_disaster_contact(this.__wbg_ptr, id, ptr0, len0, ptr1, len1);
+        var v3 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v3;
+    }
+    /**
+     * Actual body positions and linear velocities for relative-fluid loads / observation.
+     * @returns {Float32Array}
+     */
+    disaster_motion() {
+        const ret = wasm.rallyphysics_disaster_motion(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * Ground support from solved upward contact normals, propagated through stacks.
+     * Proximity to terrain alone never makes a floating/airborne body supported.
+     * @returns {Float32Array}
+     */
+    disaster_supported() {
+        const ret = wasm.rallyphysics_disaster_supported(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -122,8 +227,19 @@ export class RallyPhysics {
         return v1;
     }
     /**
-     * The walker's body now (feet xyz), empty when there is none: the renderer keeps the walker
-     * within reach of it, so a prop too heavy to shove stops the walker too.
+     * Whether a solved solid prop contact opposes the requested horizontal movement.
+     * Following lag without contact must never restrain the renderer's walking controller.
+     * @param {number} dx
+     * @param {number} dz
+     * @returns {boolean}
+     */
+    pusher_blocked(dx, dz) {
+        const ret = wasm.rallyphysics_pusher_blocked(this.__wbg_ptr, dx, dz);
+        return ret !== 0;
+    }
+    /**
+     * The walker's body now (feet xyz), empty when there is none. Only an opposing
+     * `pusher_blocked` contact should hold the walking controller within reach of it.
      * @returns {Float32Array}
      */
     pusher_position() {
@@ -145,6 +261,22 @@ export class RallyPhysics {
         wasm.rallyphysics_remove_remote(this.__wbg_ptr, id);
     }
     /**
+     * @param {number} id
+     * @returns {boolean}
+     */
+    remove_structure_anchor(id) {
+        const ret = wasm.rallyphysics_remove_structure_anchor(this.__wbg_ptr, id);
+        return ret !== 0;
+    }
+    /**
+     * @param {number} id
+     * @returns {boolean}
+     */
+    remove_structure_joint(id) {
+        const ret = wasm.rallyphysics_remove_structure_joint(this.__wbg_ptr, id);
+        return ret !== 0;
+    }
+    /**
      * @param {number} x
      * @param {number} y
      * @param {number} z
@@ -152,6 +284,16 @@ export class RallyPhysics {
      */
     reset(x, y, z, yaw) {
         wasm.rallyphysics_reset(this.__wbg_ptr, x, y, z, yaw);
+    }
+    /**
+     * @param {Float32Array} state
+     * @returns {boolean}
+     */
+    restore_disaster_car(state) {
+        const ptr0 = passArrayF32ToWasm0(state, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.rallyphysics_restore_disaster_car(this.__wbg_ptr, ptr0, len0);
+        return ret !== 0;
     }
     /**
      * Switch physical bodies; world collisions and existing tracks remain.
@@ -185,6 +327,40 @@ export class RallyPhysics {
         return ret !== 0;
     }
     /**
+     * Records: id (-1 = local car), force xyz in N, torque xyz in Nm. Replaces previous
+     * loads, so stop cannot leave a stale force. Bad batches are rejected atomically.
+     * @param {Float32Array} data
+     * @returns {boolean}
+     */
+    set_disaster_loads(data) {
+        const ptr0 = passArrayF32ToWasm0(data, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.rallyphysics_set_disaster_loads(this.__wbg_ptr, ptr0, len0);
+        return ret !== 0;
+    }
+    /**
+     * Air velocity xyz and horizontal current xz, m/s. Invalid batches leave the
+     * previous valid fluid sample unchanged; the zero default preserves old callers.
+     * @param {number} air_x
+     * @param {number} air_y
+     * @param {number} air_z
+     * @param {number} current_x
+     * @param {number} current_z
+     * @returns {boolean}
+     */
+    set_fluid_velocity(air_x, air_y, air_z, current_x, current_z) {
+        const ret = wasm.rallyphysics_set_fluid_velocity(this.__wbg_ptr, air_x, air_y, air_z, current_x, current_z);
+        return ret !== 0;
+    }
+    /**
+     * Sets how many fixed steps one `advance` may run, clamped to 1..=CATCH_UP_MAX_STEPS.
+     * SimulationPacing passes DISASTER_MAX_STEPS while a disaster runs, else CATCH_UP_MAX_STEPS.
+     * @param {number} steps
+     */
+    set_max_steps(steps) {
+        wasm.rallyphysics_set_max_steps(this.__wbg_ptr, steps);
+    }
+    /**
      * The platform's pose and motion for the coming steps: position xyz, rotation xyzw,
      * linear velocity xyz, angular velocity xyz (about its origin). The solver carries it
      * along that motion until the next call.
@@ -196,6 +372,64 @@ export class RallyPhysics {
         const ptr0 = passArrayF32ToWasm0(state, wasm.__wbindgen_malloc);
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.rallyphysics_set_platform(this.__wbg_ptr, id, ptr0, len0);
+        return ret !== 0;
+    }
+    /**
+     * @param {number} id
+     * @param {Float32Array} value
+     * @returns {boolean}
+     */
+    set_prop_angular_velocity(id, value) {
+        const ptr0 = passArrayF32ToWasm0(value, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.rallyphysics_set_prop_angular_velocity(this.__wbg_ptr, id, ptr0, len0);
+        return ret !== 0;
+    }
+    /**
+     * Give a released tree its crown: the stem box (`half`, metres) plus a sphere of radius
+     * `crown_radius` centred `crown_y` metres up the body axis. The sphere is the crushed crown
+     * that props a fallen top off the ground; without it the trunk lay flat and the crown mesh
+     * sank into the terrain (flat frond starbursts and bare trunks). Call before
+     * set_prop_mass_properties, which then fixes the declared mass whatever the shape.
+     * @param {number} id
+     * @param {Float32Array} half
+     * @param {number} crown_y
+     * @param {number} crown_radius
+     * @returns {boolean}
+     */
+    set_prop_crown(id, half, crown_y, crown_radius) {
+        const ptr0 = passArrayF32ToWasm0(half, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.rallyphysics_set_prop_crown(this.__wbg_ptr, id, ptr0, len0, crown_y, crown_radius);
+        return ret !== 0;
+    }
+    /**
+     * Override a loose body's measured/assumed mass distribution without changing
+     * its collision shape or authored pose. Principal moments are kg m² in the
+     * existing body axes; centre is metres from that pose, not a world position.
+     * A porous crown can carry mass without becoming a solid collision hull.
+     * @param {number} id
+     * @param {number} mass
+     * @param {Float32Array} principal
+     * @param {Float32Array} centre
+     * @returns {boolean}
+     */
+    set_prop_mass_properties(id, mass, principal, centre) {
+        const ptr0 = passArrayF32ToWasm0(principal, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArrayF32ToWasm0(centre, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.rallyphysics_set_prop_mass_properties(this.__wbg_ptr, id, mass, ptr0, len0, ptr1, len1);
+        return ret !== 0;
+    }
+    /**
+     * @param {number} id
+     * @param {number} angular_damping
+     * @param {number} max_angular_speed
+     * @returns {boolean}
+     */
+    set_prop_motion_limits(id, angular_damping, max_angular_speed) {
+        const ret = wasm.rallyphysics_set_prop_motion_limits(this.__wbg_ptr, id, angular_damping, max_angular_speed);
         return ret !== 0;
     }
     /**
@@ -226,6 +460,13 @@ export class RallyPhysics {
      */
     set_pusher(x, y, z, vx, vy, vz, radius, height, active) {
         wasm.rallyphysics_set_pusher(this.__wbg_ptr, x, y, z, vx, vy, vz, radius, height, active);
+    }
+    /**
+     * The detachable RS wing changes the rear aero balance independently of wheel damage.
+     * @param {boolean} attached
+     */
+    set_rear_wing(attached) {
+        wasm.rallyphysics_set_rear_wing(this.__wbg_ptr, attached);
     }
     /**
      * @param {Float32Array} segments
@@ -304,6 +545,17 @@ export class RallyPhysics {
      */
     snapshot() {
         const ret = wasm.rallyphysics_snapshot(this.__wbg_ptr);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * Fifteen values: id, broken, force3 N, moment3 Nm, extension m, angle rad,
+     * elastic energy J, fracture loss J, utilization, viscous loss J, geometric-minus-constitutive energy residual J.
+     * @returns {Float32Array}
+     */
+    structure_joint_states() {
+        const ret = wasm.rallyphysics_structure_joint_states(this.__wbg_ptr);
         var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
@@ -502,13 +754,13 @@ function __wbg_get_imports() {
             return ret;
         },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 74725, function: Function { arguments: [], shim_idx: 74726, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h444644dcfe552aba, wasm_bindgen__convert__closures_____invoke__h5de9179e75b47c10);
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 43757, function: Function { arguments: [], shim_idx: 43758, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h44f5a62f65970bcf, wasm_bindgen__convert__closures_____invoke__h5dea0dda19e45b89);
             return ret;
         },
         __wbindgen_cast_0000000000000002: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 84786, function: Function { arguments: [Externref], shim_idx: 84787, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h7012d1d11362b952, wasm_bindgen__convert__closures_____invoke__hb3568c88ea460d32);
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 52282, function: Function { arguments: [Externref], shim_idx: 52283, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h5cefeeeb60d29d96, wasm_bindgen__convert__closures_____invoke__h460a035e5089bc90);
             return ret;
         },
         __wbindgen_init_externref_table: function() {
@@ -527,12 +779,12 @@ function __wbg_get_imports() {
     };
 }
 
-function wasm_bindgen__convert__closures_____invoke__h5de9179e75b47c10(arg0, arg1) {
-    wasm.wasm_bindgen__convert__closures_____invoke__h5de9179e75b47c10(arg0, arg1);
+function wasm_bindgen__convert__closures_____invoke__h5dea0dda19e45b89(arg0, arg1) {
+    wasm.wasm_bindgen__convert__closures_____invoke__h5dea0dda19e45b89(arg0, arg1);
 }
 
-function wasm_bindgen__convert__closures_____invoke__hb3568c88ea460d32(arg0, arg1, arg2) {
-    const ret = wasm.wasm_bindgen__convert__closures_____invoke__hb3568c88ea460d32(arg0, arg1, arg2);
+function wasm_bindgen__convert__closures_____invoke__h460a035e5089bc90(arg0, arg1, arg2) {
+    const ret = wasm.wasm_bindgen__convert__closures_____invoke__h460a035e5089bc90(arg0, arg1, arg2);
     if (ret[1]) {
         throw takeFromExternrefTable0(ret[0]);
     }

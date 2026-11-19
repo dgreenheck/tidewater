@@ -8,11 +8,13 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 bevy = { version = "=0.18.0", default-features = false, features = ["std", "bevy_asset", "bevy_scene", "bevy_mesh", "keyboard", "gamepad"] }
-avian3d = { version = "=0.5.0", default-features = false, features = ["3d", "f32", "parry-f32", "collider-from-mesh", "bevy_scene"] }
+avian3d = { version = "=0.5.0", default-features = false, features = ["3d", "f32", "parry-f32", "collider-from-mesh", "bevy_scene", "xpbd_joints"] }
 wasm-bindgen = "=0.2.114"
 
 [profile.release]
-opt-level = 2
+opt-level = 3
+lto = "thin"
+codegen-units = 1
 debug = 0
 
 [profile.dev]
@@ -20,3 +22,9 @@ opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 2
+
+[patch.crates-io]
+avian3d = { path = "vendor/avian3d" }
+
+[dev-dependencies]
+avian3d = { version = "=0.5.0", default-features = false, features = ["contact-kernel-checks"] }

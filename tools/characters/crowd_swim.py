@@ -16,7 +16,7 @@
 # limbs, else from its hands and face. New paint is dilated 6 px into the gutters.
 #
 # From the repo root (Blender 4.2+, tested 5.0.1; it has numpy):
-#   B=/Applications/Blender.app/Contents/MacOS/Blender
+#   B=blender
 #   $B -b --python tools/characters/crowd_swim.py -- build [f01 m04 ...]      # -> public/models/characters/crowd/swim/
 #   $B -b --python tools/characters/crowd_swim.py -- dump [names]             # UV region maps -> $SWIM_LOG
 #   $B -b --python tools/characters/crowd_swim.py -- sheet <out.png> <a.glb> [b.glb ...]   # idle frame 20, 3 views

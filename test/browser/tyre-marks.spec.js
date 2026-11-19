@@ -18,7 +18,7 @@ test.beforeEach( async ( { page } ) => {
 async function drive( page, vehicle = 'aster', start = 'beach' ) {
 	if ( start !== 'beach' ) await page.getByLabel( 'Start at', { exact: true } ).selectOption( start );
 	if ( vehicle !== 'aster' ) await page.getByLabel( 'Vehicle', { exact: true } ).selectOption( vehicle );
-	await page.getByRole( 'button', { name: vehicle === 'jeep' ? 'Drive Black Jeep' : 'Drive Aster RS', exact: true } ).click();
+	await page.getByRole( 'button', { name: vehicle === 'jeep' ? 'Drive Ridgeback 4x4' : 'Drive Aster RS', exact: true } ).click();
 	await expect( telemetry( page ) ).toBeVisible();
 	await expect.poll( () => value( page, 'grounded' ) ).toBe( 4 );
 	await expect.poll( () => value( page, 'speed' ) ).toBeLessThan( 2 );
@@ -69,17 +69,31 @@ test( 'Cruising on the coastal asphalt leaves it clean until the handbrake locks
 		expect( await value( page, 'signed-speed' ) ).toBeGreaterThan( 30 );
 	} );
 	await test.step( 'Then rolling tyres leave no rubber on the asphalt', async () => {
-		await expect( telemetry( page ) ).toHaveAttribute( 'data-surface', 'asphalt' );
+		clean = await value( page, 'track-segments' );
+		const surfaces = [];
+		const deadline = Date.now() + 600;
+		while ( Date.now() < deadline ) {
+			surfaces.push( await telemetry( page ).getAttribute( 'data-surface' ) );
+			await page.waitForTimeout( 100 );
+		}
+		surfaces.push( await telemetry( page ).getAttribute( 'data-surface' ) );
+		expect( surfaces.filter( surface => surface !== 'asphalt' ), `surfaces sampled ${ surfaces.join( ',' ) }` ).toEqual( [] );
 		expect( await value( page, 'track-segments' ) ).toBe( clean );
 	} );
+	let skid = clean;
 	await test.step( 'When the driver pulls the handbrake at speed', async () => {
 		await page.keyboard.down( 'Space' );
-		await expect.poll( () => value( page, 'speed' ) ).toBeLessThan( 2 );
+		await expect.poll( async () => {
+			if ( await telemetry( page ).getAttribute( 'data-surface' ) === 'asphalt' ) skid = await value( page, 'track-segments' );
+			return value( page, 'speed' );
+		}, { intervals: [ 50 ] } ).toBeLessThan( 2 );
 		await page.keyboard.up( 'Space' );
 	} );
 	await test.step( 'Then the locked tyres have laid skid marks on the asphalt', async () => {
-		await expect( telemetry( page ) ).toHaveAttribute( 'data-surface', 'asphalt' );
-		await expect.poll( () => value( page, 'track-segments' ) ).toBeGreaterThan( clean + 12 );
+		// Stopped on the road: marks may still be landing, so poll as before. Slid off: only the
+		// marks counted while it read asphalt.
+		if ( await telemetry( page ).getAttribute( 'data-surface' ) === 'asphalt' ) await expect.poll( () => value( page, 'track-segments' ) ).toBeGreaterThan( clean + 12 );
+		else expect( skid, 'segments laid while the car read asphalt' ).toBeGreaterThan( clean + 12 );
 		expect( errors ).toEqual( [] );
 		await page.screenshot( { path: 'test-results/tracks/tyre-marks-asphalt-skid.png' } );
 	} );

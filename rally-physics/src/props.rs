@@ -41,6 +41,37 @@ pub fn drive_pusher(time: Res<Time>, mut pushers: Query<(&Position, &mut LinearV
     }
 }
 
+#[cfg(test)]
+mod mass_distribution_tests {
+    use super::*;
+    #[test]
+    fn declared_mass_distribution_initializes_without_shifting_the_collision_origin() {
+        let mut sim=RallyPhysics::new();
+        assert!(sim.wake_prop(990,0,&[0.25,6.0,0.25],&[30.0,100.0,20.0,0.0,0.0,0.0,1.0],10.0,0.0,0.0,false));
+        assert!(sim.set_prop_mass_properties(990,100.0,&[1500.0,240.0,1500.0],&[0.0,1.2,0.0]));
+        assert!(sim.set_disaster_loads(&[990.0,1200.0,981.0,0.0,0.0,240.0,0.0]));
+        sim.advance(1.0/120.0,0.0,0.0,0.0,0.0);
+        let entity=sim.props[&990];let world=sim.app.world();
+        assert!((world.get::<ComputedMass>(entity).unwrap().value()-100.0).abs()<1e-5);
+        assert!((world.get::<ComputedCenterOfMass>(entity).unwrap().0-Vec3::Y*1.2).length()<1e-6);
+        assert!((world.get::<ComputedAngularInertia>(entity).unwrap().value().m11-240.0).abs()<1e-4);
+        assert!((world.get::<Position>(entity).unwrap().y-100.0).abs()<1e-4);
+        assert!((world.get::<LinearVelocity>(entity).unwrap().x-0.1).abs()<1e-4);
+        assert!((world.get::<AngularVelocity>(entity).unwrap().y-1.0/120.0).abs()<1e-5);
+    }
+    #[test]
+    fn invalid_or_static_mass_distribution_is_rejected_atomically() {
+        let mut sim=RallyPhysics::new();
+        assert!(sim.wake_prop(991,0,&[1.0,1.0,1.0],&[30.0,100.0,20.0,0.0,0.0,0.0,1.0],12.0,0.0,0.0,false));
+        assert!(!sim.set_prop_mass_properties(991,100.0,&[100.0,1.0,1.0],&[0.0,1.2,0.0]));
+        assert!(!sim.set_prop_mass_properties(991,100.0,&[1.0,1.0,1.0],&[0.0,f32::NAN,0.0]));
+        sim.advance(1.0/120.0,0.0,0.0,0.0,0.0);
+        assert!((sim.app.world().get::<ComputedMass>(sim.props[&991]).unwrap().value()-12.0).abs()<1e-5);
+        assert!(sim.wake_prop(992,0,&[1.0,1.0,1.0],&[30.0,100.0,30.0,0.0,0.0,0.0,1.0],12.0,0.0,0.0,true));
+        assert!(!sim.set_prop_mass_properties(992,12.0,&[8.0,8.0,8.0],&[0.0,0.0,0.0]));
+    }
+}
+
 fn shape(kind: u8, dims: &[f32]) -> Option<(Collider, f32)> {
     if dims.len() < 3 || dims.iter().any(|v| !v.is_finite() || *v <= 0.0) { return None; }
     let (a, b, c) = (dims[0], dims[1], dims[2]);
@@ -88,9 +119,28 @@ impl RallyPhysics {
         true
     }
 
+    /// Override a loose body's measured/assumed mass distribution without changing
+    /// its collision shape or authored pose. Principal moments are kg m² in the
+    /// existing body axes; centre is metres from that pose, not a world position.
+    /// A porous crown can carry mass without becoming a solid collision hull.
+    pub fn set_prop_mass_properties(&mut self, id:u32, mass:f32, principal:&[f32], centre:&[f32]) -> bool {
+        if !mass.is_finite() || mass<=0.0 || principal.len()!=3 || centre.len()!=3
+            || principal.iter().any(|v|!v.is_finite() || *v<=0.0)
+            || centre.iter().any(|v|!v.is_finite()) {return false;}
+        // A realizable principal inertia obeys all three triangle inequalities.
+        for axis in 0..3 {if principal[axis]>(principal[(axis+1)%3]+principal[(axis+2)%3])*1.00001 {return false;}}
+        let Some(&entity)=self.props.get(&id) else {return false;};
+        let world=self.app.world_mut();
+        if world.get::<RigidBody>(entity)!=Some(&RigidBody::Dynamic) {return false;}
+        world.entity_mut(entity).insert((Mass(mass),AngularInertia::new(Vec3::new(principal[0],principal[1],principal[2])),
+            CenterOfMass::new(centre[0],centre[1],centre[2]),NoAutoMass,NoAutoAngularInertia,NoAutoCenterOfMass));
+        world.commands().queue(WakeBody(entity));world.flush();true
+    }
+
     /// Put a prop back to sleep: its body goes, and the renderer keeps the last pose it read.
     pub fn sleep_prop(&mut self, id: u32) -> bool {
         let Some(entity) = self.props.remove(&id) else { return false; };
+        self.remove_body_connections(entity);
         self.app.world_mut().despawn(entity);
         true
     }
@@ -157,8 +207,31 @@ impl RallyPhysics {
         body.insert(Pusher { target: p, velocity, half: height * 0.5 });
     }
 
-    /// The walker's body now (feet xyz), empty when there is none: the renderer keeps the walker
-    /// within reach of it, so a prop too heavy to shove stops the walker too.
+    /// Whether a solved solid prop contact opposes the requested horizontal movement.
+    /// Following lag without contact must never restrain the renderer's walking controller.
+    pub fn pusher_blocked(&self, dx: f32, dz: f32) -> bool {
+        if !dx.is_finite() || !dz.is_finite() { return false; }
+        let direction = Vec3::new(dx, 0.0, dz);
+        let length = direction.length();
+        if length <= 1.0e-6 { return false; }
+        let Some(pusher) = self.pusher else { return false; };
+        let world = self.app.world();
+        let graph = world.resource::<ContactGraph>();
+        graph.active_pairs().iter().chain(graph.sleeping_pairs()).any(|pair| {
+            if !pair.is_touching() { return false; }
+            let a = pair.body1.unwrap_or(pair.collider1);
+            let b = pair.body2.unwrap_or(pair.collider2);
+            let (other, sign) = if a == pusher { (b, 1.0) }
+                else if b == pusher { (a, -1.0) } else { return false; };
+            if world.get::<PropBody>(other).is_none() || world.get::<Sensor>(other).is_some()
+                || world.get::<Sensor>(pair.collider1).is_some() || world.get::<Sensor>(pair.collider2).is_some() { return false; }
+            pair.manifolds.iter().any(|m| m.total_normal_impulse() > 0.0
+                && (m.normal * sign).dot(direction) > 0.1 * length)
+        })
+    }
+
+    /// The walker's body now (feet xyz), empty when there is none. Only an opposing
+    /// `pusher_blocked` contact should hold the walking controller within reach of it.
     pub fn pusher_position(&self) -> Vec<f32> {
         let Some(entity) = self.pusher else { return Vec::new(); };
         let body = self.app.world().entity(entity);

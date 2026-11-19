@@ -1,5 +1,6 @@
 import { Vector3 } from '../../engine/index.js';
 import { Noise2D, mulberry32, smoothstep as sstep } from '../../util/Noise.js';
+import { shapeDistance } from '../TerrainData.js';
 import { WORLD } from '../WorldLayout.js';
 import { PATHS, polylineDistance } from '../terrain/IslandShape.js';
 import { C, lin, mulc, WOOD, buoy, ropeCoil, bucket, rowboat, oar, woodpile } from '../Props.js';
@@ -1365,6 +1366,27 @@ export class DebrisPlacer {
 
 		if ( this.rocks ) for ( const r of this.rocks.instances ) if ( r.y < 4 && r.y > - 1.5 && r.size > 0.5 ) stamp( r.x, r.z, r.size * 2.2 + 1, 0.25, 0.35 );
 		for ( const [ x, z, s ] of this.rockSpots ) stamp( x, z, s * 4 + 0.6, 0.15, 0.1 );
+		// Built sites keep their ground clear here too (TerrainData.addClearZone, obs.clear above): painted from the
+		// terrain alone, 1,781 of 4,160 texels inside built sites (chairlift stations and approach, evacuation path,
+		// wind farm pads) carried pebbles and shell grit. Not the white dots on the chairlift deck planks
+		//: those were unchanged with this mask, so their source is elsewhere.
+		// The pad is one texel because PebbleField samples the mask bilinearly: a slot inside a site reads only
+		// texels within one texel of it.
+		for ( const c of T.clearZones || [] ) {
+
+			const i0 = Math.max( 0, Math.floor( ( c.x0 - texel - T.origin ) / texel ) ), i1 = Math.min( MR - 1, Math.floor( ( c.x1 + texel - T.origin ) / texel ) );
+			const j0 = Math.max( 0, Math.floor( ( c.z0 - texel - T.origin ) / texel ) ), j1 = Math.min( MR - 1, Math.floor( ( c.z1 + texel - T.origin ) / texel ) );
+			for ( let j = j0; j <= j1; j ++ ) for ( let i = i0; i <= i1; i ++ ) {
+
+				if ( shapeDistance( c.poly, true, T.origin + ( i + 0.5 ) * texel, T.origin + ( j + 0.5 ) * texel ) > texel ) continue;
+				const o = ( j * MR + i ) * 4;
+				data[ o ] = 0;
+				data[ o + 1 ] = 0;
+				data[ o + 2 ] = 0;
+
+			}
+
+		}
 		this.mask = { data, res: MR, texel };
 
 	}

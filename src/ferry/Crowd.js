@@ -145,6 +145,7 @@ export class Crowd {
 		// for bumps (src/people/Contact.js): their place before any knock, clip keys, where a step may go, how much room
 		p.base = new Vector3(); p.based = false; p.clipOf = key => CLIP[ key ];
 		p.canStand = ( w, base ) => this.canStand( p, w, base ); p.footing = () => this.footing( p );
+		p.recoverAt = world => this.recoverAt( p, world );
 		p.model.play( CLIP.idle, { fade: 0.01, from: Math.random() * p.model.clipDuration( CLIP.idle ) } );
 		p.model.onClipEnd = () => { p.gesture = null; };
 		this.hub.add( p );
@@ -275,7 +276,32 @@ export class Crowd {
 
 	}
 
-	world( p, w, out ) { return w[ 0 ] === 'S' ? this.ferry.ship.toWorld( _w.set( w[ 1 ], w[ 2 ], w[ 3 ] ), out ) : p.terminal.toWorld( [ w[ 1 ], w[ 2 ], w[ 3 ] ], out ); }
+	world( p, w, out ) { if ( w[ 0 ] === 'W' ) return out.set( w[ 1 ], w[ 2 ], w[ 3 ] ); return w[ 0 ] === 'S' ? this.ferry.ship.toWorld( _w.set( w[ 1 ], w[ 2 ], w[ 3 ] ), out ) : p.terminal.toWorld( [ w[ 1 ], w[ 2 ], w[ 3 ] ], out ); }
+
+	gangwayConnected( p ) {
+
+		const f = this.ferry;
+		if ( ! f.ship.moored || f.castingOff || f.gangway !== 0 || f.at?.terminal !== p.terminal ) return false;
+		// Mooring state alone is insufficient after hull displacement in a flood.
+		const a = this.world( p, GANGWAY[ 2 ], new Vector3() ), b = this.world( p, GANGWAY[ 3 ], new Vector3() );
+		return Math.hypot( a.x - b.x, a.z - b.z ) < 4 && Math.abs( a.y - b.y ) < 0.45;
+
+	}
+
+	recoverAt( p, world ) {
+
+		const deck = this.ferry.deck, local = this.ferry.ship.toLocal( world, new Vector3() );
+		const aboard = !! deck?.supportAt( world, { maxRise: 0.2, maxDrop: 0.25 } );
+		const oldPath = p.path;
+		p.path = null; p.s = 0; p.world.copy( world ); p.base.copy( world ); p.off?.set( 0, 0, 0 );
+		p.local = aboard ? local : null; p.aboard = aboard;
+		p.at = aboard ? [ 'S', ...local.toArray() ] : [ 'W', ...world.toArray() ];
+		p.state = aboard ? 'stand' : 'displaced';
+		// A displaced passenger never reconnects to an obsolete mixed-frame path.
+		// A wholly onboard route can be resumed from the physically reached place.
+		if ( aboard && oldPath?.length && oldPath.every( point => point[ 0 ] === 'S' ) ) p.path = [ p.at.slice(), ...oldPath.slice( 1 ) ];
+
+	}
 
 	step( p, dt, cam, dir ) {
 
@@ -295,27 +321,41 @@ export class Crowd {
 		if ( p.path && ! p.gesture && ! knocked ) {
 
 			const P = p.path;
-			const a = this.world( p, P[ 0 ], _v ), b = this.world( p, P[ 1 ], new Vector3() );
-			const seg = a.distanceTo( b ), hx = Math.sin( p.heading ?? 0 ), hz = Math.cos( p.heading ?? 0 );
-			const wait = this.fallen.length > 0 && !! p.world && this.fallen.some( q => q !== p && q.world.distanceToSquared( p.world ) < 1.2 && ( q.world.x - p.world.x ) * hx + ( q.world.z - p.world.z ) * hz > 0 );
+			let a = this.world( p, P[ 0 ], new Vector3() ), b = this.world( p, P[ 1 ], new Vector3() ), seg = a.distanceTo( b );
+			const hx = Math.sin( p.heading ?? 0 ), hz = Math.cos( p.heading ?? 0 );
+			let wait = this.fallen.length > 0 && !! p.world && this.fallen.some( q => q !== p && q.world.distanceToSquared( p.world ) < 1.2 && ( q.world.x - p.world.x ) * hx + ( q.world.z - p.world.z ) * hz > 0 );
+			if ( P[ 0 ][ 0 ] !== P[ 1 ][ 0 ] && ! this.gangwayConnected( p ) ) {
+				wait = true;
+				if ( p.s > 0 && ! this.hub.contact.boards( p.world, p.base ) && ! this.ferry.deck?.supportAt( p.world ) ) this.hub.contact.environment?.( p );
+			}
 			if ( ! wait ) p.s += p.pace * dt;
-			if ( p.s >= seg ) {
+			while ( ! wait && p.path && p.s >= seg ) {
 
 				p.s -= seg;
 				P.shift();
 				if ( P.length < 2 ) this.arrive( p );
+				else {
+					a = this.world( p, P[ 0 ], a ); b = this.world( p, P[ 1 ], b ); seg = a.distanceTo( b );
+					if ( P[ 0 ][ 0 ] !== P[ 1 ][ 0 ] && ! this.gangwayConnected( p ) ) { p.s = 0; wait = true; }
+				}
 
 			}
 			if ( p.path ) {
 
 				const f = seg > 1e-4 ? Math.min( 1, p.s / seg ) : 1;
-				p.world = ( p.world || new Vector3() ).copy( a ).lerp( b, f );
+				// A disconnected bridge cannot drag an in-progress passenger through
+				// open water as its remote endpoint moves away.
+				if ( ! wait || P[ 0 ][ 0 ] === P[ 1 ][ 0 ] ) p.world = ( p.world || new Vector3() ).copy( a ).lerp( b, f );
 				if ( seg > 0.05 && Math.hypot( b.x - a.x, b.z - a.z ) > 0.05 ) p.heading = Math.atan2( b.x - a.x, b.z - a.z );
 				p.local = P[ 0 ][ 0 ] === 'S' && P[ 1 ][ 0 ] === 'S' ? ship.toLocal( p.world, p.local || new Vector3() ) : null;
 				if ( wait ) { if ( m.current !== CLIP.idle ) m.play( CLIP.idle, { fade: 0.3 } ); }
 				else if ( m.current !== CLIP.walk ) m.play( CLIP.walk, { fade: 0.3, speed: Math.min( 1.6, Math.max( 0.6, p.pace / p.walk ) ) } );
 
 			}
+
+		} else if ( knocked && p.local ) {
+
+			ship.toWorld( p.local, p.world );
 
 		} else if ( ! p.path ) {
 
@@ -384,8 +424,15 @@ export class Crowd {
 		const ship = this.ferry.ship;
 		if ( p.local || ( ! p.path && p.at[ 0 ] === 'S' ) ) {
 
-			const x = Math.abs( ship.toLocal( w, _c ).x ), x0 = Math.abs( ship.toLocal( base, _c ).x );
-			return x <= Math.max( 7.6, x0 + 0.02 );
+			const deck = this.ferry.deck, q = ship.toLocal( w, _c );
+			if ( ! deck ) return false;
+			const g = deck.groundAt( q.x, q.z, q.y + 0.45 );
+			if ( ! Number.isFinite( g ) || Math.abs( q.y - g ) > 0.45 ) return false;
+			for ( const box of deck.boxes ) {
+				if ( ! box.solid || box.center.y + box.half.y <= q.y + 0.45 || box.center.y - box.half.y >= q.y + 1.7 ) continue;
+				if ( Math.abs( q.x - box.center.x ) < box.half.x + 0.27 && Math.abs( q.z - box.center.z ) < box.half.z + 0.27 ) return false;
+			}
+			return true;
 
 		}
 		return this.hub.contact.boards( w, base );

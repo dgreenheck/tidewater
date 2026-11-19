@@ -75,18 +75,21 @@ breach. It runs directly on WebGPU and WGSL with its own small rendering engine,
 
 | Key | Action |
 |---|---|
-| W A S D | Move |
+| W A S D | Move on foot. In a car, W accelerates, S brakes or reverses, and A/D steer. |
 | Mouse | Look (click to capture the mouse, Esc to release) |
 | Shift | Sprint / boat boost |
-| Space | Jump / swim up |
+| Space | Jump / swim up / car handbrake |
+| W + S | Hold both pedals near a standstill for a rear-drive burnout. Release S to launch. |
+| J | Toggle driving aids. Switch them off for deliberate power slides. |
 | C | Crouch / dive |
-| E | Interact: board the boat, take or leave the helm, step ashore, trade with the fish buyer or the chandlery |
+| E | Interact: board the boat, take or leave the helm, step ashore, enter or leave a car, trade with the fish buyer or the chandlery |
 | V | Boat camera at the helm (1st / 3rd person) |
-| R | Take out / put away the fishing rod |
+| R | Take out / put away the fishing rod, or recover the car while driving |
 | Left mouse | Hold to wind up, release to cast · strike when a fish takes the bait · hold to reel |
 | Right mouse | Reel an empty line in |
 | I or Tab | Cooler / fish hold and the fish log |
 | F | Free camera |
+| Left, Right, Home, End on the world tools strip | Move along the strip; Enter opens a tool, Escape closes its panel |
 | L | Flashlight |
 | T | Pause time (in a car: repair) |
 | M | Mute |
@@ -123,11 +126,15 @@ Add these to the URL, for example `?fly&noAudio`:
 
 ## Running locally
 
+The compiled physics module and the two largest new vehicle models are stored losslessly under `assets/distribution/`. `npm ci`, `npm run dev` and `npm run build` prepare the ordinary runtime files in `public/`. If installation scripts are disabled, run `npm run assets:prepare` before direct tests. Building the Rust module or rebuilding either model refreshes its distribution file. Game and server URLs stay the same.
+
 ### Driving
 
 Pick a car in the lower-left card after entering the island, the **Aster RS** (a rear-drive
-rally coupe) or the **Black Jeep** (a lifted, Blender-built 4x4 with mud-terrain tyres and a
-recorded HEMI V8), and choose where to start: the beach, the coastal road, the town backroad,
+rally coupe), the **Ridgeback 4x4** (a lifted, Blender-built 4x4 with mud-terrain tyres and a
+recorded HEMI V8), the **COSIER GT3 RS** (the white-and-red Blender car with its own seven-speed gearbox), the **Petrel GT** (a GT3-style rear-drive coupe), or one of three Blender-built
+hero cars: the **Fulmine V10** (a mid-engine wedge supercar), the **Corsaire W16** (a horseshoe-grille
+hypercar) or the **Sandpiper 1600** (an open-tub beach buggy), and choose where to start: the beach, the coastal road, the town backroad,
 the mountain summit, or either beach entrance. The Cedar wagon and Ridge pickup stay parked
 near the village. All cars carry custom number plates.
 

@@ -56,7 +56,7 @@ meshes and `driving/input.rs` (`DriveIntent`), whose SHA-256 hashes are in
 
 ## Car lights
 
-`src/rally/CarLights.js` gives each drivable car (the Aster RS and the Black Jeep) and every remote car in shared driving:
+`src/rally/CarLights.js` gives each drivable car (every row of `src/rally/Vehicles.js`) and every remote car in shared driving:
 
 - two headlight spot lights at the front of the headlamp lenses, aimed slightly down the road (`LAMPS.head`, 60 m range, 9 to 24 degree cone);
 - a small red point light behind the car for the tail lights, three times brighter while braking;
@@ -76,8 +76,8 @@ permanent panel:
 - On foot (`walk` or `ferry` mode) it shows only:
   - on the start screen, until the first walk of about 4 m or the first drive (`hud.fresh`);
   - within 7 m of a drivable car, tested by `rally.nearCar( pos, radius )`, which returns the
-    nearest drivable car (`{ key, model, distance }`) or null. Only the selected car (Aster RS or
-    Black Jeep) is drivable today; the support wagon and pickup are props. Add new drivable cars
+    nearest drivable car (`{ key, model, distance }`) or null. Only the selected car (any row of
+    `src/rally/Vehicles.js`) is drivable; the support wagon and pickup are props. Add new drivable cars
     to `nearCar`;
   - when summoned with the unlisted Backquote key (on foot or in free camera). Pressing it again,
     walking 25 m from the summon spot or getting in dismisses it. It is deliberately left out of
@@ -89,31 +89,6 @@ permanent panel:
 - It stays hidden (`dock.hidden`) during a bail-out and in `jetski`, `jetski-thrown`, `ragdoll` and
   `ferry-helm`, as before. "Drive" from a summoned dock enters the car wherever it is parked (the
   Start at spot until the player picks another), including from the ferry deck.
-
-## Visual review ledger
-
-| Capture | Finding | Resolution |
-| --- | --- | --- |
-| In-app browser, 25 September 2026, initial driving view | Aster spawned on two dinghies, leaving only one loaded wheel; HUD said “1 wheels”. | Move the car to clear beach sand and pluralise the contact label correctly. Recheck the complete view after the driving tests. |
-| `docs/rally-free-camera-before.png` | The existing F prompt says “Walk” although returning from free camera resumes driving. | Add a car-specific return prompt and cover free-camera input isolation and keyboard exit. |
-| `test-results/rally-coastal-road.png` | Flat black asphalt, chopped edge lines, sawtooth shoulders; driving HUD a tall debug slab ("4 wheels grounded") over a quarter of the screen. | Textured asphalt with patches, lines and sand verges (CoastalRoad); new cluster, vehicle card and dock (DriveHUD). |
-| `test-results/rally-tyre-tracks.png` | Gravel ramp ended as a dark rectangle on the white sand. | Ramps are compacted sand tracks that fade out at the beach and the asphalt. |
-| `test-results/road-captures/after-bend-ne.png` | Village palm on the NE bend shoulder (a tree stood in the road). | Village palms keep off roads (Scatter.js); `road-clearance.spec.js` fails on any trunk or prop within half width + 1 m (red on three palms, then green). |
-| `demo/tour-aster-coast-18.png` (25 Sep review) | Driving key strip sat over the car's rear bumper; brake bar red while parked on auto-hold. | Key strip moved to the top; telemetry reports the driver's pedal, not the auto-hold. |
-| `demo/tour-aster-coast-9.png` | White beach-sand verges running through inland grass; asphalt patch outlines read like UI boxes. | Verges follow the terrain splat; patches jittered with feathered seal edges. |
-| `test-results/road2-captures/b-loopverge.png` | Grass tufts standing on the loop's asphalt edge. | Grass mask keeps 1 m clear of every road edge, thickening over 1.5 m (Scatter.js). |
-| `demo/m-sheet.png` (390 px) | Fps meter over the Cooler pill; driving dock three rows deep over the car; adrift prompt never shown. | Compact fps readout on phones; key-only dock chips; adrift timer decays instead of resetting (a bobbing hull brushes the seabed). |
-| `damage/captures/05,07,08` | Glass shatter made the Aster read as a convertible; white-hot flame core at night; pale debris. | Windscreen and rear screen crack in place, side glass bursts; fire, smoke and debris shading retuned (damage2 lane). |
-| `demo/mtn-sheet.png` | Steam cloud covering a third of the screen after a light rail scrape. | Steam thinned and damage calibrated so scrapes only dent; glancing hits load the side zone. |
-| `demo/esheet.png` | Chase camera parked behind a palm trunk, hiding the car. | Camera collision now includes trunk cylinders. |
-| `demo/finale2-test.mp4` (960 px) | Driving key strip over the brand and the Cooler pill in windows up to 1240 px wide. | Strip drops below the top row at 1240 px and keeps only the driving keys at 720 px; `rally.spec.js` checks 960, 700 and 1280 (red at 960 and 700). |
-| `demo/full12.png` | Surface chip said SAND on a grassy verge: airborne wheels voted with their default code. | Only grounded wheels vote and the chip holds its last surface in the air; `coastal-road.spec.js` surface chip scenario (red: Sand flashed on the drop). |
-| `car-panel/15-driving.png` (1280 px) | Driving key strip over the "Driving · Aster RS" mode pill; "Take a car" card always on screen while walking. | Strip drops below the top row up to 1480 px (`20-driving-keys.png`); dock only on the start screen, near a car or when summoned (see Car dock). |
-| `test-results/rally-dock-700.png` | 561 to 860 px windows: dock buttons under the speedo, map over the speedo. | Speedo moves to the corner and the dock stacks above it up to 860 px; `rally.spec.js` dock scenarios (red at 700 and 820). |
-| `demo/f3sheet.png` | Cars stopped dead in a -17 % to +17 % sag before the bottom hairpin. | Circuit grades are smoothed after the cap sweeps; `test/coastal-grade.mjs` kink test (70 kinks with smoothing off, 0 on). |
-| `demo/yf90sheet.png` | Bail-out view tumbling through tree trunks, off the road; car picker over the tumble. | Trunk collisions, slope contact and friction; dock hidden until the driver stands. |
-| Playtest, 25 Sep | Judder that grew with speed. | Render interpolation (`blend()`); `rally.spec.js` 120 Hz scenario. |
-| `test-results/road2-captures/c-overview.png` (open) | Dark hollow inside the first switchback: the shaded face of an 8 m cutting. | Left as is (a layout change); reads as a cutting at gameplay distance. |
 
 ## Rebuild and refresh
 

@@ -239,6 +239,19 @@ export class TyreTracks {
 		const dx = c.x - old.x, dz = c.z - old.z, distance = Math.hypot( dx, dz );
 		if ( distance > 4 ) return { x: c.x, z: c.z, edge: null, lock: 0 }; // teleport / reset
 		if ( distance < 0.08 ) {
+			if ( ! old.stamped && c.kind === 3 && c.speed < 0.8 && c.ratio > 0.6 && Math.abs( state[ 15 + wheel * 4 ] ) > 4 ) {
+				// Standing burnout. Deposit the loaded footprint once at this patch;
+				// new strip geometry belongs to the distance travelled after release.
+				const steer = state[ 14 + wheel * 4 ];
+				this.forward.set( Math.sin( steer ), 0, Math.cos( steer ) ).applyQuaternion( this.q );
+				const norm = Math.hypot( this.forward.x, this.forward.z ) || 1;
+				const tx = this.forward.x / norm, tz = this.forward.z / norm;
+				const target = this.target( c, profile ), half = target.patch * 0.5;
+				const a = this.edge( c.x - tx * half, c.z - tz * half, tx, tz, null, target, 1, 0, 1 );
+				const b = this.edge( c.x + tx * half, c.z + tz * half, tx, tz, null, target, 1, target.patch, 1 + target.patch );
+				this.segment( a, b, c.kind, profile.tread );
+				old.stamped = true;
+			}
 			// A tyre that ploughed to a stop locked bulldozes a mound of sand ahead of itself.
 			if ( old.lock > 0.6 && old.edge && c.speed < 0.4 ) { this.mound( old.edge, c ); old.lock = 0; }
 			return old;

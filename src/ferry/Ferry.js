@@ -121,11 +121,19 @@ export class Ferry {
 		for ( const hit of ship.takeImpacts() ) this.impact( hit );
 		if ( this.hull >= 1 ) this.sink( dt );
 		this.berthing();
+		// Publish the current ramp/gangway collision state before its occupants
+		// query support. A failed mooring must not leave a one-frame phantom plank.
+		this.berthWork( dt );
 		const t0 = performance.now();
 		this.traffic?.update( dt );
+		const pending = this.app.ragdollPool?.prepare( this.crowd?.people ?? [], dt, this.app.disasters?.field );
+		if ( pending ) return pending.then( () => this.finishCrowd( dt, t0 ) );
+		this.finishCrowd( dt, t0 );
+	}
+
+	finishCrowd( dt, t0 ) {
 		this.crowd?.update( dt );
 		this.peopleMs = 0.95 * ( this.peopleMs || 0 ) + 0.05 * ( performance.now() - t0 );
-		this.berthWork( dt );
 		this.sync();
 		const [ radarX, radarS ] = this.parts.radars;
 		if ( radarX ) radarX.rotation.y += dt * 2.6;

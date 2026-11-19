@@ -18,12 +18,30 @@ import { Grid, Bus } from './Perception.js';
 import { SmartObjects } from './SmartObjects.js';
 import { Speech } from './Speech.js';
 import { Contact } from './Contact.js';
+import { EvacuationAI } from './EvacuationAI.js';
 import { setFade, setGroupFade } from './Fade.js';
 
 export const LOD = { near: 25, far: 80 };
 const POLL = 0.2, CLOSE = 1.9, FADE = 0.85;   // FADE: how far an occluder fades (Fade.js), a ghost stays   // s between polls; m, a seated person's knees to the player
 const _near = [];
 const _d = new Vector3(), _l = new Vector3(), _c = new Vector3();
+
+// People CPU meter: smoothed ms plus the peak of the last 2 s (PEAK_FRAMES at 60 fps), kept in a ring of
+// numbers scanned by a loop. The push, shift and Math.max( ...window ) it replaced left 2.9 KB of heap a frame
+// (test/frame-garbage.mjs).
+const PEAK_FRAMES = 120;
+export function cpuMeter() { return { ms: 0, peak: 0, hub: 0, window: new Float64Array( PEAK_FRAMES ), filled: 0, at: 0 }; }
+export function trackPeak( c, ms ) {
+
+	const w = c.window;
+	w[ c.at ] = ms;
+	c.at = ( c.at + 1 ) % PEAK_FRAMES;
+	if ( c.filled < PEAK_FRAMES ) c.filled ++;
+	let peak = - Infinity;
+	for ( let i = 0; i < c.filled; i ++ ) if ( w[ i ] > peak ) peak = w[ i ];
+	c.peak = peak;
+
+}
 
 export class People {
 
@@ -36,13 +54,14 @@ export class People {
 		this.bus = new Bus( this );
 		this.objects = new SmartObjects();
 		this.speech = new Speech( app );
+		this.evacuation = new EvacuationAI( this );
 		this.contact = new Contact( this );    // bumps: the player and the rally car against people (Contact.js)
 		if ( app.player ) app.player.people = this;
 		this.player = { on: false, pos: new Vector3(), head: new Vector3(), last: new Vector3(), speed: 0, aboard: false, bird: null };
 		this.src = { horns: null, bird: 0, run: 0, car: 0, ski: new Map() };
 		this.poll = 0;
 		this.cost = 0;
-		this.cpu = { ms: 0, peak: 0, hub: 0, window: [] };
+		this.cpu = cpuMeter();
 		this.ctx = { posture: 'stand', mate: null, player: null };
 		this.seen = { d: 0, dy: 0, looking: false, speed: 0, side: 0, head: this.player.head, bird: null };
 
@@ -76,6 +95,12 @@ export class People {
 
 		const t0 = performance.now(), app = this.app;
 		this.t += dt;
+		this.contact.tumbles.collide( dt );
+		// Owners can draw a physical fall instead of their animated pose, and
+		// inter-person contacts can redraw it again. Attach worn props only after
+		// that final skeleton pose so hats and glasses follow the rendered head.
+		for ( const p of this.list ) if ( p.wear ) app.beach?.wearAt( p );
+		this.evacuation.update( dt );
 		const cam = app.camera.position, dir = app.camera.getWorldDirection( _d );
 		this.watchPlayer( dt );
 		this.grid.clear();
@@ -89,6 +114,7 @@ export class People {
 			const d2 = p.world.distanceToSquared( cam );
 			p.lod = d2 < LOD.near * LOD.near ? 'near' : d2 < LOD.far * LOD.far ? 'mid' : 'far';
 			const b = p.brain;
+			if ( p.evacuation ) { b.inbox.length = 0; continue; }
 			if ( p.lod === 'far' ) { b.inbox.length = 0; continue; }
 			if ( this.t < b.next ) continue;
 			b.next = this.t + ( p.lod === 'near' ? 0.2 + Math.random() * 0.3 : 0.9 + Math.random() * 0.2 );
@@ -116,9 +142,7 @@ export class People {
 		const c = this.cpu;
 		c.ms += ( ms - c.ms ) * 0.05;
 		c.hub += ( own - c.hub ) * 0.05;
-		c.window.push( ms );
-		if ( c.window.length > 120 ) c.window.shift();
-		c.peak = Math.max( ...c.window );
+		trackPeak( c, ms );
 
 	}
 
@@ -236,7 +260,7 @@ export class People {
 		const lod = { near: 0, mid: 0, far: 0 };
 		for ( const p of this.list ) lod[ p.lod ] ++;
 		return { count: this.list.length, lod, cpu: { ms: + this.cpu.ms.toFixed( 3 ), peak: + this.cpu.peak.toFixed( 3 ), hub: + this.cpu.hub.toFixed( 3 ) }, player: { on: this.player.on, speed: + this.player.speed.toFixed( 2 ), aboard: this.player.aboard, bird: this.player.bird },
-			speech: this.speech.state(), events: this.bus.log.slice( - 10 ), objects: this.objects.state(), contact: this.contact.state() };
+			speech: this.speech.state(), events: this.bus.log.slice( - 10 ), objects: this.objects.state(), contact: this.contact.state(), evacuation: this.evacuation.state() };
 
 	}
 

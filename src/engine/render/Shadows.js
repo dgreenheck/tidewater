@@ -1,4 +1,5 @@
 import { Texture } from '../gpu/Texture.js';
+import { ShadowCasters } from './ShadowCasters.js';
 import { ShadowUniforms, setShadowMap } from './wgsl/lighting.js';
 import { createViewUniforms, setFrameCamera } from './Frame.js';
 import { Matrix4, Vector3, Vector4 } from '../math/index.js';
@@ -7,7 +8,8 @@ import { Matrix4, Vector3, Vector4 } from '../math/index.js';
 //
 // Cascades are fitted to bounding spheres of slices of the main camera frustum (stable under
 // rotation) and snapped to their texel grid (no shimmer when moving). Near cascade every frame,
-// the next every 2nd, the rest every 4th; a cascade's matrix only changes when its map is rendered.
+// the next every 2nd, the rest every 4th when their casters are unchanged. Moving
+// caster footprints invalidate the relevant maps; matrices only change on render.
 // Depth is standard (0 near .. 1 far) with an orthographic projection; the lighting module samples
 // it with PCSS on the near cascade and a 16-tap PCF elsewhere.
 
@@ -45,6 +47,10 @@ export class SunShadows {
 		this.layerMask = 0xffffffff;
 		this.frame = 0;
 		this.lastSun = new Vector3( 0, - 2, 0 );
+		this.casters = new ShadowCasters();
+		this.changedCasters = 0;
+		this._preparedScene = null;
+		this._sceneViews = new WeakMap();
 		const U = ShadowUniforms.fields;
 		U.count.value = this.count;
 		U.mapSize.value = size;
@@ -121,14 +127,17 @@ export class SunShadows {
 	}
 
 	// Decide which cascades re-render this frame and fit them. Returns the list of indices.
-	update( camera, sunDir ) {
+	update( camera, sunDir, scene = null ) {
 
 		this.frame ++;
+		this._preparedScene = null;
 		ShadowUniforms.fields.enabled.value = this.enabled && sunDir.y > - 0.05 ? 1 : 0;
 		if ( ! this.enabled ) return [];
 		camera.updateMatrixWorld();
 		const sunMoved = this.lastSun.angleTo( sunDir ) > 1e-4;
 		this.lastSun.copy( sunDir );
+		this.changedCasters = scene ? this.casters.invalidate( scene, this.cascades, this.layerMask ) : 0;
+		this._preparedScene = scene;
 		const out = [];
 		for ( let i = 0; i < this.count; i ++ ) {
 
@@ -148,11 +157,34 @@ export class SunShadows {
 
 	render( scene, meshRenderer, indices ) {
 
+		const prepared = this._preparedScene;
+		this._preparedScene = null;
+		if ( indices.length === 0 ) return;
+		let renderScene = scene;
+		if ( ! scene.isMesh ) {
+
+			if ( prepared !== scene ) scene.updateMatrixWorld();
+			// update + this immediate batch share one simulation pose. Retain the
+			// original children/mesh identities and per-cascade draw callbacks, but
+			// do not recompute the whole hierarchy before each depth collection.
+			// Draw callbacks may select ranges/instances; pose updates belong before
+			// this batch, as they do in App.renderFrame.
+			renderScene = this._sceneViews.get( scene );
+			if ( ! renderScene ) {
+
+				renderScene = Object.create( scene );
+				renderScene.updateMatrixWorld = () => {};
+				this._sceneViews.set( scene, renderScene );
+
+			}
+
+		}
+
 		for ( const i of indices ) {
 
 			const c = this.cascades[ i ];
 			setFrameCamera( c.camera, this.size, this.size, { block: c.block } );
-			meshRenderer.render( scene, {
+			meshRenderer.render( renderScene, {
 				label: 'shadow cascade ' + i,
 				kind: 'depth',
 				camera: c.camera,

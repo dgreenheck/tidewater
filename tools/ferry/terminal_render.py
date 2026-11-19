@@ -15,13 +15,14 @@ are render-only upgrades of the exported flat colours.
 REF = __import__('pathlib').Path(__import__('os').environ.get('SEALINK_REF', 'sealink-ref-4.jpg'))
 DROOP, LAND, PLATE_Y = 0.04, 2.10, (-8.85, -7.05)
 import sys, math, json, random
+from tempfile import gettempdir
 from pathlib import Path
 import bpy
 from mathutils import Vector
 
 ROOT = Path(__file__).resolve().parents[2]
 args = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
-out = Path(args[0] if args else '/tmp/terminal-renders'); out.mkdir(parents=True, exist_ok=True)
+out = Path(args[0] if args else Path(gettempdir()) / 'terminal-renders'); out.mkdir(parents=True, exist_ok=True)
 wanted = args[1:] or ['overview', 'topdown', 'jetty', 'gangway', 'linkspan', 'building', 'breakwater']
 
 scene = bpy.context.scene

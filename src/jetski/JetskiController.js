@@ -1,4 +1,5 @@
 import * as THREE from '../engine/index.js';
+import {FluidStep} from './FluidStep.js';
 
 // Rigid-body personal watercraft (a 3.3 m, 350 kg performance stand-up / sit-down ski plus its
 // rider), six degrees of freedom, fixed 120 Hz substeps. See docs/jetski.md for the model and tuning.
@@ -153,6 +154,7 @@ const _fwd = new THREE.Vector3(), _side = new THREE.Vector3(), _up = new THREE.V
 const _a = new THREE.Vector3(), _c1 = new THREE.Vector3(), _c2 = new THREE.Vector3(), _c3 = new THREE.Vector3();
 const _invQ = new THREE.Quaternion(), _dq = new THREE.Quaternion(), _q = new THREE.Quaternion();
 const _yAxis = new THREE.Vector3( 0, 1, 0 );
+const _waterVelocity=new THREE.Vector3(),_surfaceNormal=new THREE.Vector3();
 
 export class JetskiController {
 
@@ -252,6 +254,7 @@ export class JetskiController {
 		this._popT = 0;
 		this.stats = { steps: 0, ms: 0 };
 		this.drag = { friction: 0, hump: 0, air: 0, induced: 0 };
+		this.fluidStep=new FluidStep();
 
 	}
 
@@ -449,6 +452,9 @@ export class JetskiController {
 	step( h ) {
 
 		const S = SKI, m = this.mass;
+        const env=this.environment?.sample(this.position.x,this.position.y,this.position.z);
+        const flow=new THREE.Vector3(env?.ux??0,0,env?.uz??0),airVelocity=new THREE.Vector3(env?.wx??0,env?.wy??0,env?.wz??0);
+        const airRelative=this.velocity.clone().sub(airVelocity),airSpeed=airRelative.length();
 		this._h = h;
 		// centre of gravity with the rider where his weight is
 		const mr = S.massRider, mp = this.massMate || 0, ps = S.mateSeat; // (the passenger leans half as far as the rider)
@@ -460,14 +466,17 @@ export class JetskiController {
 		);
 		const F = _F.set( 0, - m * GRAV, 0 );
 		const T = _T.set( 0, 0, 0 );
+		this.disasterDt = h;
+		this.disasterForces?.( this, F, T );
 		const comW = this.toWorld( this.com, _com );
+		const fluid=this.fluidStep.begin(comW);
 		const invQ = _invQ.copy( this.quaternion ).invert();
 		const addAt = ( f, pw ) => { F.add( f ); T.add( _r.copy( pw ).sub( comW ).cross( f ) ); };
 
 		const fwd = this.forward( _fwd );
 		const side = _side.set( 1, 0, 0 ).applyQuaternion( this.quaternion );
 		const up = _up.set( 0, 1, 0 ).applyQuaternion( this.quaternion );
-		_vl.copy( this.velocity ).applyQuaternion( invQ );
+		_vl.copy( this.velocity ).sub(flow).applyQuaternion( invQ );
 		const u = this.forwardSpeed = _vl.z;
 		this.speed = this.velocity.length();
 		const au = Math.abs( u );
@@ -513,36 +522,44 @@ export class JetskiController {
 			const wetK = Math.min( 1, sub / 0.1 );
 			wet += s.area * wetK;
 			_c1.copy( low ).lerp( high, 0.5 * sub / span );
-			_vp.copy( this.angular ).cross( _r.copy( _c1 ).sub( comW ) ).add( this.velocity );
+			_vp.copy( this.angular ).cross( _r.copy( _c1 ).sub( comW ) ).add( this.velocity ).sub(flow);
 			// the surface under the panel rises with the water's own motion and as the panel runs up a face
-			const vy = _vp.y - wv * 0.7 - ( _vp.x * sx + _vp.z * sz ) * faceK;
+			_waterVelocity.copy(flow);_waterVelocity.y=wv*.7;
+			// Radiation acts normal to the actual free surface. Track speed across a
+			// steep height field is not an additional vertical fluid velocity.
+			_surfaceNormal.set(-sx*faceK,1,-sz*faceK).normalize();
 			// buoyancy (vertical: the column) + heave damping against the water's motion (fades on the plane)
-			_f.set( 0, RHO * GRAV * s.area * sub * ( 1 + S.flare * bowK * clamp( ( sub - 0.12 ) / 0.2, 0, 1 ) ) - ( 1500 * vy + 700 * vy * Math.abs( vy ) ) * s.area * wetK * heaveD, 0 );
+			_f.set( 0, RHO * GRAV * s.area * sub * ( 1 + S.flare * bowK * clamp( ( sub - 0.12 ) / 0.2, 0, 1 ) ), 0 );
+			const normalSpeed=_vp.dot(_surfaceNormal)-wv*.7*_surfaceNormal.y;
+			fluid.point((1500+700*Math.abs(normalSpeed))*s.area*wetK*heaveD,_c1,_surfaceNormal,_waterVelocity);
 			addAt( _f, _c1 );
 
 			// ---- hydrodynamics of the panel itself (only while its face is in the water)
 			if ( d <= 0 ) { s.wetPrev = 0; continue; }
 			const aw = s.area * Math.min( 1, d / 0.1 );
-			_vp.copy( this.angular ).cross( _r.copy( pb ).sub( comW ) ).add( this.velocity );
-			_vp.y -= wv * 0.7 + ( _vp.x * sx + _vp.z * sz ) * faceK; // relative to the local surface: a face ahead adds angle of attack
+			_vp.copy( this.angular ).cross( _r.copy( pb ).sub( comW ) ).add( this.velocity ).sub(flow);
+			_vp.y -= wv * 0.7; // actual relative fluid velocity, including local vertical water motion
 			const n = _n.copy( s.n ).applyQuaternion( this.quaternion );
 			const vn = _vp.dot( n ), vm = _vp.length();
 			// planing pressure along the panel normal: lift, induced drag, chine grip, pitch damping
-			let pn = vn > 0 ? 0.5 * RHO * S.lift * aw * vm * vn : 0.5 * RHO * S.suction * aw * vm * vn;
+			let panelK=0.5*RHO*(vn>0?S.lift:S.suction)*aw*vm;
+			let pn=panelK*vn;
 			// slam: the panel entering the water fast (Wagner): the momentum of the added mass it hits
 			// (by the immersion rate, not v . n: a panel skimming at speed over a steady surface is planing, not slamming)
 			const vi = Math.min( rate, vn + 1 );
-			if ( vi > 1.2 && s.wetPrev < 0.5 ) {
+			if ( vi > 1.2 && vn > 0 && s.wetPrev < 0.5 ) {
 
 				let ps = 0.5 * RHO * S.slam * aw * vi * vi;
 				ps = Math.min( ps, 0.6 * ( m / this.samples.length ) * vi / h ); // never reverse it in a step
-				pn += ps;
+				// The impact resistance enters the same coupled solve. Its
+				// effective point mass includes translation and rotation.
+				panelK+=ps/Math.max(vn,1e-6);pn+=ps;
 				if ( vi > maxSlam ) { maxSlam = vi; slamZ = s.p.z; }
 
 			}
 
 			s.wetPrev = Math.min( 1, d / 0.05 );
-			addAt( _f.copy( n ).multiplyScalar( - pn ), pb );
+			fluid.point(panelK,pb,n,_waterVelocity);
 			liftX += pn * ( - n.dot( fwd ) );
 			// skin friction on the wetted panel (tangential flow)
 			_t.copy( _vp ).addScaledVector( n, - vn );
@@ -551,7 +568,7 @@ export class JetskiController {
 
 				const ff = cfH * aw * vt * vt * ( s.kind === 'sponson' ? 2 : 1 );
 				fric += ff;
-				addAt( _f.copy( _t ).multiplyScalar( - ff / vt ), pb );
+				fluid.point(ff/vt,pb,_t.multiplyScalar(1/vt),_waterVelocity);
 
 			}
 
@@ -561,14 +578,13 @@ export class JetskiController {
 			const us = Math.abs( _a.z ), ws = _a.x;
 			const slip = Math.atan2( Math.abs( ws ), Math.max( us, 0.5 ) );
 			const grip = S.strake * ( 1 - 0.7 * sstep( slip, S.slipStall[ 0 ], S.slipStall[ 1 ] ) ) * ( s.kind === 'sponson' ? 1.6 : s.kind === 'chine' ? 1 : 0.8 ) * ( s.p.z < - 1.2 ? 0.1 : s.p.z < - 0.6 ? 0.35 : 1 ); // (the flat pad and ride plate aft barely grip: the strakes forward carve)
-			const fl = - 0.5 * RHO * aw * ( grip * us * ws + S.crossFlow * ws * Math.abs( ws ) );
-			addAt( _f.copy( side ).multiplyScalar( fl ), pb );
+			fluid.point(.5*RHO*aw*(grip*us+S.crossFlow*Math.abs(ws)),pb,side,_waterVelocity);
 			// buried past the chine (nose-dive): the deck pushes water
 			const buryAt = 0.3 + S.bowDeck * bowK;
 			if ( d > buryAt ) {
 
 				const bd = 0.5 * RHO * S.bury * s.area * Math.min( 1, ( d - buryAt ) / 0.2 );
-				addAt( _f.copy( _vp ).multiplyScalar( - bd * vm ), _c1 );
+				fluid.isotropic(bd*vm,pb,_waterVelocity);
 
 			}
 
@@ -592,7 +608,7 @@ export class JetskiController {
 			const nq = Math.max( 1, this.qpts.length );
 			for ( let j = 0; j < this.qpts.length; j ++ ) { wv += this.waterV[ j ]; gx += this.sgx[ j ]; gz += this.sgz[ j ]; }
 			const rise = ( wv + S.ploughFace * ( this.velocity.x * gx + this.velocity.z * gz ) ) / nq;
-			F.y -= m * pk * Math.max( 0, this.velocity.y - rise ); // rising only: the landing itself is the slam's
+			if(this.velocity.y>rise){_waterVelocity.copy(flow);_waterVelocity.y=rise;fluid.point(m*pk,comW,_yAxis,_waterVelocity);} // rising only: the landing itself is the slam's
 
 		}
 
@@ -600,18 +616,18 @@ export class JetskiController {
 		// rising over it
 		const hump = S.hump * m * GRAV * Math.exp( - ( ( ( au - S.humpSpeed ) / S.humpWidth ) ** 2 ) ) * wetD * Math.sign( u );
 		this.drag.hump = Math.abs( hump );
-		addAt( _f.copy( fwd ).multiplyScalar( - hump ), this.toWorld( _v.set( 0, - 0.15, - 0.2 ), _c2 ) );
+		if(au>1e-8)fluid.point(Math.abs(hump)/au,comW,fwd,flow);
 		const humpT = S.humpTrim * Math.exp( - ( ( ( au - S.humpSpeed * 0.9 ) / S.humpWidth ) ** 2 ) ) * wetD;
 		T.addScaledVector( side, - humpT );
 
 		const app = 0.5 * RHO * S.appendage * u * au * wetD;
 		this.drag.appendage = Math.abs( app );
-		addAt( _f.copy( fwd ).multiplyScalar( - app ), this.toWorld( _v.set( 0, - 0.22, - 1.2 ), _c2 ) );
+		fluid.point(.5*RHO*S.appendage*au*wetD,this.toWorld(_v.set(0,-.22,-1.2),_c2),fwd,flow);
 
 		// ---- air drag (rider + ski)
 		const cda = ( this.driven ? S.airCdA - ( S.airCdA - S.airCdATuck ) * Math.max( this.leanFwd, 0 ) : 0.35 ) + S.mateCdA * ( this.massMate || 0 ) / S.massMate;
-		F.addScaledVector( this.velocity, - 0.5 * RHO_AIR * cda * this.speed );
-		this.drag.air = 0.5 * RHO_AIR * cda * this.speed * this.speed;
+		fluid.isotropic(.5*RHO_AIR*cda*airSpeed,comW,airVelocity);
+		this.drag.air = 0.5 * RHO_AIR * cda * airSpeed * airSpeed;
 
 		// ---- jet: thrust only with the intake in the water; the nozzle vectors it (no thrust, no steering)
 		const ip = this.toWorld( _v.fromArray( S.intake ), _c2 );
@@ -664,24 +680,27 @@ export class JetskiController {
 		// the airflow; the fins' own motion as the ski pitches or yaws adds damping. The hull: anti-lift and downforce.
 		{
 
-			const ae = sstep( this.speed, S.aeroOn[ 0 ], S.aeroOn[ 1 ] );
+			const ae = sstep( airSpeed, S.aeroOn[ 0 ], S.aeroOn[ 1 ] );
 			const fw = this.toWorld( _v.fromArray( S.finAt ), _c2 );
-			_vp.copy( this.angular ).cross( _r.copy( fw ).sub( comW ) ).add( this.velocity ).applyQuaternion( invQ );
+			_vp.copy( this.angular ).cross( _r.copy( fw ).sub( comW ) ).add( airRelative ).applyQuaternion( invQ );
 			const vf = _vp.length();
 			if ( ae > 0 && vf > 1 ) {
 
 				const k = 0.5 * RHO_AIR * S.finK * vf * ae; // q alpha = 1/2 rho v^2 (v_perp / v)
-				addAt( _f.set( - k * _vp.x, - k * _vp.y, 0 ).applyQuaternion( this.quaternion ), fw );
+				fluid.point(k,fw,side,airVelocity);fluid.point(k,fw,up,airVelocity);
 
 			}
 
-			const va = this.speed, ha = S.hullAero;
+			const va = airSpeed, ha = S.hullAero, airLocal=airRelative.clone().applyQuaternion(invQ);
 			if ( ae > 0 && va > 1 ) {
 
-				const fy = 0.5 * RHO_AIR * ae * ( ha[ 0 ] * va * _vl.y - ha[ 1 ] * u * au ); // _vl: the body velocity in the ski frame
+				const fy=-.5*RHO_AIR*ae*ha[1]*airLocal.z*Math.abs(airLocal.z);
+				// The old +k*v_y term was anti-damping. Hull cross-flow
+				// resistance opposes local motion; empirical downforce stays explicit.
+				fluid.point(.5*RHO_AIR*ae*ha[0]*va,this.toWorld(_v.fromArray(S.hullAt),_c3),up,airVelocity);
 				addAt( _f.set( 0, fy, 0 ).applyQuaternion( this.quaternion ), this.toWorld( _v.fromArray( S.hullAt ), _c3 ) );
 				_a.copy( this.angular ).applyQuaternion( invQ );
-				T.add( _f.set( - S.aeroDamp[ 0 ] * va * ae * _a.x, - S.aeroDamp[ 1 ] * va * ae * _a.y, - S.aeroDamp[ 2 ] * va * ae * _a.z ).applyQuaternion( this.quaternion ) );
+				fluid.angular(S.aeroDamp[0]*va*ae,side);fluid.angular(S.aeroDamp[1]*va*ae,up);fluid.angular(S.aeroDamp[2]*va*ae,fwd);
 
 			}
 
@@ -731,23 +750,20 @@ export class JetskiController {
 
 		this._popT = Math.max( 0, this._popT - h );
 		// porpoising: a little extra pitch-rate damping from the wetted bottom
-		tl.x -= 90 * _a.x * wetD;
+		fluid.angular(90*wetD,side);
 		T.add( tl.applyQuaternion( this.quaternion ) );
 
 		// ---- contacts: terrain, piles, vessels
 		this.contacts( F, T, comW );
 		this.solidContacts( F, T, comW, h );
 
-		// ---- integrate (semi-implicit Euler), added mass / inertia in the ski frame
-		const fl = _vl.copy( F ).applyQuaternion( invQ );
-		const am = S.addedMass;
-		fl.x /= m * ( 1 + am[ 0 ] * wetD ); fl.y /= m * ( 1 + am[ 1 ] * wetD ); fl.z /= m * ( 1 + am[ 2 ] * wetD );
-		this.velocity.addScaledVector( fl.applyQuaternion( this.quaternion ), h );
-		const tq = T.applyQuaternion( invQ );
-		const In = this.inertia, ai = S.addedInertia;
-		tq.set( tq.x / ( In.x * ( 1 + ai[ 0 ] * wetD ) ), tq.y / ( In.y * ( 1 + ai[ 1 ] * wetD ) ), tq.z / ( In.z * ( 1 + ai[ 2 ] * wetD ) ) );
-		this.angular.addScaledVector( tq.applyQuaternion( this.quaternion ), h );
-		if ( this.angular.lengthSq() > 400 ) this.angular.setLength( 20 );
+		// Coupled implicit resistance; hydrostatic, contact and drive forces remain
+		// explicit external loads. No velocity or angular-speed cap is needed.
+		const am=S.addedMass,ai=S.addedInertia,In=this.inertia;
+		fluid.solve(h,this.quaternion,
+		 [m*(1+am[0]*wetD),m*(1+am[1]*wetD),m*(1+am[2]*wetD)],
+		 [In.x*(1+ai[0]*wetD),In.y*(1+ai[1]*wetD),In.z*(1+ai[2]*wetD)],
+		 this.velocity,this.angular,F,T);
 		comW.addScaledVector( this.velocity, h );
 		const w = this.angular, ang = w.length() * h;
 		if ( ang > 1e-8 ) {
@@ -825,7 +841,7 @@ export class JetskiController {
 	isFinite() {
 
 		const ok = ( v ) => Number.isFinite( v.x ) && Number.isFinite( v.y ) && Number.isFinite( v.z );
-		return ok( this.position ) && ok( this.velocity ) && ok( this.angular ) && Number.isFinite( this.quaternion.w );
+		return ok( this.position ) && ok( this.velocity ) && ok( this.angular ) && ok(this.quaternion) && Number.isFinite( this.quaternion.w );
 
 	}
 

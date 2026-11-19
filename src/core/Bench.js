@@ -151,6 +151,18 @@ export class Bench {
 	pose( name ) {
 
 		const app = this.app;
+		// Dry the lens between views (ledger D-L6-1). The lens soaks on the frame the camera leaves
+		// the water, so 'aerial' posed straight after 'underwater' showed drops at 95 m: a harness
+		// artefact that play never sees. The bench clears it here; LensDroplets is unchanged.
+		const lens = app.post?.lens;
+		if ( lens ) {
+
+			lens.wet.value = 0;
+			lens.age.value = 100;
+			lens._wasUnder = false;
+
+		}
+
 		if ( name === 'boatFish' || name === 'boatHelm' ) {
 
 			const b = app.boatCtl, p = app.player;
@@ -192,9 +204,12 @@ export class Bench {
 
 		const app = this.app;
 		let pending = null;
+		let previous = performance.now();
 		for ( let i = 0; i < n; i ++ ) {
 
-			app.frame( dt );
+			const now = performance.now();
+			await app.frame( dt, i ? ( now - previous ) / 1000 : dt );
+			previous = now;
 			const done = GPU.queue.onSubmittedWorkDone();
 			if ( pending ) await pending;
 			pending = done;
@@ -234,7 +249,7 @@ export class Bench {
 	async run( { views = DEFAULT_VIEWS, warm = 90, frames = 120, dt = 1 / 60, top = 40 } = {} ) {
 
 		const app = this.app;
-		app.engine.stop();
+		await app.engine.stop();
 		this.setSize();
 		const out = {};
 		for ( const name of views ) {
@@ -258,6 +273,8 @@ export class Bench {
 				wall: + wall.toFixed( 3 ),
 				gpu: + ( gpus.reduce( ( a, b ) => a + b, 0 ) / gpus.length ).toFixed( 3 ),
 				gpuMedian: + gpus[ gpus.length >> 1 ].toFixed( 3 ),
+				// the frame-time gate (test/browser/frame-time.spec.js) holds this under the 60 fps budget
+				gpuP95: + gpus[ Math.min( gpus.length - 1, Math.floor( gpus.length * 0.95 ) ) ].toFixed( 3 ),
 				cpu: + app.cpuMs.toFixed( 3 ),
 				passes: [ ...passes ].sort( ( a, b ) => b[ 1 ] - a[ 1 ] ).slice( 0, top ).map( ( [ k, v ] ) => [ k, + v.toFixed( 3 ) ] ),
 			};
@@ -284,7 +301,7 @@ export class Bench {
 	async shots( views = DEFAULT_VIEWS, { tag = 'shot', frames = 64, url = 'http://127.0.0.1:5190/', dt = 0, seq = 1, every = 1 } = {} ) {
 
 		const app = this.app;
-		app.engine.stop();
+		await app.engine.stop();
 		this.setSize();
 		const { width, height } = app.engine.canvas;
 		if ( ! this._out || this._out.width !== width || this._out.height !== height ) this._out = new Texture( { width, height, format: GPU.format, usage: [ 'render', 'copySrc', 'sample' ], label: 'bench output' } );

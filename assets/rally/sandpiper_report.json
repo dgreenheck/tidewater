@@ -1,0 +1,46 @@
+{
+  "generator": "tools/rally/build_sandpiper.py",
+  "blender": "5.0.1",
+  "triangles": 57396,
+  "glb_bytes": 1755272,
+  "materials": [
+    "AlloyDark",
+    "BodyPaint",
+    "BrakeRotor",
+    "BrightMetal",
+    "Caliper",
+    "Glass",
+    "Graphite",
+    "Headlamp",
+    "Indicator",
+    "Interior",
+    "Rubber",
+    "SeatFabric",
+    "TailLamp"
+  ],
+  "wheel_radius_m": 0.345,
+  "wheelbase_m": 2.032,
+  "track_width_m": 1.33,
+  "wheel_pivots": [
+    "WheelFrontL",
+    "WheelFrontR",
+    "WheelRearL",
+    "WheelRearR"
+  ],
+  "plates_gltf_xyz_yaw": [
+    [
+      0.0,
+      0.4,
+      -1.528,
+      3.141592653589793
+    ],
+    [
+      0.0,
+      0.5,
+      1.626,
+      0
+    ]
+  ],
+  "length_m": 3.14,
+  "mass_kg": 620
+}

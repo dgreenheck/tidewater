@@ -30,7 +30,8 @@ const CLR = [ 0, 0, 0, 0 ];
 // Two changes for native resolution, measured against a 16x supersampled reference walking the pier
 // (test/taa-pier.mjs): a wider box while still, and an accumulation cap by the history's resampling
 // blur (see the resolve).
-// FSR2's reactive and transparency masks are not used. The water surface (it moves on its own and its
+// A local cloud-coverage mask suppresses stale transparent history; this is not
+// FSR2's full reactive/transparency-mask pipeline. The water surface (it moves on its own and its
 // motion vectors only carry the camera's) keeps its history through the disocclusion test.
 // Jitter: FSR2's Halton (2, 3) with 8 x (output / input)^2 phases, driven by the post chain:
 // PostFX.beginFrame() takes jitter() for the frame's camera (setFrameCamera) and endFrame() calls
@@ -74,8 +75,8 @@ export class TemporalUpscale {
 			prevInvViewProj: [ 'mat4x4f', new Matrix4() ],
 			jitterOffset: [ 'vec2f', new Vector2() ],
 			cameraNearFar: [ 'vec2f', new Vector2( 0.1, 1000 ) ],
-			depthThreshold: [ 'f32', 0.0005 ],
-			edgeDepthDiff: [ 'f32', 0.001 ],
+			depthThreshold: [ 'f32', 0.002 ],
+			edgeDepthDiff: [ 'f32', 0.01 ],
 			hasWaterMask: [ 'f32', waterMaskTexture ? 1 : 0 ],
 			jitterPhases: [ 'f32', 8 ],
 			reset: [ 'f32', 1 ],
@@ -129,6 +130,7 @@ export class TemporalUpscale {
 		this.history = [ new RenderTarget( 1, 1, hist() ), new RenderTarget( 1, 1, hist() ) ];
 		this._cur = 0;
 		this._prevDepth = new Texture( { label: 'taauPrevDepth', width: 1, height: 1, format: 'depth32float', usage: [ 'sample', 'copyDst' ] } );
+		this._prevCloudMask = new Texture( { label: 'taauPrevCloudMask', width: 1, height: 1, format: 'rgba8unorm', usage: [ 'sample', 'copyDst' ] } );
 		this._hasPrevInvVP = false;
 		this._needsRestart = true;
 		this._build();
@@ -228,6 +230,7 @@ export class TemporalUpscale {
 			taauPrevDepth: { texture: () => this._prevDepth },
 			taauVelocity: { texture: () => this.velocityTexture },
 			taauMask: { texture: () => this.waterMaskTexture || this.velocityTexture },
+			taauPrevCloudMask: { texture: () => this._prevCloudMask },
 			taauHistory: { texture: () => this.history[ src ].textures[ 0 ] },
 			taauLock: { texture: () => this.history[ src ].textures[ 1 ] },
 			taauLumaHistory: { texture: () => this.history[ src ].textures[ 2 ] },
@@ -289,13 +292,17 @@ fn taauLoadBeauty( p: vec2i ) -> vec4f {
 	return textureLoad( taauBeauty, clamp( p, vec2i( 0 ), s - 1 ), 0 );
 }
 
-// standard (0 near .. 1 far) perspective depth of the reversed-Z buffer at p (clamped)
+// Positive view distance in metres. Comparing perspective depths with a fixed
+// epsilon misses disocclusion at village distances: 200 -> 250 m differs by
+// only 0.00006 with the app near plane, retaining old walls on exposed ground.
 fn taauDepthAt( p: vec2i ) -> f32 {
 	let s = vec2i( textureDimensions( taauDepth ) );
-	return 1.0 - textureLoad( taauDepth, clamp( p, vec2i( 0 ), s - 1 ), 0 );
+	let d = textureLoad( taauDepth, clamp( p, vec2i( 0 ), s - 1 ), 0 );
+	let near = taau.cameraNearFar.x; let far = taau.cameraNearFar.y;
+	return near * far / ( near + d * ( far - near ) );
 }
 
-// last frame's depth at uv, reprojected into this frame's camera (standard perspective depth)
+// Last frame's surface, reprojected into this camera, in the same linear units.
 fn taauPreviousDepth( uv: vec2f ) -> f32 {
 	let s = vec2i( textureDimensions( taauPrevDepth ) );
 	let d = textureLoad( taauPrevDepth, clamp( vec2i( uv * vec2f( s ) ), vec2i( 0 ), s - 1 ), 0 );
@@ -303,7 +310,7 @@ fn taauPreviousDepth( uv: vec2f ) -> f32 {
 	let world = pw.xyz / pw.w;
 	let viewZ = ( frame.view * vec4f( world, 1.0 ) ).z;
 	let near = taau.cameraNearFar.x; let far = taau.cameraNearFar.y;
-	return ( ( near + viewZ ) * far ) / ( ( far - near ) * viewZ );
+	return clamp( -viewZ, near, far );
 }
 
 fn taauInside( uv: vec2f ) -> bool { return all( uv >= vec2f( 0.0 ) ) && all( uv <= vec2f( 1.0 ) ); }
@@ -321,7 +328,7 @@ struct TaauOut { @location( 0 ) color: vec4f, @location( 1 ) lock: vec4f, @locat
 	let closestTap = vec2i( round( pIn - ( vec2f( 0.5 ) + taau.jitterOffset ) ) );
 
 	// ---- reprojection (three's TAAUNode): velocity of the nearest depth in the 3x3, disocclusion
-	var closestDepth = 2.0;
+	var closestDepth = 1e30;
 	var closestPositionTexel = vec2i( 0 );
 	var farthestDepth = -1.0;
 	for ( var y = -1; y <= 1; y++ ) {
@@ -339,11 +346,29 @@ struct TaauOut { @location( 0 ) color: vec4f, @location( 1 ) lock: vec4f, @locat
 	let velocity = textureLoad( taauVelocity, clamp( closestPositionTexel, vec2i( 0 ), vs - 1 ), 0 ).xy;
 	let historyUV = uv - velocity;
 	let hrVelocity = length( velocity * outSize ); // output pixels per frame
-	let isEdge = farthestDepth - closestDepth > taau.edgeDepthDiff;
-	let isDisocclusion = closestDepth - taauPreviousDepth( historyUV ) > taau.depthThreshold;
+	// Relative distance tolerances remain useful at both near rails and distant
+	// debris; small absolute floors tolerate depth precision and jitter.
+	let isEdge = farthestDepth - closestDepth > max( 0.1, closestDepth * taau.edgeDepthDiff );
+	let isDisocclusion = closestDepth - taauPreviousDepth( historyUV ) > max( 0.03, closestDepth * taau.depthThreshold );
 	// the water surface keeps its history (its depth changes with the waves, not with occlusion)
 	let ms = vec2i( textureDimensions( taauMask ) );
 	let isWater = taau.hasWaterMask > 0.5 && textureLoad( taauMask, clamp( closestTap, vec2i( 0 ), ms - 1 ), 0 ).g > 0.5;
+	// Opaque depth cannot reveal a departing cloud. Current and reprojected
+	// previous coverage both invalidate transparent history, including clear().
+	var cloudCoverage = 0.0;
+	if ( taau.hasWaterMask > 0.5 ) {
+		let ps = vec2i( textureDimensions( taauPrevCloudMask ) );
+		let previousTap = vec2i( historyUV * vec2f( ps ) );
+		for ( var y = -1; y <= 1; y++ ) {
+			for ( var x = -1; x <= 1; x++ ) {
+				let offset = vec2i( x, y );
+				cloudCoverage = max( cloudCoverage, textureLoad( taauMask, clamp( closestTap + offset, vec2i( 0 ), ms - 1 ), 0 ).b );
+				if ( taau.reset < 0.5 ) { cloudCoverage = max( cloudCoverage, textureLoad( taauPrevCloudMask, clamp( previousTap + offset, vec2i( 0 ), ps - 1 ), 0 ).b ); }
+			}
+		}
+	}
+	// Any retained coverage bit counts, including many faint overlapping layers.
+	let reactiveCloud = cloudCoverage > 0.0;
 	let isExistingSample = taauInside( historyUV );
 	let depthClip = select( 0.0, 1.0, isDisocclusion && ! isEdge && ! isWater );
 	let isNewSample = ! isExistingSample || taau.reset > 0.5;
@@ -492,6 +517,7 @@ struct TaauOut { @location( 0 ) color: vec4f, @location( 1 ) lock: vec4f, @locat
 	var accumulation = taau.maxAccumulation * select( 0.0, 1.0, isExistingSample ) * ( 1.0 - thisFrameReactive ) * ( 1.0 - depthClip );
 	accumulation = min( accumulation, mix( accumulation, upsampledWeight * taau.motionAccumulation, max( select( 0.0, 1.0, inMotionLastFrame ), sat( hrVelocity * 10.0 ) ) ) );
 	accumulation = min( accumulation, mix( accumulation, upsampledWeight, sat( hrVelocity / 20.0 ) ) );
+	if ( reactiveCloud ) { accumulation = min( accumulation, upsampledWeight * 0.5 ); }
 
 	// Resampling blur (not in FSR2): even the Catmull-Rom loses fine detail when it samples between
 	// texels, and in motion the history is resampled that way every frame (at 0.2 px ~80% of the
@@ -522,7 +548,7 @@ struct TaauOut { @location( 0 ) color: vec4f, @location( 1 ) lock: vec4f, @locat
 		if ( any( boxMin > historyColor ) || any( historyColor > boxMax ) ) {
 			let clamped = clamp( historyColor, boxMin, boxMax );
 			// (not on the water: its glints move on their own and would leave trails)
-			let contribution = select( sat( max( max( lumaInstability, lockContribution ), staticKeep ) ), 0.0, isWater );
+			let contribution = select( sat( max( max( lumaInstability, lockContribution ), staticKeep ) ), 0.0, isWater || reactiveCloud );
 			dbgClamp = vec2f( length( clamped - historyColor ) / max( boxVec.x * 2.0, 0.02 ), contribution );
 			historyColor = mix( clamped, historyColor, contribution );
 			accumulation = mix( min( accumulation, 0.1 ), accumulation, contribution );
@@ -604,14 +630,13 @@ DEBUG_OUTPUT
 		if ( ! this._hasPrevInvVP ) U.prevInvViewProj.value.copy( F.invViewProj.value );
 		this._hasPrevInvVP = true;
 
-		// the previous-depth copy follows the scene depth size (resized before anything binds it this frame)
-		const sd = this.depthTexture;
-		if ( this._prevDepth.width !== sd.width || this._prevDepth.height !== sd.height ) {
-
-			this._prevDepth.resize( sd.width, sd.height );
-			this._needsRestart = true;
-
-		}
+		// A render-scale step changes the scene depth and cloud-mask size but not the history (that is at
+		// output size). The previous-depth and previous-cloud-mask copies still hold last frame at the old
+		// size, and the resolve reads both by uv against textureDimensions (taauPreviousDepth, the cloud
+		// taps), so they stay valid for this resolve: they follow the new size only after it, just before
+		// this frame's copy. Resizing them here with a restart threw the whole history away on every
+		// governor step, a full-frame shimmer of the forest canopy (cap-d5 red: restarts 1).
+		const cloudMask = this.waterMaskTexture;
 
 		// camera cut (teleport, free-camera jump, respawn, or reset() below): the old history and its
 		// reprojection are meaningless, so restart as after a resize, with an identity reprojection
@@ -646,9 +671,17 @@ DEBUG_OUTPUT
 		}
 		this._cur = dst;
 
-		// Copy the current scene depth into the previous-depth texture (same size as the source)
+		// Copy the current scene depth into the previous-depth texture (resized to the source first; the old
+		// texture is freed after the submit, so the resolve recorded above still reads it)
 		const d = this.depthTexture;
+		this._prevDepth.resize( d.width, d.height );
 		GPU.getEncoder().copyTextureToTexture( { texture: d.getGPU() }, { texture: this._prevDepth.getGPU() }, { width: d.width, height: d.height } );
+		if ( cloudMask ) {
+
+			this._prevCloudMask.resize( cloudMask.width, cloudMask.height );
+			GPU.getEncoder().copyTextureToTexture( { texture: cloudMask.getGPU() }, { texture: this._prevCloudMask.getGPU() }, { width: cloudMask.width, height: cloudMask.height } );
+
+		}
 
 	}
 

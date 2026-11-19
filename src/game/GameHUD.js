@@ -22,6 +22,19 @@ const CSS = /* css */`
 :root:has(.jh:not([hidden])) .gm-pin { bottom: calc(var(--tw-edge) + var(--jh-keys-h, 28px) + var(--tw-2)); }
 .gm-pin-label { letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.72; }
 .gm-pin-num { font: 600 calc(15 * var(--tw-u)) var(--tw-mono); color: var(--tw-sun); letter-spacing: 0.14em; }
+/* Context-aware chips: AppUI stamps data-hud-chips="purse pin guidance" on the root from
+   HudContext.hudChips. A chip not in the stamp fades out over --tw-fast and stops taking clicks; it
+   returns with no delay. A tsunami warning clears the PIN and the purse off the top so the banner
+   reads, except the purse stays while the boat's fuel gauge is on: a crew fleeing by sea needs it. */
+.gm-purse { transition: transform var(--tw-med) var(--tw-ease), right var(--tw-slow) var(--tw-ease), opacity var(--tw-fast) var(--tw-ease), visibility 0s; }
+.gm-pin { transition: opacity var(--tw-fast) var(--tw-ease), visibility 0s; }
+.tw-root:not([data-hud-chips~=purse]) .gm-purse,
+.tw-root:not([data-hud-chips~=pin]) .gm-pin,
+body:has(.disaster-warning:not([hidden])) .gm-pin,
+body:has(.disaster-warning:not([hidden])) .gm-purse:not(:has(.gm-fuel.is-on)) {
+	opacity: 0; visibility: hidden; pointer-events: none;
+	transition: opacity var(--tw-fast) var(--tw-ease), visibility 0s linear var(--tw-fast);
+}
 .gm-purse.is-bump { animation: gm-bump 420ms var(--tw-ease); }
 @keyframes gm-bump { 30% { transform: scale(1.08); } }
 .gm-money { font-family: var(--tw-mono); color: var(--tw-sun); font-weight: 600; }

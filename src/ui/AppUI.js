@@ -2,6 +2,12 @@ import * as THREE from '../engine/index.js';
 import { UI } from './UI.js';
 import { icon } from './icons.js';
 import { ON_FOOT } from '../player/Player.js';
+import { hudChips } from '../game/HudContext.js';
+
+// scratch for the per-frame chip rule; CHIP_WORDS is indexed by the purse|pin|guidance bitmask
+const CHIP_CTX = { mode: 'walk', freeCam: false, driving: false };
+const CHIPS = { purse: true, pin: true, guidance: true };
+const CHIP_WORDS = [ '', 'purse', 'pin', 'purse pin', 'guidance', 'purse guidance', 'pin guidance', 'purse pin guidance' ];
 import { G } from '../core/Globals.js';
 import { GroundBounce } from '../materials/GroundBounce.js';
 import { DAY_RATE, NIGHT_X } from '../sky/DayClock.js';
@@ -20,6 +26,7 @@ export class AppUI {
 
 		this.app = app;
 		this.ui = ui;
+		ui.isGameKeyClaimed = code => !!app.aviation?.pilot && code === 'KeyH';
 		const fft = app.fft;
 		const shore = app.shore;
 
@@ -58,14 +65,9 @@ export class AppUI {
 
 		const spectrum = () => {
 
-			fft.local.windSpeed = s.wind;
-			fft.local.windDirection = s.windDir;
 			fft.local.fetch = s.fetch;
 			fft.swell.scale = s.swell;
-			fft.updateSpectrumUniforms();
-			const a = THREE.MathUtils.degToRad( s.windDir );
-			G.windDir.value.set( Math.cos( a ), Math.sin( a ) );
-			G.windSpeed.value = s.wind;
+			app.setAmbientWind( s.wind, s.windDir );
 
 		};
 
@@ -235,9 +237,16 @@ export class AppUI {
 		live.addInfo( { label: 'Render size', get: () => `${ app.sceneRenderer.width } × ${ app.sceneRenderer.height }` } );
 		const quality = perf.addFolder( 'Quality', { icon: 'layers' } );
 		// output resolution: Retina (DPR, capped at 2) with the adaptive governor (src/engine/ResolutionGovernor.js);
-		// its lowest steps lower the render scale (never above the slider), each step cuts the TAA history
+		// its lowest steps lower the render scale (never above the slider). A scale step keeps the TAA history:
+		// the history is at output size and the camera did not move, so no cut (the cut here threw
+		// the history away on every step, a canopy shimmer each time the tsunami spike stepped the governor)
 		const gov = app.engine.resolution;
-		gov.onScale = ( v ) => { app.post.setScale( v ); if ( app.clouds ) app.clouds.resolutionScale = v; app.cameraCut(); };
+		gov.onScale = ( v ) => {
+
+			app.post.setScale( v );
+			if ( app.clouds ) app.clouds.resolutionScale = v;
+
+		};
 		gov.setUserScale( app.settings.renderScale );
 		s.resolution = gov.mode;
 		quality.addSelect( { label: 'Resolution', object: s, key: 'resolution', options: [ { label: 'Auto (Retina)', value: 'auto' }, { label: 'Retina', value: 'retina' }, { label: 'Standard', value: 'standard' } ], tooltip: 'Auto renders at the Retina resolution and steps down when the frame rate drops.', onChange: ( v ) => gov.setMode( v ) } );
@@ -282,6 +291,20 @@ export class AppUI {
 
 		const app = this.app, p = app.player, third = p.view === 'third';
 		const show = ON_FOOT.has( p.mode ) && ! app.freeCam && ! app.rally?.active;
+		// context-aware HUD chips: stamp the rule on the root; GameHUD's and
+		// WorldTools' CSS read it. Scratch objects, so the per-frame call allocates nothing.
+		CHIP_CTX.mode = p.mode;
+		CHIP_CTX.freeCam = !! app.freeCam;
+		CHIP_CTX.driving = !! app.rally?.active;
+		hudChips( CHIP_CTX, CHIPS );
+		const stamp = ( CHIPS.purse ? 1 : 0 ) | ( CHIPS.pin ? 2 : 0 ) | ( CHIPS.guidance ? 4 : 0 );
+		if ( this._chipStamp !== stamp ) {
+
+			this._chipStamp = stamp;
+			this.ui.root.dataset.hudChips = CHIP_WORDS[ stamp ];
+
+		}
+
 		if ( this._viewShown !== show || this._viewThird !== third ) this.ui.promptEl.classList.toggle( 'is-third', show && third );
 		if ( this._viewShown !== show ) {
 
@@ -292,6 +315,9 @@ export class AppUI {
 
 		if ( this._viewThird === third ) return;
 		this._viewThird = third;
+		// the root carries the view too: the evacuation hint's CSS reads it to stand clear of the
+		// third-person character (src/evacuation/Panel.js)
+		this.ui.root.classList.toggle( 'is-third', third );
 		const label = third ? 'First person' : 'Third person';
 		this.viewBtn.setAttribute( 'aria-label', label );
 		this.viewBtn.dataset.tip = `${ label } (V)`;
@@ -313,14 +339,17 @@ export class AppUI {
 		if ( app.freeCam ) {
 
 			ui.setMode( 'Free camera' );
-			ui.setPrompt( 'F', app.rally?.active ? 'Return to car' : 'Walk' );
+			ui.setPrompt( 'F', app.rally?.active ? 'Return to car' : app.camera.position.y < ( app.cameraWaterHeight ?? 0 ) - 0.3 ? 'Dive' : 'Walk' );
 			ui.setBoatGauges( { visible: false } );
 			ui.setDepth( { visible: false } );
 			return;
 
 		}
 
-		const mode = p.mode === 'rally' ? `Driving · ${ app.rally.profile.name }`
+		const mode = p.mode === 'chairlift' ? 'Riding · Summit chairlift'
+			: p.mode === 'glider' ? ( app.glider?.pilot ? 'Flying · Hang glider' : 'Summit launch' )
+			: p.mode === 'aviation' ? ( app.aviation?.pilot ? 'Flying · Kestrel' : 'Carrier view' )
+			: p.mode === 'rally' ? `Driving · ${ app.rally.profile.name }`
 			: p.mode === 'boat' ? `Boat · ${ p.camMode === 'first' ? '1st' : '3rd' } person`
 			: p.mode === 'deck' ? 'On deck'
 			: p.mode === 'ferry' ? 'Aboard the Tidewater Spirit'

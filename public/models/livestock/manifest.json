@@ -1,0 +1,32 @@
+[
+  {
+    "species": "goat",
+    "vertices": 17802,
+    "faces": 23933,
+    "joints": 12,
+    "clips": [
+      "Idle",
+      "Walk",
+      "Graze",
+      "Alert"
+    ],
+    "length": 1.1,
+    "shoulderHeight": 0.83,
+    "source": "Original authored geometry and animation; no external assets"
+  },
+  {
+    "species": "cow",
+    "vertices": 18296,
+    "faces": 25248,
+    "joints": 12,
+    "clips": [
+      "Idle",
+      "Walk",
+      "Graze",
+      "Alert"
+    ],
+    "length": 1.85,
+    "shoulderHeight": 1.45,
+    "source": "Original authored geometry and animation; no external assets"
+  }
+]

@@ -69,7 +69,10 @@ export class Colliders {
 
 			if ( ! b.walkable || b.top > maxY ) continue;
 			if ( Math.abs( x - b.center.x ) > b.radius + pad + 0.01 || Math.abs( z - b.center.z ) > b.radius + pad + 0.01 ) continue;
-			const [ lx, lz ] = this._toLocal( b, x, z );
+			// _toLocal inlined: it built a new array per nearby box, hundreds of queries a frame (GC).
+			// Same expressions, so the same bits (test/collider-queries.mjs).
+			const dx = x - b.center.x, dz = z - b.center.z;
+			const lx = dx * b.cos - dz * b.sin, lz = dx * b.sin + dz * b.cos;
 			if ( Math.abs( lx ) <= b.half.x + pad && Math.abs( lz ) <= b.half.z + pad ) best = Math.max( best, b.top );
 
 		}
@@ -87,7 +90,9 @@ export class Colliders {
 			if ( ! b.solid ) continue;
 			if ( pos.y + height < b.bottom || pos.y + stepHeight > b.top ) continue;
 			if ( Math.abs( pos.x - b.center.x ) > b.radius + radius || Math.abs( pos.z - b.center.z ) > b.radius + radius ) continue;
-			const [ lx, lz ] = this._toLocal( b, pos.x, pos.z );
+			// _toLocal inlined (no array per nearby box; same expressions, same bits)
+			const ox = pos.x - b.center.x, oz = pos.z - b.center.z;
+			const lx = ox * b.cos - oz * b.sin, lz = ox * b.sin + oz * b.cos;
 			const cx = Math.max( - b.half.x, Math.min( b.half.x, lx ) );
 			const cz = Math.max( - b.half.z, Math.min( b.half.z, lz ) );
 			let dx = lx - cx, dz = lz - cz;

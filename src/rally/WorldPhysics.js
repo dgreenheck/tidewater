@@ -26,6 +26,7 @@ export function trunkCylinders( vegetation, terrain ) {
 	for ( const [ list, radius ] of [ [ records.palms, 0.2 ], [ records.trees, 0.28 ] ] ) {
 
 		for ( const r of list || [] ) {
+			if (r.disasterFallen) continue;
 
 			const ground = terrain.heightAt( r.x, r.z );
 			out.push( r.x, r.z, radius * ( r.s || 1 ), ground - 0.6, ground + Math.min( 6, r.H || 6 ) );

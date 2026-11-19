@@ -294,6 +294,7 @@ export class AtmNetwork {
 		hud.toggleInventory( false );
 		hud.closeStand();
 		this.build();
+		this.shut( false );
 		this.el.classList.add( 'is-open' );
 		// held keys stop, and from here on every key press is the ATM's
 		const inp = this.app.input;
@@ -312,6 +313,7 @@ export class AtmNetwork {
 		this.open = false;
 		window.removeEventListener( 'keydown', this._onKey, true );
 		this.el?.classList.remove( 'is-open' );
+		this.shut( true );
 		const s = this.site;
 		if ( s?.card ) s.card.visible = false;
 		if ( s?.notes ) s.notes.visible = false;
@@ -322,6 +324,16 @@ export class AtmNetwork {
 	}
 
 	// ---- the panel
+	// Takes the closed panel out of the accessibility tree and Tab order, or puts it back.
+	shut( closed ) {
+
+		if ( ! this.el ) return;
+		this.el.inert = closed;
+		if ( closed ) this.el.setAttribute( 'aria-hidden', 'true' );
+		else this.el.removeAttribute( 'aria-hidden' );
+
+	}
+
 	build() {
 
 		if ( this.el ) return;
@@ -332,6 +344,10 @@ export class AtmNetwork {
 		this.el.className = 'atm-panel tw-glass tw-interactive';
 		this.el.setAttribute( 'role', 'dialog' );
 		this.el.setAttribute( 'aria-label', 'ATM' );
+		// Closed, the panel only fades to opacity 0, so it stays in the page: inert and
+		// aria-hidden keep the invisible ATM out of the accessibility tree and out of Tab
+		// focus (it was the second "dialog" every strict dialog lookup tripped over).
+		this.shut( true );
 		this.el.innerHTML = `<div class="atm-screen" aria-live="polite"></div><div class="atm-pad" aria-label="PIN pad"></div><p class="atm-hint">Keys 0 to 9 · Enter confirms · Backspace clears · Esc cancels</p>`;
 		this.scr = this.el.firstChild;
 		const pad = this.el.querySelector( '.atm-pad' );

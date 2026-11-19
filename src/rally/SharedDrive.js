@@ -1,7 +1,8 @@
-import { Quaternion, Euler } from '../engine/index.js';
+import { Quaternion } from '../engine/index.js';
 import { cloneVehicle } from './VehicleModel.js';
 import { CarLights } from './CarLights.js';
 import { RoomClient } from './RoomClient.js';
+import { bindWheels, poseWheel } from './WheelRig.js';
 import { VEHICLES } from './Vehicles.js';
 import { SocialPanel } from './SocialPanel.js';
 
@@ -15,7 +16,6 @@ const DISCRETE = new Set( [ 8, 10, 16, 20, 24, 28, 74, 75, 80, 89, 90, 91, 92, 9
 const quantise = ( v, i ) => ( i >= 3 && i <= 6 ? Math.round( v * 1e5 ) / 1e5 : Math.round( v * 1e3 ) / 1e3 );
 
 const COLORS = [ '#70e0d1', '#ffb875', '#bda8ff', '#fd91b9', '#91d878', '#8bbfff', '#edcf71', '#e3f0f1' ];
-const WHEELS = [ 'WheelFrontL', 'WheelFrontR', 'WheelRearL', 'WheelRearR' ];
 export class SharedDrive {
 	constructor( rally ) {
 		this.rally = rally;
@@ -25,7 +25,7 @@ export class SharedDrive {
 		this.room = null;
 		this.sendTime = 0;
 		this.uiTime = 0;
-		this.q = new Quaternion(); this.targetQ = new Quaternion(); this.euler = new Euler( 0, 0, 0, 'YXZ' );
+		this.q = new Quaternion(); this.targetQ = new Quaternion();
 		window.addEventListener( 'pagehide', () => this.client.close() );
 	}
 	async show() {
@@ -69,7 +69,7 @@ export class SharedDrive {
 				const model = cloneVehicle( this.rally.models[ player.vehicle ] );
 				model.root.visible = true;
 				this.app.scene.add( model.root );
-				peer = { ...player, model, color: COLORS[ player.slot ], wheels: WHEELS.map( name => model.pivots.get( name ) ),
+				peer = { ...player, model, color: COLORS[ player.slot ], wheels: bindWheels( model, VEHICLES[ player.vehicle ] ),
 					spin: [ 0, 0, 0, 0 ], visual: Float32Array.from( player.state ), buffer: [] };
 				this.peers.set( player.id, peer );
 				this.addRow( peer );
@@ -138,9 +138,8 @@ export class SharedDrive {
 			const profile = VEHICLES[ peer.vehicle ];
 			for ( let wheel = 0; wheel < 4; wheel ++ ) {
 				const index = 13 + wheel * 4;
-				peer.spin[ wheel ] = ( peer.spin[ wheel ] + s[ index + 2 ] / profile.radius * dt ) % ( Math.PI * 2 );
-				peer.wheels[ wheel ].position.y = profile.mount - s[ index ];
-				peer.wheels[ wheel ].quaternion.setFromEuler( this.euler.set( peer.spin[ wheel ], s[ index + 1 ], 0, 'YXZ' ) );
+				peer.spin[ wheel ] = ( peer.spin[ wheel ] + s[ index + 2 ] / peer.wheels[ wheel ].radius * dt ) % ( Math.PI * 2 );
+				poseWheel( peer.wheels[ wheel ], profile.mount - s[ index ], s[ index + 1 ], peer.spin[ wheel ] );
 			}
 			this.rally.physics.update_remote( peer.slot + 1, profile.id, s );
 			this.rally.tracks.emit( peer.id, s, profile );

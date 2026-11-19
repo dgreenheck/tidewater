@@ -59,7 +59,7 @@ const only = process.argv.find( ( a ) => a.startsWith( '--view=' ) );
 for ( const [ k, v ] of Object.entries( views ) ) {
 
 	if ( only && only.slice( 7 ) !== k ) continue;
-	await H.shot( `${ out }/claude-world-${ k }.png`, v, 4 );
+	await H.shot( `${ out }/world-${ k }.png`, v, 4 );
 
 }
 

@@ -34,9 +34,11 @@ test( 'Room server relays only validated owner snapshots inside a room and migra
 		const bad = pose(); bad.state[ 0 ] = 999999; host.send( bad );
 		await sleep( 100 );
 		assert.ok( ! guest.messages.some( m => m.type === 'state' && m.players.some( p => p.state[ 0 ] === 999999 ) ) );
-		const message = pose(); message.id = guest.id; host.send( message );
+		const message = pose(); message.id = guest.id; message.vehicle = 'gt3rs'; message.state[ 8 ] = 7; host.send( message );
 		const received = await until( guest, m => m.type === 'state' && m.players.some( p => p.id === host.id ) );
 		assert.equal( received.players[ 0 ].name, 'Alex' );
+		assert.equal( received.players[ 0 ].vehicle, 'gt3rs' );
+		assert.equal( received.players[ 0 ].state[ 8 ], 7 );
 		assert.equal( received.players[ 0 ].state[ 0 ], - 55 );
 		assert.ok( ! other.messages.some( m => m.type === 'state' && m.players.some( p => p.id === host.id ) ) );
 		host.ws.close();

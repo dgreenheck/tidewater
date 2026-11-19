@@ -4,6 +4,8 @@ import { HOUSE } from '../world/boat/Wheelhouse.js';
 import { Avatar } from './Avatar.js';
 import { ThirdPersonCamera } from './ThirdPersonCamera.js';
 import { Ragdoll } from './Ragdoll.js';
+import { SwimMotor } from './SwimForces.js';
+import { swimmingHeadContact } from './SwimHeadContact.js';
 
 const HOUSE_HELM = { x: HOUSE.helmX, z: HOUSE.seatZ };
 
@@ -24,6 +26,13 @@ const _e = new THREE.Euler( 0, 0, 0, 'YXZ' );
 const _yAxis = new THREE.Vector3( 0, 1, 0 );
 const _qa = new THREE.Quaternion(), _qb = new THREE.Quaternion(), _qc = new THREE.Quaternion();
 const _wish = new THREE.Vector3();
+// Walking trip test (updateWalk). The body the field loads matches the walker's own load call:
+// 75 kg, 0.7 m² frontal area, 0.075 m³, 1.8 m tall. _atRest stays (0, 0, 0) m/s.
+const _walkBody = { mass: 75, area: 0.7, volume: 0.075, height: 1.8, supported: true, dt: 1 / 60 };
+const _atRest = new THREE.Vector3();
+const _push = {};
+const TRIP_PUSH = 3.2; // m/s²: lateral outside push that knocks a standing adult over (declared stance)
+const TRIP_UPDRAFT = 18; // m/s: vertical wind that lifts him off his feet
 // walking on the boat
 const DECK_RADIUS = 0.24;
 const DECK_STEP = 0.36; // highest ledge you step up onto
@@ -31,10 +40,11 @@ const HELM_REACH = 0.75; // m from the helm seat to take the wheel
 // on foot: over the shoulder (the default), or first person (V, or the HUD button); remembered per browser
 export const ON_FOOT = new Set( [ 'walk', 'swim', 'deck', 'ferry' ] );
 const VIEW_KEY = 'tidewater.view';
-// the ragdoll (src/player/Ragdoll.js): the modes it can start from (not aboard the ferry or the boat:
-// their decks move and are not in it), and a big fall on foot: a drop over FALL_DROP m, or landing faster
+// The articulated body can also contact the ferry through its moving support
+// provider. The small fishing boat still has its separate deck controller.
+// A big fall on foot: a drop over FALL_DROP m, or landing faster
 // than HARD_LANDING m/s
-const RAG_MODES = new Set( [ 'walk', 'swim', 'rally', 'jetski', 'jetski-thrown' ] );
+const RAG_MODES = new Set( [ 'walk', 'swim', 'ferry', 'rally', 'jetski', 'jetski-thrown' ] );
 const FALL_DROP = 3, HARD_LANDING = 8.5;
 function loadView() {
 
@@ -78,13 +88,19 @@ export class Player {
 		// standing on whatever is there (the boardwalk planks), not in it
 		this.position.y = Math.max( terrain.heightAt( this.position.x, this.position.z ), colliders ? colliders.groundHeightAt( this.position.x, this.position.z, 50 ) : - Infinity );
 		this.velocity = new THREE.Vector3();
+		this.groundProviders = new Set();
+		this.obstacleProviders = new Set();
+		this._swimHeadCenter = null;
+		this.groundSupport = null;
+		this.supportLocal = null;
 		this.yaw = start.yaw;
 		this.pitch = - 0.05;
 		this.grounded = false;
 		this.bob = 0;
 		this.stepDist = 0;
 		this.waterH = 0;
-		this.waterMean = null; // water level low-passed over the passing waves (mode decisions)
+		this.waterMean = null; // water level low-passed over ordinary waves
+		this.swimMotor = new SwimMotor();
 		this.wade = 0;
 		// eye height easing between modes (critically damped offset from the mode's eye height)
 		this.camOff = 0;
@@ -115,6 +131,7 @@ export class Player {
 		// set by the fishing game: while a line is out the helm / step ashore prompts give way
 		this.busy = false;
 		this.jetskis = null; // src/jetski/Jetski.js (set by the app)
+		this.aviation = null; // src/aviation/Aviation.js (set by the app): walk-up E at the carrier jet
 
 		// the player's own character and the on-foot view
 		this.view = loadView();
@@ -164,7 +181,7 @@ export class Player {
 
 			this.eye.position.copy( this.camera.position );
 			this.eye.quaternion.copy( this.camera.quaternion );
-			this.boom.apply( this, dt, wheel );
+			this.boom.apply( this, dt, wheel, { deferSwim: !! this.avatar } );
 
 		} else this.boom.reset();
 		this._camOut = this.camera.position.y;
@@ -228,6 +245,42 @@ export class Player {
 		}
 
 		a.update( dt, f );
+		if ( this.mode === 'swim' && f.show && a.visible && Number.isFinite( dt ) && dt > 0 && this.obstacleProviders.size ) {
+
+			// The actual swim pose puts the skull ahead of the upright body.
+			// Resolve it once after posing, then carry both the physical anchor and
+			// whole displayed body by the same correction. Water/animation add no force.
+			a.group.updateMatrixWorld( true );
+			const head = swimmingHeadContact( this, this.position, 0 );
+			if ( head ) {
+
+				if ( this._swimHeadCenter && this._swimHeadCenter.distanceTo( head.center ) < 2.5 ) head.previousCenter.copy( this._swimHeadCenter );
+				const feet = this.position.clone(); feet.y -= EYE - SWIM_EYE;
+				const before = feet.clone();
+				for ( const obstacle of this.obstacleProviders ) obstacle.resolveCapsule?.( feet, RADIUS, HEIGHT, { velocity: this.velocity, dt, previous: before, head, headOnly: true } );
+				const correction = feet.sub( before );
+				this.position.add( correction ); a.group.position.add( correction ); a._last?.add( correction );
+				this._swimHeadCenter = head.center.clone();
+				a.group.updateMatrixWorld( true );
+
+			} else this._swimHeadCenter = null;
+
+		} else if ( this.mode !== 'swim' || ! f.show || ! a.visible ) this._swimHeadCenter = null;
+
+		// A nearby floating wreck must be framed against this displayed pose,
+		// including the physical correction above, rather than last frame's skin.
+		// The deferred search runs once and never changes the movement heading.
+		if ( this.boom?.swimPending ) {
+
+			this.boom.swimPending = false;
+			if ( attached && f.show && a.visible && this.thirdPerson ) {
+
+				this.boom.apply( this, dt, 0, { currentPose: true } );
+				this._camOut = this.camera.position.y;
+
+			}
+
+		}
 
 	}
 
@@ -378,9 +431,42 @@ export class Player {
 
 	// ------------------------------------------------------------------ helpers
 
+	captureWaterState() {
+
+		return { waterH: this.waterH, waterMean: this.waterMean, floating: this.floating,
+			grounded: this.grounded, airTop: this.airTop, wade: this.wade, wasUnder: this.wasUnder,
+			command: this.swimMotor.command.clone() };
+
+	}
+
+	restoreWaterState( state ) {
+
+		if ( ! state ) return;
+		for ( const key of [ 'waterH', 'waterMean', 'floating', 'grounded', 'airTop', 'wade', 'wasUnder' ] ) this[ key ] = state[ key ];
+		this.swimMotor.command.copy( state.command );
+		this.swimMotor.load = {};
+		// WaterQuery permits one pending readback. Discard that removed crest and
+		// wait for a fresh result, without altering the other bodies' query slots.
+		this._waterFence = { version: ( this.query.version || 0 ) + 2, height: this.waterH };
+		this._camY = null;
+		this._walkEnd = null;
+		// Vessel poses may be restored after the player. Discard the old carry
+		// history now; the completed reset or next walk reacquires actual support.
+		this.groundSupport = null; this.supportLocal = null; this._supportWorld = null;
+		// Restore replaces the pose; the old swim segment is no longer movement.
+		this._swimHeadCenter = null;
+
+	}
+
 	waterHeight() {
 
 		const q = this.query;
+		if ( this._waterFence ) {
+
+			if ( ! q.cpuValid || q.version < this._waterFence.version ) return this._waterFence.height;
+			this._waterFence = null;
+
+		}
 		if ( ! q.cpuValid ) return 0;
 		const h = q.cpu[ this.slot * 4 ];
 		return Number.isFinite( h ) ? h : this.waterH || 0;
@@ -393,7 +479,48 @@ export class Player {
 		const c = this.colliders.groundHeightAt( x, z, maxY );
 		if ( c > g ) g = c;
 		if ( this.reef && this.reef.floorHeightAt ) g = Math.max( g, this.reef.floorHeightAt( x, z ) );
+		for ( const provider of this.groundProviders ) g = Math.max( g, provider.groundHeightAt( x, z, maxY ) );
 		return g;
+
+	}
+
+	// Moving supports carry a planted foot by their actual transform. Velocity is
+	// world velocity, so jumps and physical reactions inherit the deck's motion.
+	refreshGroundSupport() {
+
+		let support = null;
+		if ( this.grounded ) for ( const provider of this.groundProviders ) {
+
+			const s = provider.supportAt( this.position, { maxRise: 0.06, maxDrop: 0.08 } );
+			if ( s && ( ! support || s.height > support.height ) ) support = s;
+
+		}
+		this.groundSupport = support;
+		this.supportLocal = support?.local?.slice() || null;
+		this._supportWorld = support ? this.position.clone() : null;
+
+	}
+
+	resumeOnFoot( { position, velocity = [ 0, 0, 0 ], yaw = this.yaw, pitch = this.pitch, waterHeight = 0, grounded = false, provider = null } ) {
+
+		this.position.fromArray( position ); this.velocity.fromArray( velocity );
+		this.yaw = yaw; this.pitch = pitch;
+		this.waterH = this.waterMean = Number.isFinite( waterHeight ) ? waterHeight : 0;
+		this._waterFence = { version: ( this.query.version || 0 ) + 2, height: this.waterH };
+		const floor = this.groundAt( this.position.x, this.position.z, this.position.y + 0.3 );
+		// Aircraft exit adapters supply actual feet. A deep-water exit must not
+		// be mistaken for standing; swim stores a float point 1.458m above feet.
+		this.mode = ! grounded && this.waterH - floor > SWIM_DEPTH && this.position.y < this.waterH + 0.3 ? 'swim' : 'walk';
+		if ( this.mode === 'swim' ) this.position.y += EYE - SWIM_EYE;
+		this.grounded = grounded && this.mode === 'walk'; this.floating = true;
+		this.swimMotor.reset(); this.groundSupport = null; this.supportLocal = null;
+		this._swimHeadCenter = null;
+		if ( provider ) this.groundProviders.add( provider );
+		this.refreshGroundSupport();
+		this._camY = null; this._walkEnd = null; this.airTop = this.position.y;
+		this.camOff = this.camOffV = this.bob = this.stepDist = 0;
+		this.keepFinite( 'activity exit' );
+		return this.mode;
 
 	}
 
@@ -437,6 +564,9 @@ export class Player {
 
 	update( dt ) {
 
+		if ( ! Number.isFinite( dt ) || dt <= 0 ) return;
+		dt = Math.min( dt, 0.1 );
+		if ( this.mode !== 'swim' ) this.swimMotor.reset();
 		const inp = this.input;
 		this.keepFinite( 'set from outside' );
 		this.query.setPoint( this.slot, this.position.x, this.position.z );
@@ -516,9 +646,28 @@ export class Player {
 
 		}
 
+		// the carrier fighter (src/aviation/Aviation.js): E beside the jet climbs in
+		if ( this.aviation && ! this.busy && ! this.prompt ) {
+
+			const o = this.aviation.offer( this );
+			if ( o ) {
+
+				this.prompt = { key: 'E', text: o.text };
+				if ( inp.hit( 'KeyE' ) ) {
+
+					o.act();
+					return;
+
+				}
+
+			}
+
+		}
+
 		const prevMode = this.mode;
-		if ( this.mode === 'walk' ) { this.updateWalk( dt ); this.people?.contact.player( this, dt ); }
+		if ( this.mode === 'walk' ) { this.updateWalk( dt ); if ( this.mode === 'walk' ) this.people?.contact.player( this, dt ); }
 		else this.updateSwim( dt );
+		if ( this.mode === 'ragdoll' ) return;
 		this.keepFinite( this.mode );
 
 		// camera. Wading out of your depth, finding your feet again or climbing out on a ladder
@@ -552,6 +701,15 @@ export class Player {
 	updateWalk( dt ) {
 
 		const inp = this.input;
+		const carrierVelocity = new THREE.Vector3();
+		const carried = !! ( this.grounded && this.groundSupport && this.supportLocal );
+		if ( carried ) {
+
+			const provider = this.groundSupport.provider, world = provider.world( this.supportLocal );
+			this.position.add( _v.fromArray( world ).sub( this._supportWorld ) );
+			carrierVelocity.fromArray( provider.velocityAt( this.position.toArray() ) );
+			this.velocity.y = carrierVelocity.y;
+		} else { this.groundSupport = null; this.supportLocal = null; }
 		_fwd.set( - Math.sin( this.yaw ), 0, - Math.cos( this.yaw ) );
 		_right.set( - _fwd.z, 0, _fwd.x );
 		const wish = new THREE.Vector3();
@@ -566,41 +724,83 @@ export class Player {
 		this.wade = wade;
 		const sprint = inp.down( 'ShiftLeft' ) || inp.down( 'ShiftRight' );
 		const speed = ( sprint ? 6.2 : 3.0 ) * THREE.MathUtils.lerp( 1, 0.42, wade );
-		const accel = this.grounded ? 14 : 2.5;
-		const k = 1 - Math.exp( - accel * dt );
-		this.velocity.x += ( wish.x * speed - this.velocity.x ) * k;
-		this.velocity.z += ( wish.z * speed - this.velocity.z ) * k;
+		const accel = this.grounded ? 35 : 2.5;
+		const dx = wish.x * speed + carrierVelocity.x - this.velocity.x, dz = wish.z * speed + carrierVelocity.z - this.velocity.z;
+		const change = Math.min( 1, accel * dt / ( Math.hypot( dx, dz ) || 1 ) );
+		this.velocity.x += dx * change; this.velocity.z += dz * change;
+		// The shared field acts after the finite walking motor. Loss of support
+		// transfers this measured velocity to the articulated body without a kick.
+		if ( this.environment ) {
+
+			const load = this.walkLoad = this.environment.acceleration( _v.copy( this.position ).add( _v2.set( 0, 0.9, 0 ) ), this.velocity,
+				{ mass: 75, area: 0.7, volume: 0.075, height: 1.8, supported: this.grounded, dt }, {} );
+			this.velocity.x += load.ax * dt; this.velocity.y += load.ay * dt; this.velocity.z += load.az * dt;
+			// The trip reads the fluid's own push: the same body sampled at rest. The load above is
+			// relative to his velocity, so in calm sea it is his own wading drag (2.8 m/s through
+			// 16 cm read 3.24 m/s² against the 3.2 m/s² line), and W rebuilt that speed within
+			// 0.1 s of every recovery: the wading ragdoll loop. At rest, calm water and still air
+			// push 0; a current, wind, updraft or quake still pushes and still trips.
+			_walkBody.supported = this.grounded;
+			_walkBody.dt = dt;
+			const push = this.environment.acceleration( _v, _atRest, _walkBody, _push );
+			if ( ( this.grounded && Math.hypot( push.ax, push.az ) > TRIP_PUSH ) || push.wy > TRIP_UPDRAFT ) {
+
+				if ( this.ragdoll( null, null, { velocity: this.velocity, spin: { x: 0, y: 0, z: 0 } } ) ) {
+					this.rag.disasterField = this.environment; this.rag.waterY = this.waterH;
+					this.groundSupport = null; this.supportLocal = null; return;
+				}
+
+			}
+
+		}
 
 		if ( this.grounded && inp.hit( 'Space' ) && depth < 0.9 ) {
 
-			this.velocity.y = 4.6;
+			this.velocity.y = 4.6 + carrierVelocity.y;
 			this.grounded = false;
+			this.groundSupport = null; this.supportLocal = null;
 
 		}
 
 		this.velocity.y -= 9.81 * dt;
 		// water drag while wading
-		if ( depth > 0 ) this.velocity.multiplyScalar( Math.exp( - dt * depth * 0.8 ) );
+		if ( depth > 0 && ! this.environment ) this.velocity.multiplyScalar( Math.exp( - dt * depth * 0.8 ) );
 
 		const p = this.position;
 		const old = p.clone();
 		// moved by something else since last frame (the free camera, a respawn): no fall counted from there
 		if ( this._walkEnd && old.distanceToSquared( this._walkEnd ) > 4 ) this.airTop = null;
 		const vyIn = this.velocity.y, wasGrounded = this.grounded;
-		p.addScaledVector( this.velocity, dt );
-		this.colliders.resolveCapsule( p, RADIUS, HEIGHT, 0.4 );
-		const g = this.groundAt( p.x, p.z, p.y + 0.45 );
-		if ( p.y <= g ) {
+		// Input edges, motor, field and gravity belong to the accepted frame once.
+		// Sweep its displacement through short contact queries so a slow frame
+		// cannot skip several real treads or cross a thin wall in one projection.
+		const travel = this.velocity.clone(); if ( carried ) travel.sub( carrierVelocity );
+		const steps = Math.max( 1, Math.ceil( dt * 60 ), Math.ceil( travel.length() * dt / 0.15 ) ), h = dt / steps;
+		for ( let step = 0; step < steps; step ++ ) {
 
-			p.y = g;
-			if ( this.velocity.y < 0 ) this.velocity.y = 0;
-			this.grounded = true;
+			const keepStep = this.grounded && this.velocity.y - carrierVelocity.y <= 0;
+			p.addScaledVector( this.velocity, h );
+			// The provider's full transform already carried us above, including a
+			// jump frame. Subtract its velocity exactly once across this whole sweep.
+			if ( carried ) p.addScaledVector( carrierVelocity, - h );
+			this.colliders.resolveCapsule( p, RADIUS, HEIGHT, 0.4 );
+			for ( const provider of this.groundProviders ) provider.resolveCapsule?.( p, RADIUS, HEIGHT, 0.4 );
+			const g = this.groundAt( p.x, p.z, p.y + 0.45 );
+			// Supported walking can follow a small downward step. An intentional
+			// jump, rising body or unsupported ledge keeps its airborne velocity.
+			if ( p.y <= g || ( keepStep && p.y - g <= 0.4 ) ) {
 
-		} else {
+				p.y = g;
+				// The carried transform is already applied. Remove downward motion
+				// relative to it, so later queries cannot lift us off a sinking deck.
+				if ( this.velocity.y < carrierVelocity.y ) this.velocity.y = carrierVelocity.y;
+				this.grounded = true;
 
-			this.grounded = p.y - g < 0.06;
-
+			} else this.grounded = p.y - g < 0.06;
 		}
+		this.refreshGroundSupport();
+		if ( this.groundSupport ) this.velocity.y = this.groundSupport.velocity[ 1 ];
+		else if ( this.grounded && this.velocity.y < 0 ) this.velocity.y = 0;
 
 		// a big fall: the ragdoll takes over in the air once the drop passes FALL_DROP, or on a hard landing
 		( this._walkEnd || ( this._walkEnd = new THREE.Vector3() ) ).copy( p );
@@ -638,14 +838,18 @@ export class Player {
 
 		}
 
-		// out of your depth -> swim. Wading in, the body lifts into the floating position at the
-		// surface and the view eases down to it (update()); falling in off the pier plunges under
-		// and floats back up.
-		if ( this.waterMean - p.y > SWIM_DEPTH ) {
+		// The mean rejects passing chest waves, but cannot delay a crest above the
+		// head. Both modes use the same visible body pose: walk stores feet, swim
+		// stores the float point. Rising flood never teleports the body to its crest.
+		const liveDepth = this.waterH - p.y;
+		if ( ( this.waterMean - p.y > SWIM_DEPTH && liveDepth > STAND_DEPTH ) || liveDepth > EYE ) {
 
 			const wadedIn = this.grounded;
 			this.mode = 'swim';
-			if ( wadedIn ) p.y = Math.max( p.y, this.waterH - SWIM_EYE + 0.1 );
+			p.y += EYE - SWIM_EYE;
+			this.grounded = false;
+			this.floating = true;
+			this.swimMotor.reset();
 			this.velocity.y = wadedIn ? 0 : Math.max( this.velocity.y * 0.3, - 2.5 );
 			if ( this.audio ) this.audio.splash( wadedIn ? 0.2 : 0.5, p );
 
@@ -671,6 +875,7 @@ export class Player {
 		const inp = this.input;
 		const p = this.position;
 		const surfaceY = this.waterH;
+		const previousFeet = p.clone(); previousFeet.y -= EYE - SWIM_EYE;
 		// look-relative movement (diving follows the view)
 		_fwd.set( 0, 0, - 1 ).applyEuler( _e.set( this.pitch, this.yaw, 0 ) );
 		_right.set( - Math.cos( this.yaw ), 0, Math.sin( this.yaw ) ).negate();
@@ -689,8 +894,18 @@ export class Player {
 
 		const sprint = inp.down( 'ShiftLeft' ) || inp.down( 'ShiftRight' );
 		const speed = sprint ? 2.5 : 1.5;
-		const k = 1 - Math.exp( - dt * 3.0 );
-		this.velocity.lerp( wish.multiplyScalar( speed ), k );
+		this.swimMotor.advance( this, wish.multiplyScalar( speed ), dt );
+		// The same assumed loss-of-control threshold as other exposed people.
+		// Release the surface constraint; the articulated solver takes the measured
+		// velocity and computes its own subsequent air/water forces without a kick.
+		if ( ( this.swimMotor.load.wy > 18 || ( this.floating && surfaceY - p.y > 2 ) ) && this.ragdoll( null, null, { velocity: this.velocity, spin: { x: 0, y: 0, z: 0 } } ) ) {
+
+			this.rag.disasterField = this.environment;
+			this.rag.waterY = surfaceY;
+			return;
+
+		}
+
 
 		// A swimmer at the surface floats with the head riding the waves; one who dives stays where
 		// they swim to (neutral buoyancy, nothing pulls them back up) until they swim up to the
@@ -701,14 +916,25 @@ export class Player {
 		else if ( p.y > eyeTarget - 0.15 ) this.floating = true;
 		if ( this.floating ) {
 
-			p.y += ( eyeTarget - p.y ) * ( 1 - Math.exp( - dt * 5 ) );
-			if ( this.velocity.y > 0 ) this.velocity.y *= 0.5;
+			// Assumed surface buoyancy/drag controller, acceleration bounded to one
+			// g. Its displacement is integrated from velocity, including a sudden
+			// crest or trough; water height never teleports the body to the surface.
+			const a = THREE.MathUtils.clamp( ( eyeTarget - p.y ) * 16 - this.velocity.y * 8, - 9.81, 9.81 );
+			this.velocity.y += a * dt;
 
 		}
 
 		p.addScaledVector( this.velocity, dt );
-		p.y = Math.min( p.y, surfaceY + 0.05 );
 		this.colliders.resolveCapsule( p, RADIUS, 1.0, 0 );
+		if ( this.obstacleProviders.size ) {
+
+			// Dynamic wreck geometry uses an upright body envelope at actual feet;
+			// this swim controller stores a float anchor 1.458m above that origin.
+			const feet = p.clone(); feet.y -= EYE - SWIM_EYE;
+			for ( const obstacle of this.obstacleProviders ) obstacle.resolveCapsule?.( feet, RADIUS, HEIGHT, { velocity: this.velocity, dt, previous: previousFeet } );
+			p.copy( feet ); p.y += EYE - SWIM_EYE;
+
+		}
 		const g = this.groundAt( p.x, p.z, p.y + 0.3 );
 		if ( p.y < g + 0.25 ) p.y = g + 0.25;
 
@@ -731,9 +957,9 @@ export class Player {
 
 		this.wasUnder = under;
 
-		// shallow enough to stand -> walk (update() eases the view up to standing height). The mean
-		// level decides, so a passing wave doesn't flip you between swimming and standing.
-		if ( this.waterMean - g < STAND_DEPTH ) {
+		// The live level vetoes a stale mean while the flood is rising. A retreat
+		// below the knees can restore standing immediately, including island reset.
+		if ( ( this.waterMean - g < STAND_DEPTH && surfaceY - g < SWIM_DEPTH ) || surfaceY - g < 0.35 ) {
 
 			this.mode = 'walk';
 			p.y = g;

@@ -24,25 +24,8 @@ OUT = ROOT / "assets/rally"
 PREVIEW = OUT / "previews"
 ARGS = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 
-# name: (base rgba, metallic, roughness, emissive rgb or None, clearcoat (factor, roughness) or None)
-PALETTE = {
-    "BodyPaint": ((0.62, 0.02, 0.018, 1), 0.64, 0.28, None, (0.34, 0.17)),
-    "Graphite": ((0.021, 0.028, 0.032, 1), 0.36, 0.36, None, None),
-    "AlloyDark": ((0.075, 0.095, 0.105, 1), 0.86, 0.30, None, None),
-    "Alloy": ((0.38, 0.44, 0.46, 1), 0.92, 0.22, None, None),
-    "BrightMetal": ((0.69, 0.76, 0.78, 1), 0.96, 0.18, None, None),
-    "Indicator": ((0.82, 0.21, 0.015, 1), 0.20, 0.22, (0.123, 0.0315, 0.00225), None),
-    "Headlamp": ((0.79, 0.91, 0.98, 1), 0.30, 0.13, (0.711, 0.819, 0.882), None),
-    "TailLamp": ((0.55, 0.008, 0.008, 1), 0.28, 0.19, (0.154, 0.00224, 0.00224), None),
-    "LicensePlate": ((0.7, 0.73, 0.68, 1), 0.05, 0.55, None, None),
-    "Caliper": ((0.61, 0.035, 0.016, 1), 0.35, 0.28, None, None),
-    "Glass": ((0.038, 0.078, 0.094, 0.78), 0.28, 0.12, None, None),
-    "Interior": ((0.022, 0.029, 0.034, 1), 0.02, 0.75, None, None),
-    "SeatFabric": ((0.20, 0.012, 0.008, 1), 0.02, 0.84, None, None),
-    "Rubber": ((0.012, 0.015, 0.018, 1), 0.04, 0.69, None, None),
-    "Tread": ((0.007, 0.01, 0.012, 1), 0.02, 0.76, None, None),
-    "BrakeRotor": ((0.16, 0.18, 0.19, 1), 0.88, 0.40, None, None),
-}
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from car_palette import PALETTE  # the shared material table (one source for importer and builders)
 
 CARS = [{
     "key": "concept_gt",
@@ -81,6 +64,7 @@ def palette_material(name):
         return bpy.data.materials[name]
     rgba, metal, rough, emit, coat = PALETTE[name]
     mat = bpy.data.materials.new(name)
+    mat["tidewater_palette"] = True
     mat.use_nodes = True
     mat.diffuse_color = rgba
     bsdf = mat.node_tree.nodes.get("Principled BSDF")
@@ -154,6 +138,15 @@ def tris(obj):
 def build(car):
     reset()
     bpy.ops.import_scene.gltf(filepath=str(SOURCES / car["source"]))
+    # A source material can carry a palette name. The concept car's own "Glass" is transmission
+    # only (no colour, no blend), and palette_material() returned it in place of ours, so the game's
+    # loader drew the windscreen, rear glass and roof glazing as an opaque white slab (# test/vehicle-glass.mjs). Rename such materials out of the way and keep their mapping.
+    for m in list(bpy.data.materials):
+        if m.name in PALETTE and not m.get("tidewater_palette"):
+            old = m.name
+            m.name = "Source " + old
+            if old in car["materials"]:
+                car["materials"][m.name] = car["materials"][old]
     source = list(bpy.context.scene.objects)
     S = Matrix.Scale(car["scale"], 4)
     pivots = [o for o in source if re.match(car["wheel_pivots"], o.name)]

@@ -1,3 +1,4 @@
+import { tempOutput } from './output-path.mjs';
 // Headless test of MarineSnow: the specks around an underwater camera (real OceanFFT for the sway,
 // stub water query), drawn in the opaque pass over a dark water background, with the torch on.
 // usage: node test/ocean-spray-snow.mjs [out.png]
@@ -17,7 +18,7 @@ import { MarineSnow } from '../src/fx/MarineSnow.js';
 
 await GPU.init( { headless: true } );
 const W = Number( process.env.W || 1280 ), H = Number( process.env.H || 720 );
-const out = process.argv[ 2 ] || '/tmp/ocean-snow.png';
+const out = process.argv[ 2 ] || tempOutput( 'ocean-snow.png' );
 
 const fft = new OceanFFT( null );
 const query = { module: new ShaderModule( { name: 'queryStub', code: 'fn waterQueryHeightAtXZ( xz: vec2f ) -> f32 { return 0.0; }' } ) };

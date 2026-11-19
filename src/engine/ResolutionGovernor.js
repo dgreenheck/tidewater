@@ -13,6 +13,12 @@
 // try (backoff), so it never flip-flops. Every step starts a fresh window, and every step resets the
 // temporal history (a DPR change resizes the output, which restarts the TAA; a scale change calls
 // the bound `onScale` hook, which also cuts the camera).
+//
+// A step down must earn its reset: if the window after it is still over budget and its median fell by under
+// MIN_GAIN, the load is not resolution-bound (a tsunami's CPU solver adds about 12 ms a frame whatever the
+// pixel count, ) and the governor holds the level until the frame time recovers. Before this it
+// stepped all the way to 70 % render scale in four steps 3 s apart, each clearing the TAA history, and the
+// canopy's alpha dither (smoothed only by TAA) went blocky (test/resolution-governor.mjs).
 
 const KEY = 'tidewater.resolution';
 const WINDOW = 3.0; // s of frames per decision
@@ -20,6 +26,7 @@ const BUDGET_MS = 18.0; // median frame time over this: step down
 const GOOD_MS = 17.4; // median at or under this (a held 60 Hz, or faster) counts as a good stretch
 const UP_AFTER = 12.0; // s of good stretch before trying one level up
 const GRACE = 6.0; // s after start / a mode change before the first decision (shader compiles, streaming)
+const MIN_GAIN = 0.1; // share of the median frame time a step down must save to count as resolution-bound
 
 export class ResolutionGovernor {
 
@@ -42,6 +49,7 @@ export class ResolutionGovernor {
 		this.backoff = UP_AFTER;
 		this.lastUp = - 1; // index we stepped up from (a failed try doubles the backoff)
 		this.steps = []; // history: { t, from, to, why, median }
+		this.downMedian = 0; // median (ms) that triggered the last step down, while its verdict is pending; 0: none
 		this.dpr = this.mode === 'standard' ? 1 : this.maxDpr;
 		this.scale = 1;
 		this._applied = 1;
@@ -63,7 +71,7 @@ export class ResolutionGovernor {
 		if ( ! [ 'auto', 'retina', 'standard' ].includes( m ) ) return;
 		this.mode = m;
 		try { localStorage.setItem( KEY, m ); } catch { /* not kept */ }
-		this.index = 0; this.samples.length = 0; this.hold = GRACE; this.good = 0; this.backoff = UP_AFTER; this.lastUp = - 1;
+		this.index = 0; this.samples.length = 0; this.hold = GRACE; this.good = 0; this.backoff = UP_AFTER; this.lastUp = - 1; this.downMedian = 0;
 		this._apply( m === 'standard' ? { dpr: 1, scale: 1 } : this.levels[ 0 ], 'mode ' + m );
 
 	}
@@ -130,19 +138,30 @@ export class ResolutionGovernor {
 		const median = sorted[ sorted.length >> 1 ];
 		if ( median > BUDGET_MS && this.index < this.levels.length - 1 ) {
 
+			// the last step down saved under MIN_GAIN: CPU-bound, so another step would only reset the TAA again
+			if ( this.downMedian > 0 && median > this.downMedian * ( 1 - MIN_GAIN ) ) {
+
+				this.samples.length = 0;
+				this.good = 0;
+				return;
+
+			}
 			// a level we just stepped up to failed: wait twice as long before trying it again
 			if ( this.lastUp === this.index + 1 ) this.backoff = Math.min( this.backoff * 2, 240 );
 			this.lastUp = - 1;
 			this.index ++;
+			this.downMedian = median;
 			this._step( 'over budget', median );
 			return;
 
 		}
 
+		if ( median <= BUDGET_MS ) this.downMedian = 0; // back in budget: the next over-budget stretch is judged afresh
 		if ( median <= GOOD_MS ) this.good += dt; else this.good = 0;
 		if ( this.good >= this.backoff && this.index > 0 ) {
 
 			this.lastUp = this.index;
+			this.downMedian = 0;
 			this.index --;
 			this._step( 'headroom', median );
 

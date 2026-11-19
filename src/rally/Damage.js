@@ -1,6 +1,7 @@
 import { Group, Mesh, BufferGeometry, BufferAttribute, Vector3, Quaternion, Matrix4, Color } from '../engine/index.js';
 import { G } from '../engine/render/Frame.js';
 import { buildDamageRig, hiddenByDamage } from './VehicleModel.js';
+import { hardTyreSlip } from './TyreSlip.js';
 import { DamageState, LEVELS } from './DamageModel.js';
 import { Wreckage } from './Wreckage.js';
 import { CarFire, FX } from './CarFire.js';
@@ -20,6 +21,7 @@ const RULES = {
 	// Tuned to DamageModel's ZONE_ENERGY: a 30+ km/h nose-in knocks the bumper off, a 25 km/h one only dents it.
 	bumperFront: [ 0.2, 1.3 ], bumperRear: [ 0.2, 1.3 ], plateFront: [ 0.16, 1.2 ], plateRear: [ 0.16, 1.2 ],
 	lampFrontLeft: [ 0.12, 1.1 ], lampFrontRight: [ 0.12, 1.1 ], lampRearLeft: [ 0.12, 1.1 ], lampRearRight: [ 0.12, 1.1 ], spare: [ 0.2, 1.5 ],
+	rearWing: [ 0.13, 1.6 ], // rear crash load reaching the two wing supports
 };
 const HEALTHY = new Float32Array( [ 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0 ] );
 const SOOT = new Color( 0.03, 0.027, 0.025 ), FROST = new Color( 0.85, 0.9, 0.95 );
@@ -54,8 +56,10 @@ export class Damage {
 		this.rally = rally;
 		this.app = rally.app;
 		this.wreckage = new Wreckage( this.app.scene, this.app.terrainData, () => G.seaLevel.value );
+		this.wreckage.environment = () => this.app.disasters?.field;
 		this.fx = new CarFire( this.app );
 		this.cars = new Map();
+		this.tyreSmoke = new Float32Array( 4 );
 		this.rate = { steam: 0, smoke: 0, flame: 0, ember: 0, spark: 0 };
 		this.last = null;
 		this.select();
@@ -76,6 +80,7 @@ export class Damage {
 		const rig = buildDamageRig( model, {
 			kind( mesh, path ) {
 				if ( path.some( n => n.startsWith( 'Wheel' ) || n === 'InteriorAssembly' ) ) return null;
+				if ( path.includes( 'RearWing' ) ) return 'rearWing';
 				if ( path.includes( 'RearSpare' ) ) return 'spare';
 				const name = mesh.material.name || '';
 				if ( path.includes( 'LicensePlateMount' ) || /plate/i.test( name ) ) return 'plate';
@@ -86,7 +91,7 @@ export class Damage {
 			},
 			part( kind, c, n ) {
 				const front = c.z > 0, side = c.x > 0 ? 'Left' : 'Right';
-				if ( kind === 'spare' ) return kind;
+				if ( kind === 'spare' || kind === 'rearWing' ) return kind;
 				// The Aster's roof skin is thin and its pillars slim: the tinted greenhouse is what makes it read
 				// as a closed car. Laminated screens (facing fore or aft) craze and stay; side windows burst.
 				if ( kind === 'glass' ) return Math.abs( n.z ) > Math.abs( n.x ) ? 'screen' : 'glass';
@@ -104,10 +109,13 @@ export class Damage {
 			return [ _v.x, _v.z ];
 		} );
 		const dims = { hx: Math.max( box.max.x, - box.min.x ), hz: Math.max( box.max.z, - box.min.z ), floor: box.min.y, top: box.max.y, wheels, box };
-		const names = [ ...rig.parts.keys() ].filter( name => RULES[ name ] );
+		// Append the wing after the original parts so their saved damage-mask bits keep their meanings.
+		const names = [ ...rig.parts.keys() ].filter( name => RULES[ name ] && name !== 'rearWing' );
+		const wingBit = rig.parts.has( 'rearWing' ) ? 1 << names.length : 0;
+		if ( wingBit ) names.push( 'rearWing' );
 		const parts = names.map( name => ( { name, anchor: rig.parts.get( name ).anchor.toArray(), at: RULES[ name ][ 0 ], radius: RULES[ name ][ 1 ] } ) );
 		const materials = rig.materials.map( ( { material, kind } ) => ( { material, kind, color: material.color.clone(), roughness: material.roughness, opacity: material.opacity } ) );
-		return { model, rig, dims, names, state: new DamageState( dims, parts ), dents: [], materials, look: - 1 };
+		return { model, rig, dims, names, wingBit, state: new DamageState( dims, parts ), dents: [], materials, look: - 1 };
 	}
 
 	get state() { return this.car.state; }
@@ -137,6 +145,19 @@ export class Damage {
 		this.applyMechanical();
 		this.applyLook();
 		this.emit( dt );
+		// The same contact that squeals makes a pale plume at the wheel, even
+		// with the chassis stationary. Sand and airborne wheels return zero.
+		const s = rally.drawn;
+		for ( let w = 0; w < 4; w ++ ) {
+			const scrub = hardTyreSlip( s, w );
+			this.tyreSmoke[ w ] += Math.max( 0, scrub - 0.35 ) * dt * 30; // puffs/s
+			const count = Math.floor( this.tyreSmoke[ w ] );
+			if ( ! count ) continue;
+			this.tyreSmoke[ w ] -= count;
+			const patch = _p.fromArray( s, 29 + w * 10 );
+			patch.y += 0.07;
+			this.fx.emit( FX.TYRE, patch, _u.set( 0, 0.25, 0 ), count, 0.18 );
+		}
 		this.wreckage.update( dt );
 		this.fx.update( dt );
 	}
@@ -285,6 +306,7 @@ export class Damage {
 		this.wreckage.add( object, {
 			position: this.toWorld( centre.clone() ), quaternion: root.quaternion, velocity,
 			spin: new Vector3( Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5 ).multiplyScalar( 9 ),
+			mass: Math.max(.25,24*Math.max(half.x*half.y,half.x*half.z,half.y*half.z)), area: 4*Math.max(half.x*half.y,half.x*half.z,half.y*half.z),
 			rest: Math.max( 0.015, extents[ thin ] ), radius: Math.max( ...extents ), thin: new Vector3().setComponent( thin, 1 ), floats: 10,
 		} );
 		if ( name.startsWith( 'lamp' ) ) this.fx.emit( FX.SHARD, this.toWorld( centre.clone() ), velocity, 18, 0.35 );
@@ -306,7 +328,7 @@ export class Damage {
 		const out = _u.set( Math.sign( car.dims.wheels[ i ][ 0 ] ) || 1, 0, 0 ).applyQuaternion( root.quaternion );
 		const velocity = this.carVelocity( new Vector3() ).addScaledVector( out, 2.4 );
 		velocity.y += 1.6;
-		this.wreckage.add( object, { position: world, velocity, rest: 0.12, radius: this.rally.profile.radius, wheel: { radius: this.rally.profile.radius, width: 0.12 }, floats: 40 } );
+		this.wreckage.add( object, { position: world, velocity, rest: 0.12, radius: this.rally.profile.radius, wheel: { radius: this.rally.profile.radius, width: 0.12 }, mass:22, area:Math.PI*this.rally.profile.radius**2, floats: 40 } );
 		this.fx.emit( FX.SPARK, world, velocity, 20, 0.5 );
 	}
 
@@ -341,7 +363,10 @@ export class Damage {
 
 	applyMechanical() {
 		const m = this.state.mechanical(), last = this.last;
-		if ( last && Math.abs( last.engine - m.engine ) < 0.005 && Math.abs( last.pull - m.pull ) < 1e-4 && last.wheels.every( ( v, i ) => Math.abs( v - m.wheels[ i ] ) < 1e-4 ) ) return;
+		const wingAttached = !( this.state.lost & this.car.wingBit );
+		if ( ! last || last.wingAttached !== wingAttached ) this.rally.physics.set_rear_wing( wingAttached );
+		m.wingAttached = wingAttached;
+		if ( last && last.wingAttached === wingAttached && Math.abs( last.engine - m.engine ) < 0.005 && Math.abs( last.pull - m.pull ) < 1e-4 && last.wheels.every( ( v, i ) => Math.abs( v - m.wheels[ i ] ) < 1e-4 ) ) return;
 		this.rally.physics.set_damage( m.engine, m.pull, m.wheels );
 		this.last = m;
 	}
@@ -375,6 +400,25 @@ export class Damage {
 		this.fx.setFire( st.fire, st.fire > 0 ? _v.copy( bay ).setY( bay.y + 0.7 ) : null );
 	}
 
+    captureDisasterState() {
+        return {cars:[...this.cars.entries()].map(([key,car])=>({key,car,
+            state:structuredClone(Object.fromEntries(Object.entries(car.state).filter(([k])=>k!=='dims'&&k!=='parts'))),dents:structuredClone(car.dents),
+            sources:car.rig.sources.map(src=>({src,pos:src.pos.array.slice(),normal:src.nor?.array.slice(),touched:src.touched?.slice()})),
+            visible:[...car.rig.parts.values()].flatMap(entry=>entry.meshes.map(({mesh})=>({mesh,visible:mesh.visible}))),
+            wheels:WHEEL_NAMES.map(name=>car.model.pivots.get(name)).filter(Boolean).map(pivot=>({pivot,visible:pivot.visible})),
+            materials:car.materials.map(entry=>({material:entry.material,color:entry.material.color.clone(),roughness:entry.material.roughness,opacity:entry.material.opacity}))
+        })),wreckage:this.wreckage.captureDisasterState()};
+    }
+
+    restoreDisasterState(snapshot) {
+        for(const saved of snapshot?.cars??[]){const car=saved.car;Object.assign(car.state,structuredClone(saved.state));car.dents=structuredClone(saved.dents);car.look=-1;
+            for(const {src,pos,normal,touched} of saved.sources){src.pos.array.set(pos);src.pos.needsUpdate=true;if(src.nor&&normal){src.nor.array.set(normal);src.nor.needsUpdate=true;}if(src.touched&&touched)src.touched.set(touched);}
+            for(const {mesh,visible}of saved.visible)mesh.visible=visible;for(const {pivot,visible}of saved.wheels)pivot.visible=visible;
+            for(const {material,color,roughness,opacity}of saved.materials){material.color=color.clone();material.roughness=roughness;material.opacity=opacity;}
+        }
+        this.wreckage.restoreDisasterState(snapshot?.wreckage);this.fx.clear();this.pending=null;this.lastHit=0;this.last=null;this.rally.physics.take_impacts();this.applyMechanical();
+    }
+
 	repair() {
 		for ( const car of this.cars.values() ) {
 			for ( const src of car.rig.sources ) {
@@ -392,6 +436,8 @@ export class Damage {
 		this.pending = null; this.lastHit = 0;
 		this.rally.physics.take_impacts();
 		this.rally.physics.set_damage( 1, 0, HEALTHY );
+		this.rally.physics.set_rear_wing( true );
+		this.tyreSmoke.fill( 0 );
 		this.last = null;
 	}
 

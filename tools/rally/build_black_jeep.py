@@ -87,7 +87,10 @@ for side in (-1,1):
                 v.append((side*x,axle+math.cos(a)*r,.47+math.sin(a)*r))
         for i in range(48):
             for j in range(4): f.append((i*4+j,(i+1)*4+j,(i+1)*4+(j+1)%4,i*4+(j+1)%4))
-        mesh("Wide bolt-on fender flare",v,f,trim)
+        # Smooth round the arch, crisp at the box section's corners: flat-shaded, its 48 facets
+        # showed as steps in the front review render.
+        flare=mesh("Wide bolt-on fender flare",v,f,trim,smooth=True)
+        flare.data.set_sharp_from_angle(angle=math.radians(35))
         for i in range(7):
             a=(i+.5)*math.pi/7
             cylinder("Fender mounting bolt",(side*.908,axle+math.cos(a)*.61,.47+math.sin(a)*.61),.012,.015,bolt,segments=10)
@@ -100,16 +103,16 @@ for side in (-1,1):
     cube("Mirror shell",(side*1.15,-.65,1.74),(.11,.20,.19),satin,.035)
     cube("Mirror glass",(side*1.15,-.544,1.74),(.085,.008,.14),bolt,.014)
 
-# Hood and cowl, hood latches, seven recessed grille slots and round LED lamps.
+# Hood and cowl, hood latches, a recessed bar grille and round LED lamps.
 cube("Bonnet",(0,-1.40,1.48),(1.75,1.3,.115),black,.055)
 cube("Raised hood centre",(0,-1.45,1.544),(1.02,.9,.038),black,.035)
 for side in (-1,1):
     for y in (-1.86,-.98): cube("Bonnet latch",(side*.87,y,1.43),(.048,.075,.14),trim,.009)
 cube("Front grille surround",(0,-2.075,1.235),(1.76,.12,.61),black,.06)
-for i in range(7):
-    x=(i-3)*.135
-    cube("Recessed seven-slot grille",(x,-2.144,1.225),(.085,.018,.425),trim,.035)
-    for k in range(5): cube("Recessed grille mesh",(x,-2.154,1.075+k*.075),(.073,.008,.009),satin,.002)
+cube("Recessed grille opening",(0,-2.144,1.225),(.88,.018,.43),trim,.035)
+for k in range(11): cube("Recessed grille mesh",((k-5)*.078,-2.152,1.225),(.008,.008,.40),satin,.002)
+for k in range(5): cube("Grille bar",(0,-2.160,1.065+k*.08),(.86,.016,.028),satin,.007)
+cube("Grille centre post",(0,-2.163,1.225),(.05,.018,.42),satin,.01)
 for side in (-1,1):
     cylinder("Round headlight bezel",(side*.657,-2.151,1.26),.195,.055,satin,"Y")
     cylinder("Projector lens",(side*.657,-2.188,1.26),.139,.018,glass,"Y")

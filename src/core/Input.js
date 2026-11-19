@@ -16,7 +16,7 @@ export class Input {
 		window.addEventListener( 'keydown', ( e ) => {
 
 			if ( e.target && ( e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA' ) ) return;
-			if ( ! this.keys.has( e.code ) ) this.pressed.add( e.code );
+			if ( ! this.keys.has( e.code ) ) ( this.nextPressed ?? this.pressed ).add( e.code );
 			this.keys.add( e.code );
 			if ( [ 'Space', 'ArrowUp', 'ArrowDown', 'Tab' ].includes( e.code ) ) e.preventDefault();
 
@@ -100,8 +100,14 @@ export class Input {
 
 	endFrame() {
 
-		this.pressed.clear();
+		if ( this.nextPressed ) { this.pressed = this.nextPressed; this.nextPressed = null; }
+		else this.pressed.clear();
 
+	}
+
+	beginFrame() {
+		// Keys arriving while physics workers run belong to the next frame.
+		this.nextPressed = new Set();
 	}
 
 }

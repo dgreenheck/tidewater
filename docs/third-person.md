@@ -44,7 +44,7 @@ their own character from over the shoulder, or wear it in first person.
 - Cost: about 0.07 ms of CPU per frame (animation, blend, joint upload), measured in
   `test/browser/third-person.spec.js`.
 
-## What player.glb must carry (asset lane)
+## What player.glb must carry (asset contract)
 
 - glTF Y up, facing +Z, feet on y = 0, in place (no root motion).
 - Clips `idle`, `walk`, `run`, `sprint`, `jump_start`, `jump_loop`, `jump_land`; optional `swim`.
@@ -90,7 +90,6 @@ Runtime (`src/player/Avatar.js`, frame data from `Player.updateAvatar()`: `eyeY`
 - First person: the body sits a further 16 cm back while in the water, so the strokes never cut the near plane.
 - `avatar.state()` reports `water` (the three loop weights) and `bodyPitchDeg`.
 
-
 ## Ragdoll (src/player/Ragdoll.js)
 
 The player's body goes limp as a real ragdoll in three places: the car yeet (Y, src/rally/Bailout.js), a big
@@ -135,7 +134,7 @@ app.player.ragdoll( impulse, point, {
 Already ragdolling, a second call adds its impulse. `app.player.rag.state()` reports the phase, the pelvis and the
 run's stats (ms, joint limit excess in degrees, lowest clearance, NaN count).
 
-**Jetski (Jetski.throwRider, jetski lane):** in `throwRider( kind )`, replace `p.mode = 'jetski-thrown';` with
+**Jetski (Jetski.throwRider):** in `throwRider( kind )`, replace `p.mode = 'jetski-thrown';` with
 
 ```js
 if ( ! p.ragdoll( null, null, { velocity: vel } ) ) p.mode = 'jetski-thrown';
@@ -162,7 +161,7 @@ if ( ! p.ragdoll( null, null, { velocity: vel } ) ) p.mode = 'jetski-thrown';
   person (`avatar.rodClip === 'rod_hold'`). Note `FerryDeck.openSky` casts up from the camera, and it passes inside
   the enclosed room at local y 10, whose ceiling is not a solid box.
 
-## Character round 3 (helper lane)
+## Character round 3
 
 - Ferry open sky: the bridge deckhouse roof (ferry_build.py ROOF3 13.2 m) had no collider, so `FerryDeck.openSky` passed inside the deckhouse and the rod came out indoors. `FerryDeck` now adds a solid roof box over the deckhouse floor's footprint (constructor). Measured: sun deck (local 0, 10, 2.2) fishable, rod_hold on R; deckhouse (0, 10, 10.5) and lower saloon (0, 7, 8.55) refused, rod stays stowed. The roof also stops the third-person boom rising through it and the bird's `roofed()` sees it.
 - Jetski perch: `Cockatoo.shoulder()` cancels the rider's forward lean (pitch about his left axis) while `player.mode === 'jetski'`; the roll is kept. Foot gap stays -0.3 / -0.4 cm.
@@ -188,7 +187,6 @@ turns the clamp off for comparisons.
   the eyes; `y` and `dist` are set up again.
 - Probe note: the beach3 walk-to divided by the camera-to-player offset, which is zero in first person (the default
   view now), so it teleported the player to NaN. Measure the offset in third person or guard the length.
-
 
 ## Hat down his back and the skin fade (round 5, player-hat-hair)
 

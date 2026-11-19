@@ -128,6 +128,13 @@ test( 'Arrow-key steering turns in the driver’s direction and the handbrake st
 
 test( 'Leave the car, return to walking and re-enter without conflicting controls', async ( { page } ) => {
 	await test.step( 'Given the player is driving the Aster', async () => { await enter( page ); } );
+	await test.step( 'When the driver checks the controls and returns to the car', async () => {
+		await page.keyboard.press( 'F1' );
+		const help = page.getByRole( 'dialog', { name: 'Controls' } );
+		await expect( help ).toBeVisible();
+		await help.getByRole( 'button', { name: 'Close', exact: true } ).click();
+		await expect( help ).toBeHidden();
+	} );
 	await test.step( 'When the driver chooses Leave car', async () => { await page.getByRole( 'button', { name: 'Leave car', exact: true } ).click(); } );
 	await test.step( 'Then walking and the fishing controls are available again', async () => {
 		await expect( telemetry( page ) ).toBeHidden();
@@ -156,31 +163,31 @@ test( 'Loaded tyres leave sand impressions along the driven route', async ( { pa
 	} );
 } );
 
-test( 'Choose the Blender-built black Jeep and drive with its own suspension and wider tyres', async ( { page } ) => {
+test( 'Choose the Blender-built Ridgeback 4x4 and drive with its own suspension and wider tyres', async ( { page } ) => {
 	await test.step( 'Given the vehicle card introduces the Aster as a rear-drive coupe', async () => {
 		await expect( page.getByText( 'RWD coupe', { exact: true } ) ).toBeVisible();
 	} );
-	await test.step( 'When the player chooses the Black Jeep and starts driving', async () => {
+	await test.step( 'When the player chooses the Ridgeback 4x4 and starts driving', async () => {
 		await page.getByLabel( 'Vehicle', { exact: true } ).selectOption( 'jeep' );
 		await expect( page.getByText( 'Lifted 4x4', { exact: true } ) ).toBeVisible();
-		await page.getByRole( 'button', { name: 'Drive Black Jeep', exact: true } ).click();
+		await page.getByRole( 'button', { name: 'Drive Ridgeback 4x4', exact: true } ).click();
 	} );
-	await test.step( 'Then the lifted Jeep is supported by four wheels with its own mass and tyre size', async () => {
+	await test.step( 'Then the lifted 4x4 is supported by four wheels with its own mass and tyre size', async () => {
 		await expect( telemetry( page ) ).toHaveAttribute( 'data-vehicle', 'jeep' );
 		await expect.poll( () => value( page, 'grounded' ) ).toBe( 4 );
 		await expect.poll( () => value( page, 'speed' ) ).toBeLessThan( 2 );
 		expect( await value( page, 'mass' ) ).toBe( 2100 );
 		expect( await value( page, 'wheel-radius' ) ).toBe( 0.47 );
 		expect( await value( page, 'model-parts' ) ).toBeGreaterThan( 20 );
-		await page.screenshot( { path: 'test-results/rally-black-jeep.png' } );
+		await page.screenshot( { path: 'test-results/rally-ridgeback.png' } );
 	} );
 	const start = await position( page );
-	await test.step( 'When the player accelerates the Jeep across the beach', async () => {
+	await test.step( 'When the player accelerates the 4x4 across the beach', async () => {
 		await page.keyboard.down( 'w' );
 		await expect.poll( () => value( page, 'signed-speed' ) ).toBeGreaterThan( 18 );
 		await page.keyboard.up( 'w' );
 	} );
-	await test.step( 'Then the Jeep moves under power and leaves wider contact tracks', async () => {
+	await test.step( 'Then the 4x4 moves under power and leaves wider contact tracks', async () => {
 		expect( distance( await position( page ), start ) ).toBeGreaterThan( 3 );
 		await expect.poll( () => value( page, 'track-segments' ) ).toBeGreaterThan( 30 );
 		expect( await value( page, 'track-width' ) ).toBeGreaterThan( 0.34 );
@@ -323,11 +330,15 @@ test( 'Y yeets the driver out of the moving car to tumble along the ground, whil
 		const q = cam.quaternion, x = q._x ?? q.x, y = q._y ?? q.y, z = q._z ?? q.z, w = q._w ?? q.w;
 		// The camera's own up vector (the view's roll) from its quaternion.
 		const upY = 1 - 2 * ( x * x + z * z );
-		return { t: performance.now(), game: app.gameTime, cx: cam.position.x, cy: cam.position.y, cz: cam.position.z, upY, driving: app.rally.active, mode: app.player.mode,
+		return { view: app.player.view, t: performance.now(), game: app.gameTime, cx: cam.position.x, cy: cam.position.y, cz: cam.position.z, upY, driving: app.rally.active, mode: app.player.mode,
 			ground: app.terrainData.heightAt( cam.position.x, cam.position.z ), carSpeed: Math.abs( app.rally.state[ 7 ] ), carX: app.rally.state[ 0 ], carZ: app.rally.state[ 2 ] };
 	} );
 	let bail;
-	await test.step( 'Given the driver is flat out along the straight town backroad', async () => {
+	await test.step( 'Given the driver is flat out along the straight town backroad, in first person', async () => {
+		// The view rides the tumbling head only in first person (Player.js ragHeadCam); third person
+		// has been the default since 25f6bd8, so the player picks first person with V on foot first.
+		await press( page, 'v' );
+		expect( ( await scene() ).view ).toBe( 'first' );
 		await page.getByRole( 'button', { name: 'Drive Aster RS', exact: true } ).click();
 		await page.getByLabel( 'Start at', { exact: true } ).selectOption( 'town' );
 		await expect.poll( () => value( page, 'grounded' ) ).toBe( 4 );

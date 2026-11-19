@@ -157,7 +157,7 @@ export class SocialPanel {
 		for ( const peer of peers.values() ) {
 			const plate = this.plates.get( peer.id ) || this.addPlate( peer );
 			const p = peer.model.root.position;
-			v.set( p.x, p.y + ( peer.vehicle === 'jeep' ? 2.3 : 1.7 ), p.z ).applyMatrix4( camera.matrixWorldInverse );
+			v.set( p.x, p.y + ( VEHICLES[ peer.vehicle ]?.plate ?? 1.7 ), p.z ).applyMatrix4( camera.matrixWorldInverse );
 			// Clip-space w decides in front or behind, whatever the engine's view-axis convention.
 			const e = camera.projectionMatrix.elements;
 			const clipX = e[ 0 ] * v.x + e[ 4 ] * v.y + e[ 8 ] * v.z + e[ 12 ], clipY = e[ 1 ] * v.x + e[ 5 ] * v.y + e[ 9 ] * v.z + e[ 13 ];

@@ -9,7 +9,7 @@ Schedule, the Joey Island crossing, wake in game and marine life are later phase
 
 Procedural Blender build (Blender 5, headless):
 
-    /Applications/Blender.app/Contents/MacOS/Blender --background --factory-startup --python tools/ferry/ferry_build.py
+    blender --background --factory-startup --python tools/ferry/ferry_build.py
 
 Outputs `public/ferry/ferry.glb`, `public/ferry/ferry_colliders.json` and `assets/ferry/ferry.blend`.
 Most parts go through `tools/ferry/ferry_batch.py` (one mesh per group and material; sheets such as
@@ -40,7 +40,7 @@ Stations: `HelmStation`, `GangwayDoor` (port), `GangwayDoorStarboard`, `RampTop`
 Review renders: `tools/ferry/ferry_render.py` (Cycles on the GPU, a simulated sea with a wake mask
 painted into the water, marine paint shaders from `tools/ferry/ferry_paint.py`, render-only passengers):
 
-    /Applications/Blender.app/Contents/MacOS/Blender --background assets/ferry/ferry.blend --python tools/ferry/ferry_render.py -- OUT_DIR view...
+    blender --background assets/ferry/ferry.blend --python tools/ferry/ferry_render.py -- OUT_DIR view...
 
 Views: photo ref ref9 (framed like the reference photo) sideclose aerial1 bowlow sternq bow34 stern34
 profile aerial rampdown bridge helm wheel saloon cafe cardeck stairs sundeck bowdeck corridor.
@@ -163,7 +163,7 @@ looking out to sea, +Y up; world = position + rotateY( yaw ) · local, with loca
 `Object3D.rotation.y`. `terminalToWorld()` is the one place that transform lives; everything
 below derives from it, so moving the terminal is a one-line change.
 
-Data flow. The terminal lane (`tools/ferry/terminal_*.py`) writes three files, all in the glTF
+Data flow. The terminal generator (`tools/ferry/terminal_*.py`) writes three files, all in the glTF
 frame, and the game only reads them:
 - `src/ferry/terminalSite.js`: terrain edits and keep-clear zones (`fill`, `dredge`, `ridges`,
   `clear`, `roadEntry`, `parking`). `applyTerminalSite( terrainData )` runs in `App.init` straight
@@ -175,7 +175,11 @@ frame, and the game only reads them:
 Terrain edits (`TerrainData`, world x, z, about 45 ms), in this order: the fill (`fillPolygon`:
 only raises, to `height` inside with rock, sand and seabed cover cleared; a straight rock
 revetment (rock 1) falls to the natural ground outside over `slope` metres; higher ground is left
-alone), then the dredges (`dredgePolygon`: only lowers, to `depth` inside, smoothstep back over
+alone), then the cut (`cutPolygon`, the same polygon: only lowers, to the fill `height` inside and
+over a 1.5-texel shoulder, then a 1:1 rock cut face back into the natural ground; the yard paving
+is visual and cars drive on the terrain, and behind Joey Island's lanes the natural hill stood up
+to 12 m through the paving until this cut; Tidewater's flat is unchanged by it, `test/terminal-flat.mjs`
+pins both), then the dredges (`dredgePolygon`: only lowers, to `depth` inside, smoothstep back over
 `blend`; the berth polygon follows the quay faces with a 2 m blend, so it cuts the fill's bank
 back out in front of the quay walls and keeps the berth deep), then the breakwater cores (`ridge`: only raises, flat crest `halfWidth` either side
 of the line, sides at `slope` run per metre of rise, armour rock). `clear` polygons become
@@ -276,7 +280,6 @@ Spirit". Red before the terminal existed: the drop landed in the sea (`mode: swi
 - Departures board: top centre, dropping below the driving key hints while they show.
 - Minimap: the bake covers 1800 m (the island, the strait and Joey Island).
 - Known gaps: Joey Island to Tidewater has only been timed in the sim (227 s); the helm has no key for the stern thruster (autopilot only).
-
 
 ## Other people on the service
 

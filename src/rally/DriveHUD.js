@@ -2,11 +2,9 @@
 // fading key hints and the recover prompt. Pure presentation over RallyDrive
 // state; the cluster doubles as the `Rally telemetry` status the specs read.
 
-// Presentation extras only; physics tuning stays in Vehicles.js.
-const CARS = {
-	aster: { tag: 'RWD coupe', idle: 850, redline: 7200 },
-	jeep: { tag: 'Lifted 4x4', idle: 650, redline: 5600 },
-};
+import { VEHICLES } from './Vehicles.js';
+
+// The tag, idle and redline of each car come from Vehicles.js, the one car table.
 const STARTS = { beach: 'Beach', coast: 'Coastal road', town: 'Town backroad', mountain: 'Mountain summit', west: 'West beach entrance', east: 'East beach entrance', ferryRoad: 'Ferry road', ferry: 'Ferry terminal', joey: 'Joey Island terminal', joeyLoop: 'Joey Island road' };
 const SURFACES = { sand: 'Sand', soil: 'Soil', rock: 'Rock', asphalt: 'Asphalt', gravel: 'Gravel', wood: 'Boardwalk', water: 'Shallows', 'wet-sand': 'Wet sand', afloat: 'Afloat' };
 // Per-wheel physics surface codes s[89..92], in code order.
@@ -44,15 +42,17 @@ export class DriveHUD {
 		const root = this.root = document.createElement( 'section' );
 		root.className = 'rh';
 		root.setAttribute( 'aria-label', 'Island driving' );
+		const cars = Object.entries( VEHICLES ).map( ( [ value, car ] ) => `<option value="${ value }">${ car.name }</option>` ).join( '' );
 		const starts = Object.entries( STARTS ).map( ( [ value, name ] ) => `<option value="${ value }">${ name }</option>` ).join( '' );
 		root.innerHTML = `
 			<div class="rh-dock tw-glass tw-interactive">
 				<div class="rh-eyebrow">Take a car</div>
-				<label class="rh-pick rh-car"><span class="rh-label">Vehicle</span><select aria-label="Vehicle"><option value="aster">Aster RS</option><option value="jeep">Black Jeep</option></select></label>
+				<label class="rh-pick rh-car"><span class="rh-label">Vehicle</span><select aria-label="Vehicle">${ cars }</select></label>
 				<p class="rh-tag"><span></span> <span></span></p>
 				<label class="rh-pick rh-start"><span class="rh-label">Start at</span><select aria-label="Start at">${ starts }</select></label>
 				<button type="button" class="rh-go">Drive Aster RS</button>
 				<div class="rh-acts">
+					<button type="button" class="rh-chip rh-drive-only" data-act="aids" aria-label="Driving aids" aria-pressed="true" aria-keyshortcuts="J"><kbd>J</kbd><span>Aids on</span></button>
 					<button type="button" class="rh-chip rh-drive-only" data-act="recover" aria-label="Recover car" aria-keyshortcuts="R"><kbd>R</kbd>Recover</button>
 					<button type="button" class="rh-chip rh-drive-only" data-act="repair" aria-label="Repair car" aria-keyshortcuts="T"><kbd>T</kbd>Repair</button>
 					<button type="button" class="rh-chip rh-drive-only" data-act="leave" aria-label="Leave car" aria-keyshortcuts="E"><kbd>E</kbd>Leave</button>
@@ -85,6 +85,7 @@ export class DriveHUD {
 		const $ = selector => root.querySelector( selector );
 		this.dock = $( '.rh-dock' ); this.go = $( '.rh-go' ); this.tag = root.querySelectorAll( '.rh-tag span' );
 		this.vehicle = $( '[aria-label="Vehicle"]' ); this.start = $( '[aria-label="Start at"]' );
+		this.aids = $( '[data-act="aids"]' ); this.aidsLabel = this.aids.querySelector( 'span' );
 		this.sound = $( '.rh-sound' ); this.keys = $( '.rh-keys' ); this.cluster = $( '.rh-cluster' );
 		this.speed = $( '.rh-speed' ); this.gearBox = $( '.rh-gear' ); this.gear = $( '.rh-gear b' );
 		this.val = $( '.rh-arc-val' ); this.head = $( '.rh-head' ); this.ticks = $( '.rh-ticks' );
@@ -101,6 +102,7 @@ export class DriveHUD {
 			hold(); rally.destination = this.start.value; rally.reset(); input.keys.clear(); input.pressed.clear(); canvas.focus();
 		} );
 		this.go.addEventListener( 'click', () => rally.enter() );
+		this.aids.addEventListener( 'click', () => { rally.toggleAssists(); canvas.focus(); } );
 		$( '[data-act="recover"]' ).addEventListener( 'click', () => { rally.recover(); canvas.focus(); } );
 		$( '[data-act="leave"]' ).addEventListener( 'click', () => rally.leave() );
 		$( '[data-act="repair"]' ).addEventListener( 'click', () => { rally.repair(); canvas.focus(); } );
@@ -160,7 +162,7 @@ export class DriveHUD {
 		if ( ! this.root || ! s ) return;
 		const now = performance.now(), dt = Math.min( 0.5, ( now - this.last ) / 1000 );
 		this.last = now;
-		const active = rally.active, profile = rally.profile, car = CARS[ rally.vehicleKey ] || CARS.aster;
+		const active = rally.active, profile = rally.profile, car = profile;
 		const driving = active && ! app.freeCam, speed = Math.abs( s[ 7 ] );
 		this.dock.classList.toggle( 'is-driving', active );
 		// Nothing to choose while the driver is still tumbling from a bail-out, or tumbling at all.
@@ -169,6 +171,11 @@ export class DriveHUD {
 		const offered = this.offered( active, blocked );
 		this.dock.classList.toggle( 'is-away', ! offered );
 		this.dock.inert = ! offered;
+		if ( this.aidsOn !== rally.assists ) {
+			this.aidsOn = rally.assists;
+			this.aids.setAttribute( 'aria-pressed', String( rally.assists ) );
+			this.aidsLabel.textContent = rally.assists ? 'Aids on' : 'Aids off';
+		}
 		this.go.hidden = active;
 		this.go.textContent = `Drive ${ profile.name }`;
 		this.go.disabled = !! ( app.game.fight || app.game.landing );
@@ -263,6 +270,9 @@ export class DriveHUD {
 		el.dataset.trackSegments = rally.tracks.count;
 		el.dataset.trackSkids = rally.tracks.skids ?? 0;
 		el.dataset.trackWidth = rally.profile.width;
+		// The least-turned wheel (a free-rolling front one): all four turn when this one does.
+		const turns = rally.turns;
+		el.dataset.wheelTurns = Math.min( Math.abs( turns[ 0 ] ), Math.abs( turns[ 1 ] ), Math.abs( turns[ 2 ] ), Math.abs( turns[ 3 ] ) ).toFixed( 3 );
 		el.dataset.audioRecording = rally.sound.recording || '';
 		el.dataset.audioState = rally.sound.state;
 		el.dataset.audioRate = rally.sound.source?.playbackRate.value || 0;
@@ -295,7 +305,7 @@ export class DriveHUD {
 		const dt = Math.min( 0.1, Math.max( 0, ( time - ( this.frameTime || time ) ) / 1000 ) );
 		this.frameTime = time;
 		if ( ! s || ! rally.active ) return;
-		const car = CARS[ rally.vehicleKey ] || CARS.aster, k = 1 - Math.exp( - dt * 14 );
+		const car = rally.profile, k = 1 - Math.exp( - dt * 14 );
 		this.shownSpeed += ( Math.abs( s[ 7 ] ) - this.shownSpeed ) * k;
 		this.shownRev += ( Math.min( 1, Math.max( 0, s[ 9 ] * RED / car.redline ) ) - this.shownRev ) * k;
 		const speed = Math.round( this.shownSpeed );

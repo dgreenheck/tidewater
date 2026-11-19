@@ -2,13 +2,14 @@ import { Mesh, PlaneGeometry, InstancedBufferAttribute, Vector3, Color } from '.
 import { Material } from '../engine/render/Material.js';
 import { LAYERS } from '../core/SceneRenderer.js';
 import { G } from '../engine/render/Frame.js';
+import { mulberry32 } from '../util/Noise.js';
 
 // Steam, smoke, dust, flames, sparks and glass glints for a damaged car: camera-facing
 // soft quads in two instanced draws. Smoke, steam and dust are lit and alpha blended so
 // they darken at dusk; flames, sparks and shards are additive HDR so they bloom. The
 // particles live on the CPU (a few hundred at most) and drift with the frame wind.
 
-export const FX = { STEAM: 0, SMOKE: 1, DUST: 2, FLAME: 3, SPARK: 4, SHARD: 5, EMBER: 6 };
+export const FX = { STEAM: 0, SMOKE: 1, DUST: 2, FLAME: 3, SPARK: 4, SHARD: 5, EMBER: 6, TYRE: 7 };
 const SOFT = 320, GLOW = 320;
 // kind: [ life s, start size, end size, rise m/s, drag, gravity, wind share ]
 const KINDS = [
@@ -19,6 +20,7 @@ const KINDS = [
 	[ 0.8, 0.035, 0.02, 0, 0.4, 1, 0 ],
 	[ 1.1, 0.03, 0.025, 0, 0.3, 1, 0 ],
 	[ 2.4, 0.03, 0.015, 1.2, 0.7, 0, 1 ],
+	[ 1.9, 0.16, 1.25, 0.7, 1.4, 0, 0.9 ],
 ];
 const _c = new Color();
 
@@ -75,6 +77,7 @@ class Pool {
 	constructor( name, capacity, glow ) {
 		this.capacity = capacity;
 		this.list = [];
+		this.free = Array.from( { length: capacity }, () => ( {} ) );
 		const geometry = this.geometry = new PlaneGeometry( 2, 2 );
 		this.aP = new InstancedBufferAttribute( new Float32Array( capacity * 4 ), 4 );
 		this.aC = new InstancedBufferAttribute( new Float32Array( capacity * 4 ), 4 );
@@ -95,8 +98,10 @@ class Pool {
 export class CarFire {
 	constructor( app ) {
 		this.app = app;
+		this.random = mulberry32( 0x7a3c9f21 );
 		this.soft = new Pool( 'CarSmoke', SOFT, false );
 		this.glow = new Pool( 'CarFlames', GLOW, true );
+		this.pools = [ this.soft, this.glow ];
 		app.scene.add( this.soft.mesh );
 		app.scene.add( this.glow.mesh );
 		this.light = null;
@@ -108,17 +113,22 @@ export class CarFire {
 
 	// darkness 0 white .. 1 black for smoke; heat 0..1 shifts flames from orange to white-yellow.
 	emit( kind, position, velocity, count = 1, spread = 0.2, darkness = 0 ) {
-		const pool = kind >= FX.FLAME ? this.glow : this.soft;
+		const pool = kind >= FX.FLAME && kind <= FX.EMBER ? this.glow : this.soft;
 		for ( let i = 0; i < count; i ++ ) {
-			if ( pool.list.length >= pool.capacity ) pool.list.shift();
-			const [ life ] = KINDS[ kind ];
-			pool.list.push( {
-				kind, age: 0, life: life * ( 0.75 + Math.random() * 0.5 ), seed: Math.random(), dark: darkness,
-				// Tongues stay near upright and sway; soft puffs tumble freely.
-				spin: ( Math.random() - 0.5 ) * ( kind === FX.FLAME ? 0.6 : 0.8 ), angle: kind === FX.FLAME ? ( Math.random() - 0.5 ) * 0.5 : Math.random() * 6.283,
-				x: position.x + ( Math.random() - 0.5 ) * spread, y: position.y + ( Math.random() - 0.5 ) * spread * 0.5, z: position.z + ( Math.random() - 0.5 ) * spread,
-				vx: velocity.x + ( Math.random() - 0.5 ) * spread * 2, vy: velocity.y + Math.random() * spread, vz: velocity.z + ( Math.random() - 0.5 ) * spread * 2,
-			} );
+			const p = pool.free.pop() || pool.list.shift();
+			const random = this.random;
+			p.kind = kind; p.age = 0; p.dark = darkness;
+			p.life = KINDS[ kind ][ 0 ] * ( 0.75 + random() * 0.5 );
+			p.seed = random();
+			p.spin = ( random() - 0.5 ) * ( kind === FX.FLAME ? 0.6 : 0.8 );
+			p.angle = kind === FX.FLAME ? ( random() - 0.5 ) * 0.5 : random() * 6.283;
+			p.x = position.x + ( random() - 0.5 ) * spread;
+			p.y = position.y + ( random() - 0.5 ) * spread * 0.5;
+			p.z = position.z + ( random() - 0.5 ) * spread;
+			p.vx = velocity.x + ( random() - 0.5 ) * spread * 2;
+			p.vy = velocity.y + random() * spread;
+			p.vz = velocity.z + ( random() - 0.5 ) * spread * 2;
+			pool.list.push( p );
 		}
 	}
 
@@ -135,7 +145,7 @@ export class CarFire {
 	}
 
 	clear() {
-		this.soft.list.length = 0; this.glow.list.length = 0;
+		for ( const pool of this.pools ) while ( pool.list.length ) pool.free.push( pool.list.pop() );
 		this.setFire( 0 );
 		this.write( this.soft ); this.write( this.glow );
 	}
@@ -143,12 +153,12 @@ export class CarFire {
 	update( dt ) {
 		const wind = G.windDir.value, windSpeed = G.windSpeed.value * 0.6;
 		const terrain = this.app.terrainData;
-		for ( const pool of [ this.soft, this.glow ] ) {
+		for ( const pool of this.pools ) {
 			const list = pool.list;
-			for ( let i = list.length - 1; i >= 0; i -- ) {
-				const p = list[ i ];
+			let alive = 0;
+			for ( const p of list ) {
 				p.age += dt;
-				if ( p.age >= p.life ) { list.splice( i, 1 ); continue; }
+				if ( p.age >= p.life ) { pool.free.push( p ); continue; }
 				const [ , , , rise, drag, gravity, share ] = KINDS[ p.kind ];
 				const k = Math.exp( - dt * drag );
 				p.vx = p.vx * k + wind.x * windSpeed * share * ( 1 - k );
@@ -160,7 +170,9 @@ export class CarFire {
 					const h = terrain.heightAt( p.x, p.z );
 					if ( p.y < h ) { p.y = h; p.vy *= - 0.25; p.vx *= 0.5; p.vz *= 0.5; }
 				}
+				list[ alive ++ ] = p;
 			}
+			list.length = alive;
 			this.write( pool );
 		}
 	}
@@ -179,6 +191,7 @@ export class CarFire {
 					const g = 0.55 - 0.5 * p.dark * ( 1 - 0.6 * t );
 					_c.setRGB( g, g * 0.97, g * 0.94 ); a = ( 0.3 + 0.3 * p.dark ) * ( 1 - t ) ** 1.6 * Math.min( 1, t * 5 ); break;
 				}
+				case FX.TYRE: _c.setRGB( 0.67, 0.69, 0.70 ); a = 0.40 * ( 1 - t ) * Math.min( 1, t * 12 ); break;
 				case FX.DUST: _c.setRGB( 0.78, 0.7, 0.55 ); a = 0.38 * ( 1 - t ) * Math.min( 1, t * 10 ); break;
 				case FX.FLAME: {
 					// White-yellow core cooling to orange and deep red as it rises.

@@ -176,7 +176,6 @@ test( 'The full circuit is one continuous graded road', async ( { page } ) => {
 		expect( route.spawn.footprint, 'fall across the car footprint at the mountain start' ).toBeLessThan( 0.7 );
 		expect( route.spawn.fall, 'the circuit 40 m on from the mountain start is lower' ).toBeGreaterThan( 3 );
 		const start = page.getByLabel( 'Start at', { exact: true } );
-		// The HUD option is added by the orchestrator; drive it through the UI once it exists.
 		if ( ( await start.locator( 'option' ).evaluateAll( options => options.map( o => o.value ) ) ).includes( 'mountain' ) ) {
 			await start.selectOption( 'mountain' );
 			await expect.poll( () => value( page, 'grounded' ) ).toBe( 4 );

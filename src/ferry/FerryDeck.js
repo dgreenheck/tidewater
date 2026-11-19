@@ -19,6 +19,10 @@ export class FerryDeck {
 	constructor( ferry, data ) {
 
 		this.ferry = ferry;
+		this.id = 'ferry';
+		this.support = { id: 'ferry', simulationBounds: () => this.simulationBounds(), groundHeightAt: ( ...a ) => this.groundHeightAt( ...a ), supportAt: ( ...a ) => this.supportAt( ...a ),
+			world: p => this.world( p ), local: p => this.localPoint( p ), velocityAt: p => this.velocityAt( p ), angularVelocity: () => this.ferry.ship.angularVelocity().toArray(), resolveCapsule: ( ...a ) => this.resolveCapsule( ...a ) };
+		ferry.app?.player?.groundProviders?.add( this.support );
 		this.boxes = data.boxes.filter( b => b.kind !== 'car' ).map( b => ( {
 			walk: b.kind === 'walk', solid: b.kind === 'solid' || b.kind === 'walk',
 			center: new Vector3( ...b.center ), half: new Vector3( ...b.half ),
@@ -45,6 +49,13 @@ export class FerryDeck {
 	}
 
 	// Highest walkable top under (x, z) in the ship frame at or below maxY; -Infinity if none.
+	simulationBounds() {
+		// groundHeightAt rejects beyond40m; the rotated capsule-query box fits
+		// inside that sphere too. Workers inside this bound use the live provider.
+		const p = this.ferry.ship.position;
+		return { minX:p.x-40, maxX:p.x+40, minZ:p.z-40, maxZ:p.z+40 };
+	}
+
 	groundAt( x, z, maxY ) {
 
 		let g = - Infinity;
@@ -56,6 +67,52 @@ export class FerryDeck {
 
 		}
 		return g;
+
+	}
+
+	world( p ) { return this.ferry.ship.toWorld( Array.isArray( p ) ? new Vector3( ...p ) : p, new Vector3() ).toArray(); }
+	localPoint( p ) { return this.ferry.ship.toLocal( Array.isArray( p ) ? new Vector3( ...p ) : p, new Vector3() ).toArray(); }
+	velocityAt( p ) { return this.ferry.ship.velocityAt( Array.isArray( p ) ? new Vector3( ...p ) : p, new Vector3() ).toArray(); }
+
+	groundHeightAt( x, z, maxY = Infinity ) {
+
+		const ship = this.ferry.ship, n = new Vector3( 0, 1, 0 ).applyQuaternion( ship.quaternion );
+		if ( n.y < 0.55 || Math.hypot( x - ship.position.x, z - ship.position.z ) > 40 ) return - Infinity;
+		let best = - Infinity;
+		for ( const b of this.walkBoxes ) {
+			const c = ship.toWorld( new Vector3( b.center.x, b.center.y + b.half.y, b.center.z ), new Vector3() );
+			const y = c.y - ( n.x * ( x - c.x ) + n.z * ( z - c.z ) ) / n.y;
+			if ( y > maxY || y <= best ) continue;
+			const local = ship.toLocal( new Vector3( x, y, z ), new Vector3() );
+			if ( Math.abs( local.x - b.center.x ) <= b.half.x + 1e-6 && Math.abs( local.z - b.center.z ) <= b.half.z + 1e-6 ) best = y;
+		}
+		return best;
+
+	}
+
+	supportAt( feet, { maxRise = 0.45, maxDrop = 0.25 } = {} ) {
+
+		const p = Array.isArray( feet ) ? feet : feet.toArray(), height = this.groundHeightAt( p[ 0 ], p[ 2 ], p[ 1 ] + maxRise );
+		if ( ! Number.isFinite( height ) || p[ 1 ] - height > maxDrop ) return null;
+		const at = [ p[ 0 ], height, p[ 2 ] ];
+		return { provider: this.support, height, normal: new Vector3( 0, 1, 0 ).applyQuaternion( this.ferry.ship.quaternion ).toArray(), velocity: this.velocityAt( at ), local: this.localPoint( at ) };
+
+	}
+
+	resolveCapsule( world, radius = 0.3, height = 1.75, stepHeight = 0.4 ) {
+
+		const p = this.ferry.ship.toLocal( world, new Vector3() );
+		if ( Math.abs( p.x ) > 12 || Math.abs( p.z ) > 30 || p.y < - 1 || p.y > 16 ) return false;
+		let hit = false;
+		for ( let pass = 0; pass < 2; pass ++ ) for ( const b of this.boxes ) {
+			if ( ! b.solid || b.center.y + b.half.y <= p.y + stepHeight || b.center.y - b.half.y >= p.y + height ) continue;
+			const dx = p.x - b.center.x, dz = p.z - b.center.z, px = b.half.x + radius - Math.abs( dx ), pz = b.half.z + radius - Math.abs( dz );
+			if ( px <= 0 || pz <= 0 ) continue;
+			if ( px < pz ) p.x += ( Math.sign( dx ) || 1 ) * px; else p.z += ( Math.sign( dz ) || 1 ) * pz;
+			hit = true;
+		}
+		if ( hit ) this.ferry.ship.toWorld( p, world );
+		return hit;
 
 	}
 
@@ -75,6 +132,7 @@ export class FerryDeck {
 		this.vel.set( 0, 0, 0 );
 		this.yaw = player.yaw - this.ferry.ship.yaw - Math.PI;
 		this.grounded = true;
+		player.vessel = this;
 		player.mode = 'ferry';
 		player.velocity.set( 0, 0, 0 );
 		player._camY = null;
@@ -100,6 +158,19 @@ export class FerryDeck {
 		const speed = inp.down( 'ShiftLeft' ) || inp.down( 'ShiftRight' ) ? 6.2 : 3.0, k = 1 - Math.exp( - 12 * dt ), v = this.vel;
 		v.x += ( wish.x * speed - v.x ) * k;
 		v.z += ( wish.z * speed - v.z ) * k;
+		if ( player.environment ) {
+			const feet = ship.toWorld( this.local, new Vector3() ), carrier = ship.velocityAt( feet, new Vector3() );
+			const worldVelocity = ship.toWorld( this.local.clone().add( v ), new Vector3() ).sub( feet ).add( carrier );
+			const load = player.walkLoad = player.environment.acceleration( feet.clone().add( new Vector3( 0, 0.9, 0 ) ), worldVelocity,
+				{ mass: 75, area: 0.7, volume: 0.075, height: 1.8, supported: this.grounded, dt }, {} );
+			const acceleration = new Vector3( load.ax, load.ay, load.az );
+			worldVelocity.addScaledVector( acceleration, dt ); player.velocity.copy( worldVelocity );
+			if ( ( this.grounded && Math.hypot( load.ax, load.az ) > 3.2 ) || load.wy > 18 || load.height - feet.y > 1.75 ) {
+				if ( player.ragdoll( null, null, { velocity: worldVelocity, spin: { x: 0, y: 0, z: 0 } } ) ) { player.rag.disasterField = player.environment; player.rag.waterY = load.height; return; }
+			}
+			const localAcceleration = ship.toLocal( feet.clone().add( acceleration ), new Vector3() ).sub( this.local );
+			v.addScaledVector( localAcceleration, dt );
+		}
 		if ( this.grounded && inp.hit( 'Space' ) ) { v.y = 3.2; this.grounded = false; }
 		v.y -= 9.81 * dt;
 		const p = this.local, oldX = p.x, oldZ = p.z;
@@ -162,9 +233,9 @@ export class FerryDeck {
 
 	overboard( player ) {
 
-		player.mode = 'swim';
-		player.velocity.copy( this.ferry.ship.velocityAt( player.position, _w ) ).multiplyScalar( 0.3 );
-		player._camY = null;
+		const ship = this.ferry.ship, velocity = ship.toWorld( this.local.clone().add( this.vel ), new Vector3() ).sub( ship.toWorld( this.local, new Vector3() ) ).add( ship.velocityAt( player.position, new Vector3() ) );
+		const water = player.environment?.waterAt( player.position.x, player.position.z ) ?? player.waterH;
+		player.resumeOnFoot( { position: player.position.toArray(), velocity: velocity.toArray(), yaw: player.yaw, pitch: player.pitch, waterHeight: water, grounded: false } );
 
 	}
 

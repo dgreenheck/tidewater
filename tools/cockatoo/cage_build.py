@@ -1,6 +1,6 @@
 """Domed parrot cage for the beach fish stall counter, built from code (no source mesh).
 
-    /Applications/Blender.app/Contents/MacOS/Blender -b -P tools/cockatoo/cage_build.py -- \
+    blender -b -P tools/cockatoo/cage_build.py -- \
         [--out public/models/birdcage.glb] [--render DIR]
 
 A black powder-coated wire cage sized for a sulphur-crested cockatoo: 3.5 mm wire at 25 mm

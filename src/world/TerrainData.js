@@ -26,9 +26,11 @@ const RES = 2048; // 1 m texels over the 2048 m domain
 const PLUGS = [ [ - 42, - 505, 72, 62 ], [ 152, - 466, 46, 38 ], [ - 238, - 458, 40, 26 ] ];
 const VILLAGE = WORLD.village.center;
 
+export const CUT_SHOULDER = 1.5;
+
 // Distance from (x, z) to a polyline, or the signed distance to a closed polygon (negative inside,
 // even-odd rule). pts: [ [ x, z ], ... ].
-function shapeDistance( pts, closed, x, z ) {
+export function shapeDistance( pts, closed, x, z ) {
 
 	let best = Infinity, inside = false;
 	const n = pts.length, m = closed ? n : n - 1;
@@ -903,6 +905,26 @@ export class TerrainData {
 			this.heights[ k ] = h;
 			this.rock[ k ] = d <= 0 ? 0 : 1;
 			this.sand[ k ] = this.seagrass[ k ] = this.rubble[ k ] = this.scarp[ k ] = 0;
+
+		} );
+
+	}
+
+	// Cut flat: the ground is lowered to `height` inside the polygon and a shoulder of
+	// CUT_SHOULDER texels round it (a ground read blends texels up to a diagonal away, so every
+	// read on the flat is then the flat's); beyond that a rock cut face rises at `batter` metres
+	// per metre back into the natural ground. Only ever lowers, so a flat reclaimed from the sea
+	// is untouched; where the flat runs into a hillside the hill is cut back.
+	cutPolygon( poly, height, batter, reach = 60 ) {
+
+		const shoulder = CUT_SHOULDER * this.texel;
+		this._eachTexel( poly, reach, true, ( k, d ) => {
+
+			const h = height + Math.max( 0, d - shoulder ) * batter;
+			if ( h >= this.heights[ k ] ) return;
+			this.rock[ k ] = d <= 0 ? 0 : Math.max( this.rock[ k ], smoothstep( 0, 1.5, this.heights[ k ] - h ) );
+			this.heights[ k ] = h;
+			this.sand[ k ] = this.seagrass[ k ] = this.rubble[ k ] = 0;
 
 		} );
 

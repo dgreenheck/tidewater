@@ -1,7 +1,8 @@
 import { RenderTarget } from '../engine/gpu/Texture.js';
 import { LAYERS, DEPTH_FORMAT } from '../engine/render/SceneRenderer.js';
 import { FrameUniforms, createViewUniforms, setFrameCamera } from '../engine/render/Frame.js';
-import { Box3, Matrix4, Vector3 } from '../engine/math/index.js';
+import { Box3, Matrix4 } from '../engine/math/index.js';
+import { ATTRIBUTE_BLOCK, trackAttributeChanges, attributeBlocksUnchanged } from '../engine/render/AttributeChanges.js';
 
 // Refraction source for the water: the scene below the water surface only, rendered right after the
 // opaque pass (same jittered camera, so the temporal resolve treats it like the scene) at a fraction
@@ -39,7 +40,6 @@ const _guard = new Matrix4().set(
 const _prevVP = new Matrix4();
 
 const _box = new Box3();
-const _v = new Vector3();
 
 export class RefractionPass {
 
@@ -70,7 +70,7 @@ export class RefractionPass {
 			if ( m.underwaterLighting === 'none' || m.isWaterMaterial ) return false;
 			if ( o.isInstancedMesh ) return this._instancedMinY( o ) < this._clipY;
 			if ( ! o.geometry.attributes.position ) return true;
-			return _box.copy( this._localBox( o ) ).applyMatrix4( o.matrixWorld ).min.y < this._clipY;
+			return minimumWorldY( this._localBox( o ), o.matrixWorld ) < this._clipY;
 
 		};
 
@@ -97,39 +97,70 @@ export class RefractionPass {
 
 		}
 
-		return c.count ? _box.copy( c.box ).applyMatrix4( o.matrixWorld ).min.y : Infinity;
+		return c.count ? minimumWorldY( c.box, o.matrixWorld ) : Infinity;
 
 	}
 
 	_localBox( o ) {
 
-		const g = o.geometry, dr = g.drawRange || { start: 0, count: Infinity };
-		const c = this._boxes.get( o );
-		if ( c && c.geometry === g && c.start === dr.start && c.count === dr.count && c.version === ( g.attributes.position.version || 0 ) ) return c.box;
-		const box = new Box3();
-		const pos = g.attributes.position;
-		if ( ( dr.start === 0 && ( dr.count === Infinity || dr.count === null ) ) ) {
+		const g = o.geometry, pos = g.attributes.position, index = g.index;
+		const dr = g.drawRange || { start: 0, count: Infinity };
+		const idx = index?.array, indexVersion = index?.version || 0;
+		const version = pos.version ?? pos.data?.version ?? 0;
+		const array = pos.array, stride = pos.isInterleavedBufferAttribute ? pos.data.stride : pos.itemSize;
+		const offset = pos.isInterleavedBufferAttribute ? pos.offset : 0;
+		let c = this._boxes.get( o );
+		const sameTopology = c && c.geometry === g && c.start === dr.start && c.count === dr.count &&
+			c.index === index && c.indexArray === idx && c.indexVersion === indexVersion && c.positionCount === pos.count &&
+			c.stride === stride && c.offset === offset && c.normalized === pos.normalized;
+		if ( sameTopology && c.position === pos && c.array === pos.array && c.version === version ) return c.box;
+		if ( sameTopology && c.position === pos && c.array === array && attributeBlocksUnchanged( pos, c.version, c.blocks ) ) {
 
-			if ( ! g.boundingBox ) g.computeBoundingBox();
-			box.copy( g.boundingBox );
-
-		} else {
-
-			const idx = g.index ? g.index.array : null;
-			const n = idx ? idx.length : pos.count;
-			const end = Math.min( n, dr.start + ( dr.count ?? Infinity ) );
-			for ( let i = dr.start; i < end; i ++ ) {
-
-				const v = idx ? idx[ i ] : i;
-				_v.set( pos.getX( v ), pos.getY( v ), pos.getZ( v ) );
-				box.expandByPoint( _v );
-
-			}
+			c.version = version;
+			return c.box;
 
 		}
 
-		this._boxes.set( o, { geometry: g, start: dr.start, count: dr.count, version: pos.version || 0, box } );
-		return box;
+		if ( ! sameTopology ) {
+
+			const n = idx ? idx.length : pos.count;
+			const start = Math.max( 0, dr.start );
+			const end = Math.max( start, Math.min( n, start + ( dr.count ?? Infinity ) ) );
+			// Triangle batches repeat each vertex several times. Membership only changes with
+			// topology; moving fragments need one position read per distinct drawn vertex.
+			const vertices = idx ? Uint32Array.from( new Set( idx.subarray( start, end ) ) ) : null;
+			const blocks = new Set();
+			if ( vertices ) for ( const vertex of vertices ) {
+
+				const at = vertex * stride + offset;
+				blocks.add( Math.floor( at / ATTRIBUTE_BLOCK ) );
+				blocks.add( Math.floor( ( at + 2 ) / ATTRIBUTE_BLOCK ) );
+
+			} else for ( let b = Math.floor( ( start * stride + offset ) / ATTRIBUTE_BLOCK ); b <= Math.floor( ( ( end - 1 ) * stride + offset + 2 ) / ATTRIBUTE_BLOCK ) && end > start; b ++ ) blocks.add( b );
+			c = { geometry: g, start: dr.start, count: dr.count, index, indexArray: idx,
+				indexVersion, positionCount: pos.count, vertices, first: start, end, box: new Box3(),
+				stride, offset, normalized: pos.normalized, blocks: Uint32Array.from( blocks ) };
+			this._boxes.set( o, c );
+
+		}
+
+		const vertices = c.vertices, end = vertices ? vertices.length : c.end;
+		let minX = Infinity, minY = Infinity, minZ = Infinity, maxX = - Infinity, maxY = - Infinity, maxZ = - Infinity;
+		for ( let i = vertices ? 0 : c.first; i < end; i ++ ) {
+
+			const v = vertices ? vertices[ i ] : i, at = v * stride + offset;
+			const x = pos.normalized ? pos.getX( v ) : array[ at ];
+			const y = pos.normalized ? pos.getY( v ) : array[ at + 1 ];
+			const z = pos.normalized ? pos.getZ( v ) : array[ at + 2 ];
+			minX = Math.min( minX, x ); minY = Math.min( minY, y ); minZ = Math.min( minZ, z );
+			maxX = Math.max( maxX, x ); maxY = Math.max( maxY, y ); maxZ = Math.max( maxZ, z );
+
+		}
+
+		c.box.min.set( minX, minY, minZ ); c.box.max.set( maxX, maxY, maxZ );
+		c.position = pos; c.array = array; c.version = version;
+		trackAttributeChanges( pos );
+		return c.box;
 
 	}
 
@@ -168,5 +199,19 @@ export class RefractionPass {
 		} );
 
 	}
+
+}
+
+// Only the bottom of the transformed AABB decides eligibility. For an affine
+// object transform its extremal corner is selected directly, in the same
+// arithmetic order as Vector3.applyMatrix4. General projective matrices retain
+// the eight-corner path.
+export function minimumWorldY( box, matrix ) {
+
+	if ( box.isEmpty() ) return Infinity;
+	const e = matrix.elements, a = box.min, b = box.max;
+	if ( e[ 3 ] !== 0 || e[ 7 ] !== 0 || e[ 11 ] !== 0 || e[ 15 ] !== 1 ||
+		! Number.isFinite( a.x + a.y + a.z + b.x + b.y + b.z ) ) return _box.copy( box ).applyMatrix4( matrix ).min.y;
+	return e[ 1 ] * ( e[ 1 ] < 0 ? b.x : a.x ) + e[ 5 ] * ( e[ 5 ] < 0 ? b.y : a.y ) + e[ 9 ] * ( e[ 9 ] < 0 ? b.z : a.z ) + e[ 13 ];
 
 }

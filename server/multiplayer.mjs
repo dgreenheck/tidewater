@@ -10,11 +10,11 @@ export const SNAPSHOT_LENGTHS = [ 96, 69 ];
 const cleanName = value => String( value ?? 'Driver' ).replace( /\p{C}/gu, '' ).trim().slice( 0, 20 ) || 'Driver';
 export function validPose( message ) {
 	const s = message.state;
-	if ( ! [ 'aster', 'jeep' ].includes( message.vehicle ) || ! Array.isArray( s ) || ! SNAPSHOT_LENGTHS.includes( s.length ) ) return false;
+	if ( ! [ 'aster', 'jeep', 'gt3rs' ].includes( message.vehicle ) || ! Array.isArray( s ) || ! SNAPSHOT_LENGTHS.includes( s.length ) ) return false;
 	if ( ! s.every( value => typeof value === 'number' && Number.isFinite( value ) && Math.abs( value ) < 1e6 ) ) return false;
 	if ( Math.abs( s[ 0 ] ) > 1030 || Math.abs( s[ 2 ] ) > 1030 || s[ 1 ] < - 110 || s[ 1 ] > 700 || Math.abs( s[ 7 ] ) > 320 ) return false;
 	const q = Math.hypot( s[ 3 ], s[ 4 ], s[ 5 ], s[ 6 ] );
-	return q > 0.95 && q < 1.05 && Number.isInteger( s[ 8 ] ) && s[ 8 ] >= - 1 && s[ 8 ] <= 6 && s[ 10 ] >= 0 && s[ 10 ] <= 4;
+	return q > 0.95 && q < 1.05 && Number.isInteger( s[ 8 ] ) && s[ 8 ] >= - 1 && s[ 8 ] <= ( message.vehicle === 'gt3rs' ? 7 : 6 ) && s[ 10 ] >= 0 && s[ 10 ] <= 4;
 }
 
 export function attachMultiplayer( server ) {

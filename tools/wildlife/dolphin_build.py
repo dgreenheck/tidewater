@@ -5,7 +5,7 @@
 # three levels of detail, a baked 2048x1024 skin (albedo + roughness in alpha, 16-bit relief in R/G)
 # and review renders in Cycles. Output layout matches public/models/whale (see Whale.js).
 #
-#   /Applications/Blender.app/Contents/MacOS/Blender --background --factory-startup \
+#   blender --background --factory-startup \
 #     --python tools/wildlife/dolphin_build.py -- <scratch dir> [--no-render] [--refs 6,10,9]
 #
 # Rest frame: +Z toward the snout, +Y up, +X the animal's left; z = 0 at ROOT_S (rig root).

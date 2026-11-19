@@ -55,7 +55,8 @@ const CAMPS = [
 const TOWEL_KIND = { towel: 'towel', reader: 'reader', phoner: 'phoner', sand: 'sand' };
 const CRICKET = { x: - 8, back: 13 }, FRISBEE = { x: 66, x2: 75, back: 5 };
 const SHELLS = [ [ 2, 33 ], [ 64, 104 ] ], SWIM = [ 16, 23, 30 ], WADE = [ 10.2, 11.1 ];
-const FISH = [ [ 52.2, 39.3 ], [ 57.6, 39.3 ] ];
+// Clear of the real bench and fish-cleaning table, including capsule radius.
+const FISH = [ [ 54.1, 39.0 ], [ 57.0, 39.0 ] ];
 const _v = new Vector3(), _w = new Vector3(), _m = new Matrix4();
 const rand = ( a, b ) => a + Math.random() * ( b - a );
 const pick = a => a[ Math.floor( Math.random() * a.length ) ];
@@ -216,12 +217,12 @@ export class Beach {
 		// two lines out off the pier end (clothed), facing the sea
 		const ln = this.hub.objects.add( new SmartObject( { kind: 'line', tag: 'pier', slots: [ { mates: [ 1 ] }, { mates: [ 0 ] } ] } ) );
 		FISH.forEach( ( [ x, z ], i ) => { const y = this.app.colliders?.groundHeightAt?.( x, z, 6 ); this.slots.push( { role: 'fish', kind: 'line', obj: ln, i, at: new Vector3( x, Number.isFinite( y ) && y > 1 ? y : WORLD.pier.deckHeight, z ), yaw: 0, clothed: true, deck: true } ); } );
-		// the hire attendant: a stool on the deck inside the stand's east end, behind the counter, facing the path
-		// down from the village (+x). The stand's solid collider keeps walkers off him; he leaves by the open back.
-		const H = JETSKI_HIRE.stand, sx = H.x + 0.65, sz = H.z, deck = this.deckY();   // 0.65: his knees clear the counter's boards
+		// The hire stand has a solid collision envelope. Seat its attendant just
+		// behind it on supported sand, with a clear capsule exit toward the village.
+		const H = JETSKI_HIRE.stand, sx = H.x + 0.65, sz = H.z - H.half[ 2 ] - 0.7, deck = this.ground( sx, sz );
 		put( 'stool', sx, sz, Math.PI / 2, deck );
 		const st = this.hub.objects.add( new SmartObject( { kind: 'stool', tag: 'hire', slots: [ { mates: [] } ] } ) );
-		this.slots.push( { role: 'attendant', kind: 'stool', obj: st, i: 0, at: new Vector3( sx - 0.05, deck, sz ), yaw: Math.PI / 2, clothed: true, deck: true, cast: 'staff', archetype: 'friendly' } );
+		this.slots.push( { role: 'attendant', kind: 'stool', obj: st, i: 0, at: new Vector3( sx - 0.05, this.ground( sx - 0.05, sz ), sz ), yaw: Math.PI / 2, clothed: true, deck: false, cast: 'staff', archetype: 'friendly' } );
 
 	}
 
@@ -278,7 +279,7 @@ export class Beach {
 		p.posture = 'stand'; p.head = new Vector3(); p.can = key => p.model.clipSet.has( CLIP[ key ] ); p.clipOf = key => CLIP[ key ];   // clip keys for bumps (Contact.js)
 		p.base = new Vector3(); p.based = false; p.clipOf = key => CLIP[ key ];
 		// a knock's step: on the pier's planks or the stand's deck, the boards (clamped at the rail); on the sand, the sand
-		p.canStand = ( w, base ) => s.kind !== 'swim' && ( s.deck ? this.hub.contact.boards( w, base ) : this.app.terrainData.heightAt( w.x, w.z ) > - 0.4 && Math.abs( this.app.terrainData.heightAt( w.x, w.z ) - base.y ) < 0.5 );
+		p.canStand = ( w, base ) => p.evacuation ? this.hub.evacuation.walker.canStand( w, base ) : s.kind !== 'swim' && ( s.deck ? this.hub.contact.boards( w, base ) : this.app.terrainData.heightAt( w.x, w.z ) > - 0.4 && Math.abs( this.app.terrainData.heightAt( w.x, w.z ) - base.y ) < 0.5 );
 		p.footing = () => LOW.has( p.mode ) ? 'seat' : s.deck || s.role === 'attendant' ? 'narrow' : 'open';
 		p.model.play( CLIP.idle, { fade: 0.01, from: Math.random() * p.model.clipDuration( CLIP.idle ) } );
 		p.model.onClipEnd = () => { p.gesture = null; };
@@ -302,6 +303,7 @@ export class Beach {
 		if ( s.role === 'shells' ) { p.range = s.range; p.dir = Math.random() < 0.5 ? 1 : - 1; p.stopIn = rand( 4, 9 ); }
 		if ( s.role === 'swim' ) p.drift = rand( 0, 6.28 );
 		this.people.push( p );
+		this.hub.evacuation.register( p );
 		return p;
 
 	}
@@ -335,8 +337,10 @@ export class Beach {
 		if ( ! this.people.length ) return;
 		const t0 = performance.now(), app = this.app, cam = app.camera.position, dir = app.camera.getWorldDirection( _w );
 		this.frame ++;
-		this.cricket( dt ); this.frisbee( dt ); this.cocky( dt );
-		app.jetskiHire?.desk?.update( dt );
+		if ( ! this.people.some( p => p.evacuation ) ) {
+			this.cricket( dt ); this.frisbee( dt ); this.cocky( dt );
+			app.jetskiHire?.desk?.update( dt );
+		}
 		for ( const p of this.people ) this.step( p, dt, cam, dir );
 		this.hub.charge( performance.now() - t0 );
 
@@ -346,8 +350,9 @@ export class Beach {
 
 		const m = p.model, b = p.brain, t = this.hub.t, knocked = !! p.knock;
 		if ( p.based ) p.world.copy( p.base );
+		const evacuating = this.hub.evacuation.step( p, dt );
 		const standing = ! LOW.has( p.mode ) && p.mode !== 'tread';
-		if ( b.gesture && ! p.gesture && ! knocked && ! p.beat && ! p.path ) {   // on the beach a walker keeps walking (an errand, a shell hunt)
+		if ( ! evacuating && b.gesture && ! p.gesture && ! knocked && ! p.beat && ! p.path ) {   // on the beach a walker keeps walking (an errand, a shell hunt)
 
 			if ( standing && this.gest( p, b.gesture.clip ) && b.gesture.greet ) p.greeted = p.gesture;
 			b.gesture = null;
@@ -356,7 +361,7 @@ export class Beach {
 		if ( p.gesture && t > ( p.gestureEnd ?? 0 ) ) p.gesture = null;
 		if ( p.beat && t >= p.beat.until ) { const then = p.beat.then; p.beat = null; then?.(); }
 		// walking (the shell hunters, the bowler's run-up, the attendant)
-		if ( p.path && ! p.gesture && ! knocked ) {
+		if ( ! evacuating && p.path && ! p.gesture && ! knocked ) {
 
 			const P = p.path, a = P[ 0 ], c = P[ 1 ], seg = Math.hypot( c.x - a.x, c.z - a.z );
 			p.s += p.pace * dt;
@@ -372,13 +377,13 @@ export class Beach {
 			}
 
 		}
-		if ( p.role === 'shells' ) this.shells( p, dt );
+		if ( ! evacuating && p.role === 'shells' ) this.shells( p, dt );
 		p.base.copy( p.world ); p.based = true;
 		const K = this.hub.contact.body( p, dt );
-		if ( ! p.path && ! p.gesture && ! p.knock && ! K?.walk && ! p.beat ) this.idle( p );
-		p.posture = p.path || K?.walk ? 'walk' : LOW.has( p.mode ) ? 'sit' : 'stand';
+		if ( ! evacuating && ! p.path && ! p.gesture && ! p.knock && ! K?.walk && ! p.beat ) this.idle( p );
+		p.posture = p.evacuation?.moving || p.path || K?.walk ? 'walk' : LOW.has( p.mode ) ? 'sit' : 'stand';
 		// facing: the way they walk, else their place's way, turned to what the brain looks at (lying: the head only)
-		let want = p.path ? p.heading ?? p.face : p.face;
+		let want = p.evacuation?.moving || p.path ? p.heading ?? p.face : p.face;
 		const target = b.target && t < b.lookUntil ? b.target : null;
 		let look = 0, pitch = p.path ? 0 : b.activity?.pitch || 0;
 		if ( target && p.mode !== 'tread' ) {
@@ -613,7 +618,7 @@ export class Beach {
 			frisbee: this.games.frisbee && { t: + this.games.frisbee.t.toFixed( 2 ), disc: this.games.frisbee.disc.position.toArray().map( v => + v.toFixed( 2 ) ) },
 			bird: { on: this.bird.on?.id ?? null, kind: this.bird.kind || null, next: + this.bird.next.toFixed( 1 ) },
 			people: this.people.map( p => ( { id: p.id, cast: p.cast, swim: p.swim, role: p.role, mode: p.mode, clip: p.model.current, lod: p.lod, posture: p.posture, fade: + ( p.fade || 0 ).toFixed( 2 ),
-				activity: p.brain.activity?.name || null, type: p.brain.type, item: p.item ? p.item.kind : null, knock: p.knock?.kind || null, world: p.world.toArray().map( v => + v.toFixed( 2 ) ), gesture: p.gesture || null, path: p.path ? p.path.length : 0, beat: p.beat?.key || null } ) ),
+				activity: p.brain.activity?.name || null, type: p.brain.type, item: p.item ? p.item.kind : null, knock: p.knock?.kind || null, evacuation: p.evacuation?.phase || null, world: p.world.toArray().map( v => + v.toFixed( 2 ) ), gesture: p.gesture || null, path: p.path ? p.path.length : 0, beat: p.beat?.key || null } ) ),
 		};
 
 	}

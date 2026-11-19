@@ -13,7 +13,7 @@ import { JetskiLights } from './JetskiLights.js';
 // is the physics, docs/jetski.md the model and the controls). One ski at a time runs the full physics on
 // the GPU water queries (the one you ride, or last rode); the parked ones bob on one query each.
 //
-// Model contract (public/models/jetski.glb from the model lane): Y up, +Z forward, metres, origin on
+// Model contract (public/models/jetski.glb from the model): Y up, +Z forward, metres, origin on
 // the centreline at the static waterline; nodes Hull, Bars, Nozzle, Seat, GripL/R, FootL/R, JetOut, Bow,
 // SprayL/R. Until it lands a placeholder stand-up ski is built from boxes.
 
@@ -378,6 +378,7 @@ export class Jetskis {
 	}
 
 	mount( ski ) {
+		if ( this.app.chairlift?.active ) return this.app.chairlift.message( 'Exit the chairlift at a terminal before boarding a jetski.' );
 
 		const app = this.app, p = app.player, c = this.ctl;
 		if ( ski !== this.live ) this.makeLive( ski );

@@ -12,7 +12,7 @@ use std::f32::consts::{FRAC_PI_2,TAU};
 use avian3d::prelude::*;
 use bevy::prelude::*;
 use crate::driving::{PlayerCar,input::DriveIntent};
-use crate::road::{Grip,PropSurface,RoadSurfaces,Surface,TerrainMaterials,TerrainSurface,WaterPlane};
+use crate::road::{Grip,PropSurface,RoadSurfaces,Surface,TerrainMaterials,TerrainSurface,WaterPlane,FluidVelocity};
 use crate::vehicle::VehicleConfig;
 
 /// Wheel spin sub-steps per 120 Hz force step (720 Hz wheel dynamics).
@@ -65,6 +65,8 @@ pub struct Car {
     pub traction:f32, pub tc_active:bool, pub abs_active:bool, pub esc_active:bool,
     /// Parked with no demand: the brakes hold the car until the driver asks for motion.
     pub hold:bool,
+    /// Front-brake hold requested by overlapping pedals at rest on a rear-drive car.
+    pub line_lock:bool,
     /// Time stopped with the opposite pedal held, before the gearbox changes direction.
     pub direction_timer:f32,
     pub engine_load:f32,
@@ -80,7 +82,7 @@ impl Default for Car { fn default()->Self { Self::new(&VehicleConfig::default())
 impl Car {
     pub fn new(config:&VehicleConfig)->Self {
         Self { wheels:[Wheel::new(config.rest);4],steering:0.0,gear:1,rpm:config.idle,shift_timer:0.0,shift_throttle:0.0,since_shift:0.0,
-            throttle:0.0,brake:0.0,handbrake:0.0,traction:1.0,tc_active:false,abs_active:false,esc_active:false,hold:false,direction_timer:0.0,engine_load:0.0,
+            throttle:0.0,brake:0.0,handbrake:0.0,traction:1.0,tc_active:false,abs_active:false,esc_active:false,hold:false,line_lock:false,direction_timer:0.0,engine_load:0.0,
             speed:0.0,distance:0.0,lateral_g:0.0,longitudinal_g:0.0,yaw_rate:0.0,vertical_speed:0.0,
             submerged:0.0,water_height:None,water_speed:0.0,impacts:Vec::new(),last_velocity:Vec3::ZERO }
     }
@@ -95,8 +97,8 @@ impl Car {
 /// a steering pull (rad), per-wheel toe from bent suspension (rad), spring strength left,
 /// and wheels that have come off (their corner then rests on the body).
 #[derive(Resource,Clone,Copy,Debug)]
-pub struct Damage { pub engine:f32, pub pull:f32, pub toe:[f32;4], pub spring:[f32;4], pub lost:[bool;4] }
-impl Default for Damage { fn default()->Self { Self { engine:1.0, pull:0.0, toe:[0.0;4], spring:[1.0;4], lost:[false;4] } } }
+pub struct Damage { pub engine:f32, pub pull:f32, pub toe:[f32;4], pub spring:[f32;4], pub lost:[bool;4], pub wing_lost:bool }
+impl Default for Damage { fn default()->Self { Self { engine:1.0, pull:0.0, toe:[0.0;4], spring:[1.0;4], lost:[false;4], wing_lost:false } } }
 
 /// A hit on the body: car-local point and push direction, and its severity as the change
 /// in velocity it caused (m/s), so the same crash means the same thing for both cars.
@@ -153,15 +155,16 @@ pub fn drive_forces(
     roads:Res<RoadSurfaces>,
     materials:Res<TerrainMaterials>,
     water:Res<WaterPlane>,
+    fluid:Res<FluidVelocity>,
     assists:Res<Assists>,
     damage:Res<Damage>,
     terrain:Query<(),With<TerrainSurface>>,
     props:Query<&PropSurface>,
     platforms:Query<(&Position,&LinearVelocity,&AngularVelocity),(With<MovingPlatform>,Without<PlayerCar>)>,
-    poses:Query<(Entity,&Position,&Rotation),With<PlayerCar>>,
+    poses:Query<(Entity,&Position,&Rotation,&ComputedMass,&ComputedAngularInertia,&ComputedCenterOfMass),With<PlayerCar>>,
     mut params:ParamSet<(SpatialQuery,Query<(Forces,&mut Car),With<PlayerCar>>)>,
 ) {
-    let Ok((entity,position,rotation))=poses.single() else { return; };
+    let Ok((entity,position,rotation,mass,inertia,com))=poses.single() else { return; };
     let c=&*config;
     let q=rotation.0;
     let up=q*Vec3::Y;
@@ -231,6 +234,12 @@ pub fn drive_forces(
     // Holding the pedal the wrong way brakes first.
     if car.gear>0 && speed< -0.6 { service=service.max(throttle); throttle=0.0; }
     if car.gear<0 && speed>0.6 { service=service.max(throttle); throttle=0.0; }
+    // Two deliberate pedals stage a rear-drive launch. Use actual planar travel:
+    // a sideways slide must never be mistaken for a stationary car.
+    let road_speed=velocity.reject_from_normalized(up).length();
+    car.line_lock=c.front_share==0.0 && car.gear>0 && handbrake<0.1 &&
+        if car.line_lock { raw_brake>0.5 && raw_throttle>0.25 && road_speed<5.0 }
+        else { raw_brake>0.8 && raw_throttle>0.7 && road_speed<1.0 };
     // Auto-hold: once a car without demand has (nearly) stopped, the brakes keep it
     // parked on a slope until the driver presses a pedal again.
     if raw_throttle>0.02 || raw_brake>0.02 { car.hold=false; }
@@ -264,7 +273,11 @@ pub fn drive_forces(
     let share=|i:usize| if c.front_share>0.0 { if i<2 { c.front_share*0.5 } else { (1.0-c.front_share)*0.5 } } else if i<2 { 0.0 } else { 0.5 };
     let driven_omega:f32=(0..4).map(|i| share(i)*car.wheels[i].omega).sum();
     let wheel_rpm=(driven_omega*ratio*rpm_per_rad).abs();
-    let launch=c.idle+(c.peak_rpm*0.55-c.idle)*throttle;
+    // Staging uses the engine's torque peak while the clutch takes up. The
+    // normal gentle launch rpm can leave sticky rear tyres hooked up and drag
+    // the locked fronts along after a bouncing spawn or on an uphill start.
+    let launch_rpm=if car.line_lock { c.peak_rpm } else { c.peak_rpm*0.55 };
+    let launch=c.idle+(launch_rpm-c.idle)*throttle;
     // The clutch slips below the launch speed, then locks the engine to the wheels.
     let coupled=car.shift_timer==0.0 && handbrake<0.5;
     // Engagement is how firmly the engine is tied to the wheels: slipping at launch it still
@@ -278,7 +291,7 @@ pub fn drive_forces(
     let spin=(0..4).filter(|i| share(*i)>0.0 && car.wheels[*i].grounded)
         .map(|i| car.wheels[i].slip_ratio*ratio.signum()/car.wheels[i].surface.grip().ratio_peak)
         .fold(0.0f32,f32::max);
-    let over=assists.0 && spin>1.4 && handbrake<0.5;
+    let over=assists.0 && !car.line_lock && spin>1.4 && handbrake<0.5;
     car.traction=(car.traction+if over { -9.0*dt } else { 2.5*dt }).clamp(0.2,1.0);
     car.tc_active=car.traction<0.97 && throttle>0.05;
 
@@ -296,9 +309,26 @@ pub fn drive_forces(
     let lock=(0.13+c.wheelbase*9.0/speed.abs().max(1.0).powi(2)).min(c.max_steer);
     let rear=q.inverse()*(forces.velocity_at_point(position.0+q*Vec3::new(0.0,0.0,-c.wheelbase*0.5))-deck_velocity);
     let rear_slip=if rear.z>3.0 { rear.x.atan2(rear.z) } else { 0.0 };
-    let assist=0.6*rear_slip.signum()*(rear_slip.abs()-0.07).max(0.0)*smoothstep(3.0,8.0,speed);
+    let demand=-intent.steer.clamp(-1.0,1.0);
+    // Give back rack travel in the direction of a real countersteer. The old
+    // speed cap also capped the correction needed to line up a sliding rear axle.
+    let catch=(rear_slip*demand.signum()).max(0.0)*smoothstep(3.0,8.0,speed);
+    let manual=demand*(lock+catch).min(c.max_steer);
+    // At speed the nose can already be travelling sideways relative to the body.
+    // Full keyboard lock beyond peak slip then scrubs the fronts and widens the
+    // turn. In assisted driving aim the tyres relative to the front axle's path.
+    let guide=if assists.0 && handbrake<0.1 { smoothstep(10.0,24.0,speed) } else { 0.0 };
+    let front_point=position.0+q*Vec3::new(0.0,0.0,c.wheelbase*0.5);
+    let front_v=q.inverse()*(forces.velocity_at_point(front_point)-deck_velocity);
+    let path_angle=front_v.x.atan2(front_v.z.max(1.0));
+    let peak=(car.wheels[0].surface.grip().angle_peak+car.wheels[1].surface.grip().angle_peak)*0.5;
+    let guided_lock=(peak.atan()+path_angle*demand.signum()).clamp(0.03,c.max_steer);
+    let driver=manual+(demand*guided_lock-manual)*guide;
+    let assist=if assists.0 && handbrake<0.5 {
+        0.6*rear_slip.signum()*(rear_slip.abs()-0.07).max(0.0)*smoothstep(3.0,8.0,speed)
+    } else { 0.0 };
     // Driver-right is -X, which is negative yaw.
-    let target=(-intent.steer.clamp(-1.0,1.0)*lock+assist.clamp(-0.35,0.35)+damage.pull).clamp(-c.max_steer,c.max_steer);
+    let target=(driver+(1.0-guide*demand.abs())*assist.clamp(-0.35,0.35)+damage.pull).clamp(-c.max_steer,c.max_steer);
     // About 0.2 s to full lock at any speed; returning and countersteering are quicker.
     let rate=if target.abs()<car.steering.abs() || target*car.steering<0.0 { (lock/0.12).max(2.5) } else { (lock/0.2).max(1.0) };
     car.steering+=(target-car.steering).clamp(-rate*dt,rate*dt);
@@ -309,10 +339,17 @@ pub fn drive_forces(
     // outside front wheel and ease the throttle, as a real ESC does. The handbrake (or
     // switching assists off) leaves the driver to catch slides alone.
     let yaw_rate=angular.dot(up);
-    let grounded:Vec<&Wheel>=car.wheels.iter().filter(|w| w.grounded).collect();
-    let grip_now=if grounded.is_empty() { 0.8 } else {
-        grounded.iter().map(|w| { let g=w.surface.grip(); g.peak*if g.loose { c.grip_loose } else { c.grip_road } }).sum::<f32>()/grounded.len() as f32 };
-    let yaw_cap=grip_now*GRAVITY/speed.abs().max(3.0);
+    let mut capacity=0.0;
+    let mut grounded=false;
+    for wheel in &car.wheels {
+        if wheel.grounded {
+            let grip=wheel.surface.grip();
+            capacity+=wheel.load*grip.peak*if grip.loose { c.grip_loose } else { c.grip_road };
+            grounded=true;
+        }
+    }
+    let lateral_limit=if grounded { capacity/c.mass } else { 0.8*GRAVITY };
+    let yaw_cap=lateral_limit/speed.abs().max(3.0);
     let wanted=(speed*steering.tan()/c.wheelbase).clamp(-yaw_cap,yaw_cap);
     let excess=yaw_rate-wanted;
     let oversteer=if assists.0 && speed>4.0 && handbrake<0.5 && excess*yaw_rate>0.0 { (excess.abs()-0.10-0.12*wanted.abs()).max(0.0) } else { 0.0 };
@@ -345,7 +382,8 @@ pub fn drive_forces(
         let inertia=c.wheel_inertia+reflected;
         // Limited-slip coupling pulls each driven wheel toward the driven mean.
         let drive=if driven>0.0 && coupled { axle_torque*driven*if axle_torque*ratio>0.0 { esc_cut } else { 1.0 }+c.diff_lock*(driven_omega-car.wheels[i].omega) } else { 0.0 };
-        let brake_torque=service*c.brake_torque*(if i<2 { c.brake_front } else { 1.0-c.brake_front })
+        let service_axle=if car.line_lock && i>=2 { 0.0 } else { service };
+        let brake_torque=service_axle*c.brake_torque*(if i<2 { c.brake_front } else { 1.0-c.brake_front })
             +if i>=2 { handbrake*c.handbrake_torque } else { 0.0 }+esc_brake[i];
         let hub=position.0+q*mount;
         let wheel_centre_y=hub.y-c.rest*up.y;
@@ -390,7 +428,11 @@ pub fn drive_forces(
         let vx=point_velocity.dot(t_forward);
         let vy=point_velocity.dot(t_side);
         let sensitivity=(1.0-0.08*(load/corner_weight-1.0)).clamp(0.82,1.08);
-        let fmax=grip.peak*(if grip.loose { c.grip_loose } else { c.grip_road })*sensitivity*load;
+        // A fast, sliding road tyre develops less friction than one just at
+        // breakaway. Blend by actual tread scrub (m/s), leaving peak grip and loose ground intact.
+        let scrub=(car.wheels[i].omega*c.radius-vx).hypot(vy);
+        let sliding=if surface==Surface::Asphalt { 1.0-0.23*smoothstep(4.0,18.0,scrub) } else { 1.0 };
+        let fmax=sliding*grip.peak*(if grip.loose { c.grip_loose } else { c.grip_road })*sensitivity*load;
 
         // Wheel spin sub-steps: implicit in the tyre's own stiffness, so a light wheel on
         // a stiff tyre stays stable; brakes and ABS act per sub-step.
@@ -437,7 +479,10 @@ pub fn drive_forces(
         let travel=Vec2::new(vx,vy);
         let plough=if grip.sink>0.0 && travel.length()>0.05 { -travel.normalize()*grip.sink*0.04*load*(travel.length()/2.0).tanh() } else { Vec2::ZERO };
         let force=t_forward*(fx+plough.x)+t_side*(fy+plough.y);
-        forces.apply_force_at_point(force,contact.point+up*c.roll_centre);
+        // Apply tractive effort at the road, so acceleration pitches the mass
+        // about its actual COM. Only the lateral linkage uses the roll centre.
+        forces.apply_force_at_point(force,contact.point);
+        forces.apply_torque((up*c.roll_centre).cross(t_side*(fy+plough.y)));
 
         let floor=vx.abs().max(SLIP_FLOOR);
         car.wheels[i]=Wheel { grounded:true,length:contact.length,load,steer:wheel_steer,omega,
@@ -446,8 +491,32 @@ pub fn drive_forces(
             ground_speed:travel.length(),lateral_speed:vy,surface };
     }
 
-    // ---- aerodynamic drag continues through a jump
-    forces.apply_force(-velocity*velocity.length()*c.drag);
+    // All drag points use one coupled rigid-body implicit solve. The old explicit
+    // 12-point sum overshot the fluid velocity at extreme current and fed rotation
+    // back into explosive drag. Coefficients, buoyancy and native contacts remain.
+    let world_velocity=forces.linear_velocity();let world_angular=forces.angular_velocity();
+    let rotation_matrix=Mat3::from_quat(q);let world_inertia=rotation_matrix*inertia.value()*rotation_matrix.transpose();
+    let centre_of_mass=position.0+q*com.0;
+    let mut fluid_loads=crate::fluid_loads::FluidLoads::new(mass.value(),world_inertia,world_velocity,world_angular,dt);
+    // Air is a WORLD velocity, even while tyre motion is measured over a ferry deck.
+    let air=q.inverse()*(world_velocity-fluid.air);
+    // Symmetric wing/floor balance at the configured COM is the fixed-aero
+    // approximation. Use air-relative speed; reverse flow and flooding lose ground effect.
+    if c.aero_load>0.0 && car.submerged<1.0 {
+        let downforce=c.aero_load*air.z.max(0.0).powi(2)*(1.0-car.submerged);
+        forces.apply_force(-up*downforce);
+        if damage.wing_lost {
+            // Declared split: losing the wing removes 40% of whole-car downforce
+            // at the rear axle. The floor and front aero keep loading the tyres.
+            let rear_axle=position.0+q*Vec3::new(0.0,0.0,-c.wheelbase*0.5);
+            forces.apply_force_at_point(up*(0.40*downforce),rear_axle);
+        }
+    }
+    let side=0.5*1.225*1.1*c.body.z*c.hull().1;
+    let vertical=0.5*1.225*1.1*c.body.x*c.body.z;
+    for (axis,coefficient) in [(Vec3::X,side*air.x.abs()),(Vec3::Y,vertical*air.y.abs()),(Vec3::Z,c.drag*air.z.abs())] {
+        let direction=q*axis;fluid_loads.point(Vec3::ZERO,direction,coefficient,fluid.air.dot(direction));
+    }
 
     // ---- the hull floats: vertical water columns under the body give buoyancy at the
     // right place (so the car pitches and rolls on waves), drag relative to the moving
@@ -472,19 +541,26 @@ pub fn drive_forces(
             depth_sum+=depth*height/extent.max(0.05);
             let fraction=depth/extent.max(0.05);
             let centre=Vec3::new(mid.x,lower+depth*0.5,mid.z);
-            let relative=forces.velocity_at_point(centre)-Vec3::Y*water.rate;
+            let relative=forces.velocity_at_point(centre)-fluid.current-Vec3::Y*water.rate;
             let buoyancy=WATER_DENSITY*GRAVITY*area*depth*c.displacement;
-            let drag=-Vec3::new(relative.x*(200.0+130.0*relative.x.abs()),relative.y*(500.0+450.0*relative.y.abs()),relative.z*(200.0+130.0*relative.z.abs()))*area*fraction;
+            let coefficients=Vec3::new(200.0+130.0*relative.x.abs(),500.0+450.0*relative.y.abs(),200.0+130.0*relative.z.abs())*area*fraction;
+            let flow=fluid.current+Vec3::Y*water.rate;
+            for (axis,coefficient) in [(Vec3::X,coefficients.x),(Vec3::Y,coefficients.y),(Vec3::Z,coefficients.z)] {
+                fluid_loads.point(centre-centre_of_mass,axis,coefficient,flow.dot(axis));
+            }
             let wave=-Vec3::new(water.slope_x,0.0,water.slope_z)*buoyancy;
-            forces.apply_force_at_point(Vec3::Y*buoyancy+drag+wave,centre);
+            forces.apply_force_at_point(Vec3::Y*buoyancy+wave,centre);
         } }
         car.submerged=(depth_sum/(12.0*height)).clamp(0.0,1.0);
         if car.submerged>0.0 {
             // Water resists spinning the hull about every axis.
-            forces.apply_torque(-angular*(1800.0*c.mass/1250.0)*car.submerged);
-            car.water_speed=Vec2::new(velocity.x,velocity.z).length();
+            fluid_loads.angular((1800.0*c.mass/1250.0)*car.submerged);
+            car.water_speed=Vec2::new(world_velocity.x-fluid.current.x,world_velocity.z-fluid.current.z).length();
         }
     }
+
+    let (fluid_force,fluid_torque)=fluid_loads.solve();
+    forces.apply_force(fluid_force);forces.apply_torque(fluid_torque);
 
     // ---- telemetry
     // Report the driver's pedals; the auto-hold's parking brake is not the driver braking.

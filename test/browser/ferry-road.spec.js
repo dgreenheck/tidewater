@@ -8,7 +8,7 @@ test.beforeEach( async ( { page } ) => {
 		await page.goto( '/?scale=0.5&noAudio' );
 		await expect( page.getByRole( 'status', { name: 'Loading Tidewater' } ) ).toBeHidden( { timeout: 120_000 } );
 		await page.keyboard.press( 'Enter' ); await page.getByRole( 'button', { name: 'Skip', exact: true } ).click();
-		await expect( page.getByRole( 'dialog' ) ).toBeHidden();
+		await expect( page.locator( '.gm-guide-card[role=dialog]' ) ).toBeHidden();
 		await page.getByRole( 'button', { name: 'Drive Aster RS', exact: true } ).click();
 	} );
 } );

@@ -1,7 +1,9 @@
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 // Village / pier stream test: builds TerrainData, Colliders and the Village (which builds the pier
 // and bakes its texture sets on the first frame), a coarse terrain mesh as ground plus a flat sea
 // plane, and renders PNGs at 2560x1267 from several viewpoints.
-//   node test/world-village.mjs [outPrefix=/tmp/claude-village-] [only=name,name]
+//   node test/world-village.mjs [outPrefix=test-results/village-] [only=name,name]
 import './headless.mjs';
 import { worldHarness, done } from './world-harness.mjs';
 import { TerrainData } from '../src/world/TerrainData.js';
@@ -9,7 +11,7 @@ import { Colliders } from '../src/world/Colliders.js';
 import { Village } from '../src/world/Village.js';
 import { Material } from '../src/engine/render/Material.js';
 
-const OUT = process.argv[ 2 ] || '/tmp/claude-village-';
+const OUT = process.argv[ 2 ] || join( tmpdir(), 'tidewater-village-' );
 const ONLY = process.argv[ 3 ] ? process.argv[ 3 ].split( ',' ) : null;
 
 const H = await worldHarness( { width: 2560, height: 1267, sun: [ 0.55, 0.5, 0.45 ] } );

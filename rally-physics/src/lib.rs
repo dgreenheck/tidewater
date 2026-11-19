@@ -6,22 +6,36 @@ mod driving;
 mod vehicle;
 mod road;
 mod controller;
+mod fluid_loads;
 mod props;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod contact_kernel_tests;
 
 use avian3d::physics_transform::{PreSolveDeltaPosition, PreSolveDeltaRotation};
 use avian3d::prelude::*;
 use bevy::{prelude::*, mesh::MeshPlugin, time::TimeUpdateStrategy};
 use controller::Car;
 use driving::input::DriveIntent;
-use road::{PropSurface, RoadSurfaces, Surface, TerrainMaterials, WaterPlane};
+use road::{PropSurface, RoadSurfaces, Surface, TerrainMaterials, WaterPlane, FluidVelocity};
 use vehicle::VehicleConfig;
 use std::time::Duration;
 use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 
+mod disasters;
+mod structures;
+
 const DT: f64 = 1.0 / 120.0;
+/// Fixed steps one `advance` may run while a disaster is active: 3 x 1/120 s = 25 ms, so the
+/// clock keeps real time down to 40 fps. The old 0.1 s clamp let a 10 fps frame run 12 steps of
+/// 8 substeps each, which made the next frame slower still (the tornado death spiral, physics
+/// 40-77 ms a frame). Below 40 fps SimulationPacing hands every system the same capped interval
+/// while a disaster runs, so the game slows together instead of catching up
+/// (docs/physics-performance.md). JS sets it with `set_max_steps` from SimulationPacing.
+pub const DISASTER_MAX_STEPS: u32 = 3;
+pub const CATCH_UP_MAX_STEPS: u32 = 12;
 /// Static colliders are merged into one compound per square this many metres on a side.
 const STATIC_CELL: f32 = 64.0;
 /// Length of `snapshot()`; the layout is documented there.
@@ -32,6 +46,8 @@ pub struct RallyPhysics {
     app: App,
     car: Entity,
     remainder: f64,
+    /// Fixed steps one `advance` may run; see DISASTER_MAX_STEPS and CATCH_UP_MAX_STEPS.
+    max_steps: u32,
     /// The car's pose (position xyz, rotation xyzw) before the latest fixed step, for `blend`.
     previous: [f32; 7],
     vehicle: u8,
@@ -41,6 +57,8 @@ pub struct RallyPhysics {
     props: HashMap<u32,Entity>,
     /// The walker's kinematic capsule while on foot (props.rs).
     pusher: Option<Entity>,
+    anchors: HashMap<u32,Entity>,
+    connections: std::collections::BTreeMap<u32,structures::Connection>,
 }
 
 impl Default for RallyPhysics { fn default() -> Self { Self::new() } }
@@ -69,6 +87,7 @@ impl RallyPhysics {
             .init_resource::<RoadSurfaces>()
             .init_resource::<TerrainMaterials>()
             .init_resource::<WaterPlane>()
+            .init_resource::<FluidVelocity>()
             .init_resource::<controller::Assists>()
             .init_resource::<controller::Damage>()
             .add_systems(FixedUpdate, ((controller::record_impacts,controller::drive_forces).chain(), props::drive_pusher));
@@ -76,12 +95,13 @@ impl RallyPhysics {
         app.finish();
         app.cleanup();
         app.update();
-        Self { app, car, remainder: 0.0, previous: [0.0,100.0,0.0,0.0,0.0,0.0,1.0], vehicle: 0, remotes: HashMap::new(), platforms: HashMap::new(), props: HashMap::new(), pusher: None }
+        Self { app, car, remainder: 0.0, max_steps: CATCH_UP_MAX_STEPS, previous: [0.0,100.0,0.0,0.0,0.0,0.0,1.0], vehicle: 0, remotes: HashMap::new(), platforms: HashMap::new(), props: HashMap::new(), pusher: None, anchors: HashMap::new(), connections: std::collections::BTreeMap::new() }
     }
 
     /// Switch physical bodies; world collisions and existing tracks remain.
     pub fn select_vehicle(&mut self, kind:u8)->bool {
-        if kind>1 { return false; }
+        // L9 cars: kinds come from VehicleConfig::of (vehicle.rs); was `kind>1` before the item 7 cars.
+        if kind>=VehicleConfig::COUNT { return false; }
         let config=VehicleConfig::of(kind);
         self.app.world_mut().despawn(self.car);
         self.car=self.app.world_mut().spawn((vehicle::bundle(&config),Transform::from_xyz(0.0,100.0,0.0))).id();
@@ -95,7 +115,7 @@ impl RallyPhysics {
     /// This enables contact without claiming a global server-authoritative solver.
     /// The collider is only rebuilt when the remote driver changes vehicle.
     pub fn update_remote(&mut self,id:u32,kind:u8,state:&[f32]) {
-        if kind>1 || state.len()<8 || state[..8].iter().any(|v| !v.is_finite()) { return; }
+        if kind>=VehicleConfig::COUNT || state.len()<8 || state[..8].iter().any(|v| !v.is_finite()) { return; }
         let q=Quat::from_xyzw(state[3],state[4],state[5],state[6]);
         if q.length_squared()<0.5 { return; }
         let q=q.normalize();
@@ -234,7 +254,7 @@ impl RallyPhysics {
                 for shape in &mut shapes { shape.0 -= origin; }
                 (Collider::compound(shapes), Transform::from_translation(origin))
             };
-            self.app.world_mut().spawn((RigidBody::Static, collider, Friction::new(f32::from_bits(friction)), PropSurface(surface), transform));
+            self.app.world_mut().spawn((disasters::IslandStatic, RigidBody::Static, collider, Friction::new(f32::from_bits(friction)), PropSurface(surface), transform));
         }
     }
 
@@ -257,12 +277,21 @@ impl RallyPhysics {
         } else { WaterPlane::default() });
     }
 
+    /// Air velocity xyz and horizontal current xz, m/s. Invalid batches leave the
+    /// previous valid fluid sample unchanged; the zero default preserves old callers.
+    pub fn set_fluid_velocity(&mut self, air_x:f32, air_y:f32, air_z:f32, current_x:f32, current_z:f32) -> bool {
+        if [air_x,air_y,air_z,current_x,current_z].iter().any(|v|!v.is_finite()) { return false; }
+        self.app.insert_resource(FluidVelocity { air:Vec3::new(air_x,air_y,air_z), current:Vec3::new(current_x,0.0,current_z) });
+        true
+    }
+
     /// Mechanical damage from the renderer's damage model: engine power left 0..1, steering
     /// pull (rad), then per wheel (snapshot order: 0 front -X, 1 front +X, 2 rear -X, 3 rear +X) toe (rad), spring strength
     /// left 0..1 and detached (non-zero). Non-finite values are ignored.
     pub fn set_damage(&mut self, engine:f32, pull:f32, wheels:&[f32]) -> bool {
         if wheels.len()!=12 || !engine.is_finite() || !pull.is_finite() || wheels.iter().any(|v| !v.is_finite()) { return false; }
-        let mut damage=controller::Damage { engine:engine.clamp(0.0,1.0), pull:pull.clamp(-0.2,0.2), ..default() };
+        let wing_lost=self.app.world().resource::<controller::Damage>().wing_lost;
+        let mut damage=controller::Damage { wing_lost, engine:engine.clamp(0.0,1.0), pull:pull.clamp(-0.2,0.2), ..default() };
         for w in 0..4 {
             damage.toe[w]=wheels[w].clamp(-0.3,0.3);
             damage.spring[w]=wheels[4+w].clamp(0.2,1.0);
@@ -270,6 +299,11 @@ impl RallyPhysics {
         }
         self.app.insert_resource(damage);
         true
+    }
+
+    /// The detachable RS wing changes the rear aero balance independently of wheel damage.
+    pub fn set_rear_wing(&mut self,attached:bool) {
+        self.app.world_mut().resource_mut::<controller::Damage>().wing_lost=!attached;
     }
 
     /// Hard hits on the body since the last call, each as car-local point xyz, car-local push
@@ -297,17 +331,31 @@ impl RallyPhysics {
         self.previous = [x,y,z,q.x,q.y,q.z,q.w];
     }
 
-    pub fn advance(&mut self, seconds: f32, throttle: f32, brake: f32, steer: f32, handbrake: f32) {
-        if [seconds,throttle,brake,steer,handbrake].iter().any(|v| !v.is_finite()) { return; }
+    /// Sets how many fixed steps one `advance` may run, clamped to 1..=CATCH_UP_MAX_STEPS.
+    /// SimulationPacing passes DISASTER_MAX_STEPS while a disaster runs, else CATCH_UP_MAX_STEPS.
+    pub fn set_max_steps(&mut self, steps: u32) {
+        self.max_steps = steps.clamp( 1, CATCH_UP_MAX_STEPS );
+    }
+
+    /// Runs the fixed steps owed for `seconds` and returns how many ran.
+    pub fn advance(&mut self, seconds: f32, throttle: f32, brake: f32, steer: f32, handbrake: f32) -> u32 {
+        if [seconds,throttle,brake,steer,handbrake].iter().any(|v| !v.is_finite()) { return 0; }
         *self.app.world_mut().resource_mut::<DriveIntent>() = DriveIntent {
             throttle: throttle.clamp(0.0,1.0), brake: brake.clamp(0.0,1.0),
             steer: steer.clamp(-1.0,1.0), handbrake: handbrake.clamp(0.0,1.0) };
         self.remainder += (seconds as f64).clamp(0.0,0.1);
-        while self.remainder >= DT {
+        let mut steps = 0;
+        while self.remainder >= DT && steps < self.max_steps {
             self.previous = self.pose();
             self.app.update();
+            self.update_structure_connections(DT as f32);
             self.remainder -= DT;
+            steps += 1;
         }
+        // Drop the time the cap left unsimulated and keep only the phase within a step, so the
+        // next frame owes nothing and the render blend stays in [0, 1].
+        if self.remainder >= DT { self.remainder %= DT; }
+        steps
     }
 
     /// Render interpolation. Whole fixed steps run per call, so a display frame can get zero,

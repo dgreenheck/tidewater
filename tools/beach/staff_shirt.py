@@ -4,6 +4,7 @@
 # (each tee pixel keeps its brightness relative to the tee's mean), the trims, skin and shorts are untouched.
 #   blender -b --factory-startup --python tools/beach/staff_shirt.py -- <repo root>
 import bpy, sys, os, json, struct
+from tempfile import gettempdir
 import numpy as np
 
 argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else ['.']
@@ -11,7 +12,7 @@ ROOT = os.path.abspath(argv[0])
 SRC = ROOT + '/public/models/characters/crowd/swim/m01.glb'
 OUT = ROOT + '/public/models/beach/attendant.glb'
 TEAL = np.array([0.03, 0.56, 0.60])        # sRGB 0..1, the stand's sign teal brightened for cloth
-TMP = bpy.app.tempdir or '/tmp/'
+TMP = bpy.app.tempdir or gettempdir()
 log = lambda *a: print('STAFF', *a, flush=True)
 
 glb = open(SRC, 'rb').read()

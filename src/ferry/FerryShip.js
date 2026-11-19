@@ -1,3 +1,4 @@
+import { GRAVITY, AIR_DENSITY, SEA_WATER_DENSITY } from '../physics/Loads.js';
 import { Vector3, Quaternion, Euler, Matrix4 } from '../engine/index.js';
 
 // The Tidewater Spirit's dynamics: a 50 m, 450 t catamaran (17.8 m beam) in three degrees of freedom (surge,
@@ -7,6 +8,9 @@ import { Vector3, Quaternion, Euler, Matrix4 } from '../engine/index.js';
 // stern-to in a narrow slot. The hull footprint grounds
 // on the terrain and strikes world structures; every blow is reported with its energy.
 const MASS = 450000;                     // kg
+const WATERPLANE = 190; // assumed effective total waterplane of both demi-hulls, m²
+const HEAVE_K = SEA_WATER_DENSITY * GRAVITY * WATERPLANE / MASS; // restoring acceleration per metre
+const HEAVE_C = 1.4 * Math.sqrt(HEAVE_K); // damping ratio0.7, assumed
 const YAW_INERTIA = MASS * ( 50 * 50 + 16 * 16 ) / 12;
 const THRUST = 220000;                   // N ahead, both engines; astern gives 60 %
 const TOP_SPEED = 8.2;                   // m/s, about 16 knots
@@ -26,7 +30,7 @@ const WINCH_TIME = 1.2;                  // s, how they ease off as she comes on
 const KEELS = [];
 for ( const x of [ - 6.7, 6.7 ] ) for ( let k = 0; k <= 8; k ++ ) KEELS.push( new Vector3( x, KEEL, - 24 + k * 5.5 ) );
 // Her figures, for the autopilot's feed forward (FerryService.js).
-export const HULL = { MASS, YAW_INERTIA, THRUST, SURGE_DRAG, SWAY_DRAG, THRUSTER, THRUSTER_ARM };
+export const HULL = { MASS, WATERPLANE, YAW_INERTIA, THRUST, SURGE_DRAG, SWAY_DRAG, THRUSTER, THRUSTER_ARM };
 
 const _v = new Vector3(), _w = new Vector3(), _e = new Euler( 0, 0, 0, 'YXZ' );
 
@@ -49,6 +53,9 @@ export class FerryShip {
 		this.matrix = new Matrix4();
 		this.inverse = new Matrix4();
 		this.velocity = new Vector3();               // world, m/s
+		this.pointLinear = new Vector3();
+		this.pointAngular = new Vector3();
+		this._pointPose = null;
 		this.impacts = [];                            // { energy, point } since the last read
 		this.grounded = false;
 		this.moored = false;                         // lines on: held on `berth`
@@ -77,23 +84,50 @@ export class FerryShip {
 	forward( out = new Vector3() ) { return out.set( Math.sin( this.yaw ), 0, Math.cos( this.yaw ) ); }
 
 	step( dt, world ) {
+        if(!Number.isFinite(dt)||dt<=0)return;
+        // Measure the actual full rigid pose, including prescribed swell and
+        // water-plane pitch/roll. Hull force integration keeps its own velocity.
+        // Starting at the current pose avoids interpreting a Restore/placement
+        // between frames as an enormous launch velocity.
+        const position=this.position.clone(),orientation=this.quaternion.clone();
+        const steps=Math.ceil(dt*120),h=dt/steps;
+        for(let i=0;i<steps;i++)this.substep(h,world);
+        this.pointLinear.copy(this.position).sub(position).multiplyScalar(1/dt);
+        const delta=this.quaternion.clone().multiply(orientation.invert());
+        if(delta.w<0){delta.x=-delta.x;delta.y=-delta.y;delta.z=-delta.z;delta.w=-delta.w;}
+        const sine=Math.hypot(delta.x,delta.y,delta.z),rate=sine>1e-12?2*Math.atan2(sine,delta.w)/(sine*dt):2/dt;
+        this.pointAngular.set(delta.x*rate,delta.y*rate,delta.z*rate);
+        this._pointPose={position:this.position.clone(),orientation:this.quaternion.clone()};
+    }
 
+    substep(dt,world){
+        this.pitch-=this.environmentPitch??0;this.roll-=this.environmentRoll??0;
+        this.environmentPitch=this.environmentRoll=0;
 		this.time += dt;
-		if ( this.moored ) { this.hold( dt ); return; }
+		const env = this.environment?.sample(this.position.x,this.position.y,this.position.z);
+        const windForce = env ? 0.5*AIR_DENSITY*220*Math.hypot(env.wx-this.velocity.x,env.wz-this.velocity.z) : 0;
+        const f0=this.forward(new Vector3()),side=new Vector3(f0.z,0,-f0.x);
+        const waterU=env?env.ux*f0.x+env.uz*f0.z:0,waterV=env?env.ux*side.x+env.uz*side.z:0;
+        const ur=this.u-waterU,vr=this.v-waterV;
+        const windX=env?windForce*(env.wx-this.velocity.x):0,windZ=env?windForce*(env.wz-this.velocity.z):0;
+        const resistU=SURGE_DRAG*ur*Math.abs(ur)+900*ur,resistV=SWAY_DRAG*vr*Math.abs(vr)+40000*vr;
+        this.environmentLoad = Math.hypot(windX-resistU*f0.x-resistV*side.x,windZ-resistU*f0.z-resistV*side.z);
+        if(this.moored && (this.environmentLoad>350000 || (env?.height??0)>2)){this.castOff();this.mooringFailed=true;}
+        if ( this.moored ) { this.hold( dt ); this.waterPose(dt,env); return; }
 		// Engines and steering gear chase the controls.
 		this.power += ( this.lever - this.power ) * ( 1 - Math.exp( - dt / LEVER_LAG ) );
 		const target = this.wheel * RUDDER_MAX;
 		this.rudder += Math.max( - RUDDER_RATE * dt, Math.min( RUDDER_RATE * dt, target - this.rudder ) );
 		const thrust = this.power * THRUST * ( this.power < 0 ? 0.6 : 1 );
 		// Water flowing past the rudders: the ship's own way plus the propeller wash.
-		const wash = this.u * Math.abs( this.u ) + Math.max( 0, this.power ) * 30;
+		const wash = ur * Math.abs( ur ) + Math.max( 0, this.power ) * 30;
 		// Frame: +Z bow, +X port. A positive wheel (starboard) swings the bow to -X (yaw falls):
 		// about a 100 m turning radius flat out, a crawl of a turn when manoeuvring.
 		const rudderForce = 1500 * this.rudder * wash;
 		// The thrusters: the same way together walk her sideways, opposite ways turn her in place.
 		const bow = THRUSTER * this.thruster, aft = THRUSTER * this.stern;
-		const surge = thrust - SURGE_DRAG * this.u * Math.abs( this.u ) - 900 * this.u;
-		const sway = rudderForce * 0.35 - bow - aft - SWAY_DRAG * this.v * Math.abs( this.v ) - 40000 * this.v;
+        const surge = thrust - resistU + windX*f0.x+windZ*f0.z;
+		const sway = rudderForce * 0.35 - bow - aft - resistV + windX*side.x+windZ*side.z;
 		const turn = - rudderForce * RUDDER_ARM - ( bow - aft ) * THRUSTER_ARM - 3.0e8 * this.r * Math.abs( this.r ) - 1.2e6 * this.r;
 		this.u += surge / MASS * dt;
 		this.v += sway / MASS * dt;
@@ -108,10 +142,22 @@ export class FerryShip {
 		this.pitch = 0.004 * Math.sin( t * 0.6 ) * lively - this.u * 0.0012;
 		this.roll = 0.006 * Math.sin( t * 0.5 + 2 ) * lively + this.r * 0.35;
 		this.position.y = this.heave;
+        this.waterPose(dt,env);
 		this.pose();
 		if ( world ) this.collide( dt, world );
 
 	}
+
+    waterPose(dt,env){
+        this.environmentHeave??=0;this.environmentVelocity??=0;
+        const level=env?.height??0;
+        this.environmentVelocity+=(HEAVE_K*(level-this.environmentHeave)-HEAVE_C*this.environmentVelocity)*dt;
+        this.environmentHeave+=this.environmentVelocity*dt;this.position.y=this.heave+this.environmentHeave;
+        const f=this.forward(new Vector3()),side=new Vector3(f.z,0,-f.x),P=this.position,water=(x,z)=>this.environment?.waterAt(x,z)??0;
+        const fore=water(P.x+f.x*20,P.z+f.z*20),aft=water(P.x-f.x*20,P.z-f.z*20),port=water(P.x+side.x*7,P.z+side.z*7),star=water(P.x-side.x*7,P.z-side.z*7);
+        this.environmentPitch=Math.max(-.35,Math.min(.35,-Math.atan2(fore-aft,40)));this.environmentRoll=Math.max(-.35,Math.min(.35,Math.atan2(port-star,14)));
+        this.pitch+=this.environmentPitch;this.roll+=this.environmentRoll;this.velocity.y=this.environmentVelocity;this.pose();
+    }
 
 	// Made fast: the winches ease her onto her marks (at most WINCH_SPEED, slowing as she
 	// arrives), the swell dies out of her, and once there she does not move at all.
@@ -153,8 +199,20 @@ export class FerryShip {
 	// World velocity of a point riding the ship (for walkers and cars on board).
 	velocityAt( world, out = new Vector3() ) {
 
-		const dx = world.x - this.position.x, dz = world.z - this.position.z;
-		return out.set( this.velocity.x + this.r * dz, 0, this.velocity.z - this.r * dx );
+		const d = new Vector3().copy( world ).sub( this.position ), pose = this._pointPose;
+		// An external reset can replace the pose between solver steps. Its supplied
+		// hull velocity is authoritative until the next measured step completes.
+		const measured = pose && pose.position.distanceToSquared( this.position ) < 1e-16 && Math.abs( pose.orientation.dot( this.quaternion ) ) > 1 - 1e-12;
+		const angular = measured ? this.pointAngular : _v.set( 0, this.r, 0 );
+		return out.copy( measured ? this.pointLinear : this.velocity ).add( new Vector3().crossVectors( angular, d ) );
+
+	}
+
+	angularVelocity( out = new Vector3() ) {
+
+		const pose = this._pointPose;
+		const measured = pose && pose.position.distanceToSquared( this.position ) < 1e-16 && Math.abs( pose.orientation.dot( this.quaternion ) ) > 1 - 1e-12;
+		return measured ? out.copy( this.pointAngular ) : out.set( 0, this.r, 0 );
 
 	}
 

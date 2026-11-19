@@ -4,6 +4,7 @@ named views with Cycles. Run:
 Views: photo ref bow34 stern34 profile aerial rampdown bridge deck helm wheel saloon cafe sterndeck stairs
 """
 import sys, math
+from tempfile import gettempdir
 from pathlib import Path
 import bpy
 from mathutils import Vector
@@ -11,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ferry_paint
 
 args = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
-out = Path(args[0] if args else '/tmp/ferry-renders'); out.mkdir(parents=True, exist_ok=True)
+out = Path(args[0] if args else Path(gettempdir()) / 'ferry-renders'); out.mkdir(parents=True, exist_ok=True)
 wanted = args[1:] or ['photo', 'bow34', 'stern34', 'profile', 'aerial', 'rampdown']
 
 scene = bpy.context.scene

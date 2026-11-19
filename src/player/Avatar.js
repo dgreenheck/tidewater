@@ -291,6 +291,10 @@ export class Avatar {
 			this.group.visible = this.visible = false;
 			this.headHidden = false;
 			this._headingSet = false;
+			// Hidden vehicle travel is a discontinuity in the drawn body's path.
+			// Do not ease a later water entry from its old on-foot world position.
+			this._last = null;
+			this._off.set( 0, 0, 0 );
 			if ( m ) m.hold();
 			return;
 

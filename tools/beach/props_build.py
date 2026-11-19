@@ -1,7 +1,7 @@
 """Beach props for the Tidewater family beach, built procedurally in Blender 5 (headless).
 
 Run:
-  /Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup \
+  blender -b --factory-startup \
     --python tools/beach/props_build.py -- public/models/beach [--sheet DIR]
 
 Writes one GLB per prop plus manifest.json into the output folder. Y up, +Z front, metres,

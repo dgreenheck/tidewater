@@ -1,3 +1,4 @@
+import { tempOutput } from './output-path.mjs';
 // Post chain test (headless): a small scene through SceneRenderer + the whole PostFX chain (GTAO,
 // AirHaze, Underwater, TAAU, motion blur, bloom, lens flare, droplets, grading, ACES) at the real
 // output resolution, with stubbed modules of the other streams.
@@ -21,7 +22,7 @@ import { AirHaze } from '../src/post/AirHaze.js';
 import { Profiler } from '../src/core/Profiler.js';
 
 const mode = process.argv[ 2 ] || 'air';
-const outPath = process.argv[ 3 ] || `/tmp/post-${ mode }.png`;
+const outPath = process.argv[ 3 ] || tempOutput( `post-${ mode }.png` );
 await GPU.init( { headless: true } );
 const W = Number( process.env.W || 2560 ), H = Number( process.env.H || 1267 );
 

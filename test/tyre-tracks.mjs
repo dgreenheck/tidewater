@@ -162,3 +162,22 @@ test( 'Resetting a car starts a fresh strip instead of bridging to the recovery 
 	assert.equal( tracks.count, before );
 	assert.ok( quads( tracks ).every( q => Math.hypot( q.end[ 0 ][ 0 ] - q.start[ 0 ][ 0 ], q.end[ 0 ][ 1 ] - q.start[ 0 ][ 1 ] ) < 0.5 ) );
 } );
+
+test( 'stationary spinning rear tyres leave two contact patches without filling the ring buffer', () => {
+	const tracks = new TyreTracks( new Scene(), terrain( false ), 128 );
+	const s = new Float32Array( 96 );
+	s.set( sample( 0 ) );
+	s[ 93 ] = -1000;
+	for ( let w = 0; w < 4; w ++ ) {
+		s[ 89 + w ] = 3;
+		s[ 37 + w * 10 ] = 0;
+		s[ 15 + w * 4 ] = w < 2 ? 0 : 16;
+		s[ 81 + w ] = w < 2 ? 0 : 16 / 3;
+		s[ 36 + w * 10 ] = w < 2 ? 0 : 1;
+	}
+	for ( let i = 0; i < 120; i ++ ) tracks.emit( 'rs', s, VEHICLES.gt3rs );
+	assert.equal( tracks.count, 2, 'one bounded rubber patch at each rear contact' );
+	const p = tracks.attributes.position.array;
+	const length = Math.abs( p[ 2 ] - p[ 5 ] );
+	assert.ok( length >= 0.04 && length < 0.24, `rubber contact length ${ length.toFixed( 3 ) } m` );
+} );

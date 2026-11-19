@@ -263,6 +263,48 @@ body {
 	opacity: 1;
 }
 
+/* The graphics device was lost (UI.showDeviceLost): a centred alert over everything, the loader
+   included, in the panel glass with the primary button. */
+.tw-device-lost {
+	position: fixed;
+	inset: 0;
+	z-index: 1001;
+	display: grid;
+	place-items: center;
+	padding: 16px;
+	/* Opaque, the loader's own ground: nothing draws after the loss, and a see-through scrim showed
+	   the half-built HUD behind it. */
+	background: #05090d;
+	color: var(--tw-ink);
+	font-family: var(--tw-font);
+	-webkit-font-smoothing: antialiased;
+}
+
+.tw-device-lost-card {
+	width: min(420px, 100%);
+	padding: 22px 22px 18px;
+	border-radius: 14px;
+}
+
+.tw-device-lost-title {
+	margin: 0 0 8px;
+	font-size: 17px;
+	font-weight: 650;
+	letter-spacing: 0.01em;
+}
+
+.tw-device-lost-text {
+	margin: 0 0 18px;
+	font-size: 13.5px;
+	line-height: 1.5;
+	color: var(--tw-ink-2);
+}
+
+.tw-device-lost .tw-btn:focus-visible {
+	outline: 2px solid var(--tw-aqua, #8af1e5);
+	outline-offset: 3px;
+}
+
 #loader.tw-error .loader-status {
 	white-space: normal;
 	color: var(--tw-coral);
@@ -809,12 +851,18 @@ body {
 	white-space: nowrap;
 	opacity: 0;
 	transform: translate(-50%, calc(10 * var(--tw-u))) scale(0.97);
-	transition: opacity var(--tw-med) var(--tw-ease), transform var(--tw-slow) var(--tw-ease);
+	/* Off: hidden once the fade ends, not just transparent. At opacity 0 alone the last prompt
+	   ("Get in") stayed in the accessibility tree and a screen reader still read it 3.6 m from the
+	   car (car-aboard.spec.js:75, red on the baseline). */
+	visibility: hidden;
+	transition: opacity var(--tw-med) var(--tw-ease), transform var(--tw-slow) var(--tw-ease), visibility 0s linear var(--tw-med);
 }
 
 .tw-prompt.is-on {
 	opacity: 1;
+	visibility: visible;
 	transform: translate(-50%, 0);
+	transition-delay: 0s;
 }
 
 /* third person: the character stands at the bottom centre; the prompt sits clear to its right */
@@ -2347,6 +2395,12 @@ body {
 
 /* ── controls sheet (F1) ───────────────────────────────────────────────── */
 
+/* The world toolbar and its panels are body siblings at 110 and 111. The
+   modal needs its parent stacking context above both for its Close button. */
+.tw-root:has( > .tw-help:not([hidden]) ) {
+	z-index: 112;
+}
+
 .tw-help {
 	position: absolute;
 	inset: 0;
@@ -2470,6 +2524,9 @@ body {
 	align-items: center;
 	gap: calc(18 * var(--tw-u));
 	text-align: center;
+	/* The grid centres the margin box, so this lifts the cluster by 14vh: the wordmark and the
+	   call to action sit in open sky instead of on the pier-head sign (1440x900). */
+	margin-bottom: 28vh;
 	transform: translateY(calc(8 * var(--tw-u)));
 	transition: transform 900ms var(--tw-ease);
 }
@@ -2634,3 +2691,47 @@ body {
 	}
 
 }
+
+/* ---- World-tool panel shell. src/ui/WorldTools.js adds .tw-world-panel.tw-glass.tw-shell to every
+   registered panel, so a panel needs no stylesheet of its own (the wind farm panel drew a
+   serif heading and its own colours). A panel adopts the shell by dropping its injected <style> and
+   using plain elements and these names: .tw-shell-kicker (eyebrow above the h2), h2, h3, p, button
+   (.is-primary for the one main action), .tw-shell-close (the x in a header), label (text left,
+   control right), input, select, output, details and summary, [role=alert], kbd, .tw-shell-row.
+   A few feature class names are aliased here so the panels this lane owns adopt it without markup
+   churn; aviation, glider and disasters keep their own scoped styles until their lanes adopt this. */
+:root { --tw-glass-dense: rgba(12, 18, 26, 0.86); }
+.tw-shell { font: 500 var(--tw-fs-md) / 1.45 var(--tw-font); color: var(--tw-ink); }
+.tw-shell h2 { margin: 0 0 var(--tw-1); font: 600 calc(18 * var(--tw-u)) / 1.2 var(--tw-font); letter-spacing: -0.01em; color: var(--tw-ink); }
+.tw-shell h3 { margin: var(--tw-4) 0 var(--tw-2); font: 600 var(--tw-fs-xs) var(--tw-font); letter-spacing: 0.12em; text-transform: uppercase; color: var(--tw-ink-3); }
+.tw-shell p { margin: var(--tw-2) 0; color: var(--tw-ink-2); }
+.tw-shell small, .tw-shell .tw-shell-note, .tw-shell .wf-note { color: var(--tw-ink-3); font-size: var(--tw-fs-sm); }
+.tw-shell .tw-shell-kicker, .tw-shell .wf-kicker, .tw-shell .evac-eyebrow { margin-bottom: var(--tw-1); font: 600 var(--tw-fs-xs) var(--tw-font); letter-spacing: 0.14em; text-transform: uppercase; color: var(--tw-aqua); }
+.tw-shell header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--tw-3); margin-bottom: var(--tw-3); }
+.tw-shell button { min-height: calc(32 * var(--tw-u)); padding: 0 var(--tw-3); border: 1px solid var(--tw-line-2); border-radius: var(--tw-r-sm); background: var(--tw-fill-2); color: var(--tw-ink); font: 600 var(--tw-fs-sm) var(--tw-font); cursor: pointer; transition: background var(--tw-fast) var(--tw-ease), border-color var(--tw-fast) var(--tw-ease); }
+.tw-shell button:hover { background: rgba(170, 215, 235, 0.2); border-color: var(--tw-ink-4); }
+.tw-shell button:disabled { opacity: 0.45; cursor: default; }
+.tw-shell button.is-primary, .tw-shell .evac-face { background: rgba(var(--tw-aqua-rgb), 0.18); border-color: rgba(var(--tw-aqua-rgb), 0.45); }
+.tw-shell .tw-shell-close, .tw-shell .wf-close, .tw-shell .evac-close, .tw-shell [data-action=close], .tw-shell [data-close] { flex: none; min-height: calc(28 * var(--tw-u)); padding: 0 var(--tw-2); background: transparent; border-color: transparent; color: var(--tw-ink-3); }
+.tw-shell .tw-shell-close:hover, .tw-shell .wf-close:hover, .tw-shell .evac-close:hover, .tw-shell [data-action=close]:hover, .tw-shell [data-close]:hover { color: var(--tw-ink); background: var(--tw-fill-2); }
+.tw-shell .evac-close { float: right; }
+/* the wind farm's close is a bare "×": at body size it read as a stray dot (capture 23-after-windfarm-1440) */
+.tw-shell .wf-close { min-width: calc(28 * var(--tw-u)); font-size: calc(20 * var(--tw-u)); line-height: 1; }
+.tw-shell label { display: flex; align-items: center; justify-content: space-between; gap: var(--tw-3); margin: var(--tw-2) 0; color: var(--tw-ink-2); }
+.tw-shell input:not([type=checkbox]), .tw-shell select { min-height: calc(30 * var(--tw-u)); padding: 0 var(--tw-2); border: 1px solid var(--tw-line-2); border-radius: var(--tw-r-sm); background: var(--tw-fill); color: var(--tw-ink); font: 500 var(--tw-fs-sm) var(--tw-font); }
+.tw-shell input[type=number] { width: calc(90 * var(--tw-u)); font-family: var(--tw-mono); }
+.tw-shell input[type=checkbox] { width: calc(16 * var(--tw-u)); height: calc(16 * var(--tw-u)); accent-color: var(--tw-aqua); }
+.tw-shell output { display: block; margin-top: var(--tw-3); padding-top: var(--tw-3); border-top: 1px solid var(--tw-line); color: var(--tw-ink-2); font-size: var(--tw-fs-sm); line-height: 1.7; font-variant-numeric: tabular-nums; white-space: pre-line; }
+.tw-shell details { margin-top: var(--tw-3); padding-top: var(--tw-3); border-top: 1px solid var(--tw-line); }
+.tw-shell summary { cursor: pointer; font-weight: 600; color: var(--tw-ink-2); }
+.tw-shell [role=alert]:not(:empty) { margin-top: var(--tw-2); padding: var(--tw-2) var(--tw-3); border-radius: var(--tw-r-sm); background: rgba(var(--tw-sun-rgb), 0.12); color: var(--tw-sun); font-size: var(--tw-fs-sm); }
+.tw-shell kbd { padding: 1px calc(5 * var(--tw-u)); border: 1px solid var(--tw-line-2); border-radius: 4px; background: var(--tw-fill); font: 500 var(--tw-fs-xs) var(--tw-mono); }
+.tw-shell a { color: var(--tw-aqua); }
+.tw-shell .tw-shell-row, .tw-shell .wf-buttons { display: flex; flex-wrap: wrap; gap: var(--tw-2); margin: var(--tw-2) 0; }
+/* Two even columns of actions; a lone last button spans both. Flex wrapping left long labels one
+   per row above short pairs (the chairlift panel at 1440). */
+.tw-shell .tw-shell-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--tw-2); margin: var(--tw-3) 0; }
+.tw-shell .tw-shell-grid button { white-space: normal; line-height: 1.2; padding: var(--tw-1) var(--tw-2); }
+.tw-shell .tw-shell-grid button:last-child:nth-child(odd) { grid-column: 1 / -1; }
+.tw-shell .evac-face { width: 100%; margin: var(--tw-3) 0; }
+.tw-shell .evac-message { color: var(--tw-sun); }

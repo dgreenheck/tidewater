@@ -28,6 +28,7 @@ export class WaterSurface {
 		this.fft = fft;
 		this.cdlod = cdlod;
 		this.foamTexture = foamTexture;
+		this.disaster = null;
 		this.shore = null; // ShoreWaves (optional)
 		this.wake = null; // WakeSim (optional)
 		this.terrain = null; // TerrainGPU (optional)
@@ -194,6 +195,7 @@ ${ SH ? /* wgsl */`
 	}` : '' }
 ${ WK ? '	extra += wakeDisplacement( worldXZ );' : '' }
 
+	${ this.disaster ? 'extra.y += disasterHeight( worldXZ ); shoreFoam += disasterFoam( worldXZ );' : '' }
 	var total = disp + extra;
 	var y = frame.seaLevel + total.y;
 ${ SH ? /* wgsl */`
@@ -228,7 +230,7 @@ ${ T ? /* wgsl */`
 	o.height = total.y;
 	o.depth = depth;
 	o.foam = foam;
-	o.shoreN = shoreN;
+	o.shoreN = ${ this.disaster ? 'normalize( vec3f( shoreN.x - disasterSlope( worldXZ ).x, shoreN.y, shoreN.z - disasterSlope( worldXZ ).y ) )' : 'shoreN' };
 	o.shoreFoam = shoreFoam;
 	o.swash = swash;
 	o.surfMask = surfMask;
@@ -396,7 +398,7 @@ ${ SF ? /* wgsl */`
 		return new ShaderModule( {
 			name: 'waterSurface',
 			deps: [ commonModule, fft.module, this.cdlod.module, this.attenuationModule, T && this.terrain.module, SH && this.shore.module,
-				WK && this.wake.module, DT && this.detail.module, SF && SF.module ],
+				WK && this.wake.module, DT && this.detail.module, SF && SF.module, this.disaster && this.disaster.module ],
 			uniforms: this.params,
 			uniformName: 'waterSurface',
 			bindings: { waterFoamTex: { texture: this.foamTexture } },

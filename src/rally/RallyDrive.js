@@ -1,7 +1,9 @@
-import { Vector3, Quaternion, Euler } from '../engine/index.js';
+import { Vector3, Quaternion } from '../engine/index.js';
 import { Colliders } from '../world/Colliders.js';
 import { loadVehicle } from './VehicleModel.js';
+import { CATCH_UP_PHYSICS_STEPS } from '../core/SimulationPacing.js';
 import { Bailout } from './Bailout.js';
+import { bindWheels, poseWheel } from './WheelRig.js';
 import { VEHICLES } from './Vehicles.js';
 import { TyreTracks } from './TyreTracks.js';
 import { EngineSound } from './EngineSound.js';
@@ -21,7 +23,6 @@ const smoothstep = x => { const t = Math.min( 1, Math.max( 0, x ) ); return t * 
 // Bailing out: full speed for the shout and the leap, then a fifth speed in the air, easing
 // back to full speed around the landing (seconds of unslowed time).
 const bulletTime = t => t > 2.6 ? null : t < 1.1 ? 1 - 0.8 * smoothstep( ( t - 0.45 ) / 0.15 ) : 0.2 + 0.8 * smoothstep( ( t - 1.1 ) / 1.5 );
-const WHEEL_NAMES = [ 'WheelFrontL', 'WheelFrontR', 'WheelRearL', 'WheelRearR' ];
 // The walker's old spawn at (18, -60) contains decorative dinghies. The
 // vehicle needs a full chassis-sized patch and a clear launch along the beach.
 const SPAWN = { x: - 55, z: - 64, yaw: Math.PI / 2 };
@@ -48,12 +49,15 @@ export class RallyDrive {
 	constructor( app ) {
 		this.app = app;
 		this.active = false;
+		this.assists = true;
 		this.vehicleKey = 'aster';
 		this.profile = VEHICLES.aster;
 		this.spawnOffset = 0;
 		this.destination = 'beach';
 		this.sound = new EngineSound( app.qs.has( 'noAudio' ) );
 		this.spin = [ 0, 0, 0, 0 ];
+		// Signed whole turns each drawn wheel has rolled (telemetry: a spec holds the turns to the road driven).
+		this.turns = [ 0, 0, 0, 0 ];
 		this.forward = new Vector3();
 		this.up = new Vector3();
 		this.stepPose = new Quaternion();
@@ -65,7 +69,6 @@ export class RallyDrive {
 		this.cameraDesired = new Vector3();
 		this.cameraDir = new Vector3();
 		this.quaternion = new Quaternion();
-		this.wheelEuler = new Euler( 0, 0, 0, 'YXZ' );
 		this.cameraReady = false;
 		this.cameraYaw = 0;
 		this.orbit = { yaw: 0, pitch: 0, idle: 0 };
@@ -76,20 +79,19 @@ export class RallyDrive {
 
 	async init() {
 		const base = new URL( `${ import.meta.env.BASE_URL }rally/`, document.baseURI ).href;
-		const [ module, aster, wagon, pickup, jeep ] = await Promise.all( [
+		// Every drivable car in Vehicles.js is loaded up front, so the picker swaps cars without a wait.
+		const keys = Object.keys( VEHICLES );
+		const [ module, wagon, pickup, ...cars ] = await Promise.all( [
 			import( /* @vite-ignore */ `${ base }rally_physics.js` ),
-			loadVehicle( 'aster_rs' ), loadVehicle( 'support_wagon' ), loadVehicle( 'support_pickup' ),
-			loadVehicle( 'black_jeep' ),
+			loadVehicle( 'support_wagon' ), loadVehicle( 'support_pickup' ),
+			...keys.map( key => loadVehicle( VEHICLES[ key ].file ) ),
 		] );
+		this.models = Object.fromEntries( keys.map( ( key, i ) => [ key, cars[ i ] ] ) );
+		const aster = this.models.aster;
 		await module.default( { module_or_path: `${ base }rally_physics_bg.wasm` } );
 		this.physics = new module.RallyPhysics();
 		this.model = aster;
-		this.models = { aster, jeep };
-		this.wheels = WHEEL_NAMES.map( name => {
-			const wheel = aster.pivots.get( name );
-			if ( ! wheel ) throw new Error( `Rally model is missing ${ name }` );
-			return wheel;
-		} );
+		this.wheels = bindWheels( aster, this.profile );
 		const { terrainData: terrain, colliders, scene } = this.app;
 		if ( ! this.physics.set_terrain( terrain.heights, terrain.res, terrain.size, terrain.origin ) ) throw new Error( 'Rally terrain collision could not be created' );
 		if ( terrain.roads ) this.physics.set_roads( terrain.roads.physicsData() );
@@ -110,11 +112,14 @@ export class RallyDrive {
 			...carBox( b ), b.rotY, b.tag.includes( 'pier' ) ? 0.8 : 0.65,
 		] ) ), new Uint8Array( statics.map( b => b.tag === 'terminal-car' ? SURFACE_ASPHALT : SURFACE_WOOD ) ) );
 		this.physics.add_cylinders( new Float32Array( colliders.cylinders.filter( c => ! c.prop ).flatMap( c => [ c.x, c.z, c.radius, c.yMin, c.yMax ] ) ) );
-		scene.add( aster.root );
-		scene.add( jeep.root );
-		jeep.root.visible = false;
 		// head, tail and brake lights (before the damage rig, which draws the lenses these give each car)
-		this.lights = { aster: new CarLights( this.app.localLights, aster.root ), jeep: new CarLights( this.app.localLights, jeep.root ) };
+		this.lights = {};
+		for ( const key of keys ) {
+			const car = this.models[ key ];
+			scene.add( car.root );
+			car.root.visible = car === aster;
+			this.lights[ key ] = new CarLights( this.app.localLights, car.root );
+		}
 		this.tracks = new TyreTracks( scene, terrain );
 		this.damage = new Damage( this );
 		this.cameraColliders = new Colliders();
@@ -131,7 +136,8 @@ export class RallyDrive {
 		this.walkingProxy = colliders.addBox( new Vector3(), new Vector3( 0.96, 0.8, 2.25 ), SPAWN.yaw, { tag: 'rally-car' } );
 		this.reset();
 		// Settle the original springs before showing the car or handing over control.
-		for ( let i = 0; i < 30; i ++ ) this.physics.advance( 0.1, 0, 0, 0, 1 );
+		// 3 s in 25 ms calls: 3 fixed steps each, inside the disaster cap (DISASTER_MAX_STEPS) too.
+		for ( let i = 0; i < 120; i ++ ) this.physics.advance( 0.025, 0, 0, 0, 1 );
 		this.syncModel( 0 );
 		this.shared = new SharedDrive( this );
 	}
@@ -144,11 +150,12 @@ export class RallyDrive {
 			terrain.heightAt( x, z - 1 ) - terrain.heightAt( x, z + 1 ) ).normalize();
 		model.root.quaternion.setFromUnitVectors( UP, normal ).multiply( new Quaternion().setFromAxisAngle( UP, yaw ) );
 		scene.add( model.root );
-		colliders.addBox( new Vector3( x, model.root.position.y + 0.85, z ), new Vector3( 1, 0.85, halfLength ), yaw, { tag: 'parked-rally-car' } );
+		const collider = colliders.addBox( new Vector3( x, model.root.position.y + 0.85, z ), new Vector3( 1, 0.85, halfLength ), yaw, { tag: 'parked-rally-car' } );
+		(this.supports ||= []).push({model,collider,halfLength});
 	}
 
 	// The nearest drivable car within `radius` metres of `pos` (flat distance, within a
-	// storey vertically), or null. Only the selected car (Aster or Black Jeep) can be
+	// storey vertically), or null. Only the selected car (one of Vehicles.js) can be
 	// driven today; the support wagon and pickup are parked props. Extend the list here
 	// when more drivable cars are placed around the island.
 	nearCar( pos, radius = 7 ) {
@@ -191,6 +198,24 @@ export class RallyDrive {
 			throttle: button( 7 ), brake: button( 6 ), handbrake: button( 0 ) > 0.5 || button( 5 ) > 0.5, recover, yeet };
 	}
 
+	// Disaster fractures ask here instead of rebuilding inline. A tornado frame could break a
+	// house and fell trees together, and each rebuild walks every trunk, box and cylinder on the
+	// island and rebuilds the BVH, so the requests coalesce into one rebuild before the next step.
+	requestIslandColliders() {
+		this.islandCollidersStale = true;
+	}
+
+	refreshIslandColliders() {
+		this.islandCollidersStale = false;
+		const {colliders}=this.app;
+		this.physics.clear_island_statics();
+		this.trunks=trunkCylinders(this.app.vegetation,this.app.terrainData);
+		this.physics.add_cylinders(this.trunks);
+		const boxes=colliders.boxes.filter(b=>(b.solid||b.walkable)&&!b.prop&&b!==this.walkingProxy);
+		this.physics.add_surface_boxes(new Float32Array(boxes.flatMap(b=>[...carBox(b),b.rotY,b.tag.includes("pier")?0.8:0.65])),new Uint8Array(boxes.map(b=>b.tag==="terminal-car"?SURFACE_ASPHALT:SURFACE_WOOD)));
+		this.physics.add_cylinders(new Float32Array(colliders.cylinders.filter(c=>!c.prop&&c.yMax>c.yMin).flatMap(c=>[c.x,c.z,c.radius,c.yMin,c.yMax])));
+	}
+
 	peerPositions() { return [ ...( this.shared?.peers.values() || [] ) ].map( peer => peer.model.root.position ); }
 
 	place( spot ) {
@@ -221,9 +246,9 @@ export class RallyDrive {
 		this.model = this.models[ key ];
 		this.model.root.visible = true;
 		this.damage?.select();
-		this.wheels = WHEEL_NAMES.map( name => this.model.pivots.get( name ) );
+		this.wheels = bindWheels( this.model, this.profile );
 		this.physics.select_vehicle( this.profile.id );
-		this.walkingProxy.half.set( key === 'jeep' ? 1.21 : 0.96, key === 'jeep' ? 1.15 : 0.8, key === 'jeep' ? 2.6 : 2.25 );
+		this.walkingProxy.half.fromArray( this.profile.proxy );
 		this.walkingProxy.radius = Math.hypot( this.walkingProxy.half.x, this.walkingProxy.half.z );
 		this.reset();
 		this.app.input.keys.clear();
@@ -238,7 +263,14 @@ export class RallyDrive {
 		this.refreshUI();
 	}
 
+	toggleAssists() {
+		this.assists = ! this.assists;
+		this.physics.set_assists( this.assists );
+		this.refreshUI();
+	}
+
 	enter() {
+		if ( this.app.chairlift?.active ) return this.app.chairlift.message( 'Exit the chairlift at a terminal before driving.' );
 		const { game, input, player, ui } = this.app;
 		if ( game.fight || game.landing || game.hud?.invOpen || game.hud?.standOpen ) return;
 		game.rod.equip( false );
@@ -315,12 +347,14 @@ export class RallyDrive {
 
 	update( dt ) {
 		if ( ! this.physics ) return;
+		if ( this.islandCollidersStale ) this.refreshIslandColliders();
 		if ( ! this.panel && this.app.ui ) this.buildUI();
 		const { input, player, game } = this.app;
 		const controls = this.active && ! this.app.freeCam && input.enabled && ! game.guide?.open && ! game.hud?.invOpen && ! game.hud?.standOpen;
 		const pad = controls ? this.gamepad() : null;
 		if ( controls && ( input.hit( 'KeyR' ) || pad?.recover ) ) this.recover();
 		if ( controls && input.hit( 'KeyE' ) ) this.leave();
+		if ( controls && input.hit( 'KeyJ' ) ) this.toggleAssists();
 		if ( controls && ( input.hit( 'KeyY' ) || pad?.yeet ) ) this.yeet();
 		const down = code => controls && this.active && input.down( code );
 		// Keyboard is all-or-nothing; a gamepad adds analog steering and pedals on top.
@@ -332,6 +366,8 @@ export class RallyDrive {
 		if ( this.coasting && ( this.active || ( ( this.coastTime += dt ) > 1 && Math.abs( this.state[ 7 ] ) < 2 ) ) ) this.coasting = false;
 		const handbrake = ! this.coasting && ( ! controls || ! this.active || down( 'Space' ) || pad?.handbrake ) ? 1 : 0;
 		this.water?.update( this.model.root, this.forward, this.profile );
+		// 3 steps a frame only while a disaster runs; otherwise the 0.1 s catch-up (SimulationPacing).
+		this.physics.set_max_steps( this.app.simulationPacing?.physicsSteps ?? CATCH_UP_PHYSICS_STEPS );
 		this.physics.advance( dt, throttle, brake, steer, handbrake );
 		this.syncModel( dt );
 		for ( const [ key, lights ] of Object.entries( this.lights || {} ) ) lights.update( dt, key === this.vehicleKey && ( this.active || this.coasting ), brake );
@@ -385,9 +421,10 @@ export class RallyDrive {
 		this.up.set( 0, 1, 0 ).applyQuaternion( root.quaternion );
 		for ( let i = 0; i < 4; i ++ ) {
 			const offset = 13 + i * 4;
-			this.spin[ i ] = ( this.spin[ i ] + s[ offset + 2 ] / this.profile.radius * dt ) % ( Math.PI * 2 );
-			this.wheels[ i ].position.y = this.profile.mount - s[ offset ];
-			this.wheels[ i ].quaternion.setFromEuler( this.wheelEuler.set( this.spin[ i ], s[ offset + 1 ], 0, 'YXZ' ) );
+			const angle = s[ offset + 2 ] / this.wheels[ i ].radius * dt;
+			this.spin[ i ] = ( this.spin[ i ] + angle ) % ( Math.PI * 2 );
+			this.turns[ i ] += angle / ( Math.PI * 2 );
+			poseWheel( this.wheels[ i ], this.profile.mount - s[ offset ], s[ offset + 1 ], this.spin[ i ] );
 		}
 		const proxy = this.walkingProxy;
 		if ( proxy ) {

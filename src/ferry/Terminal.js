@@ -1,4 +1,4 @@
-import { Vector3, Matrix4, Quaternion, InstancedMesh } from '../engine/index.js';
+import { Vector3, Matrix4, Quaternion, InstancedMesh, Mesh, mergeGeometries } from '../engine/index.js';
 import { loadModel } from '../rally/VehicleModel.js';
 import { terminalPaint } from './TerminalPaint.js';
 import { WORLD } from '../world/WorldLayout.js';
@@ -27,14 +27,18 @@ export function terminalToWorld( [ x, y, z ], out = new Vector3(), { position: o
 }
 
 // The site's terrain edits, in the order the site data is written for: fill the flat (raise
-// only), then dredge (lower only: the berth polygon follows the quay faces, so it cuts the fill's
-// bank back out in front of the quay walls and keeps the berth deep), then raise the breakwater
-// cores; then the keep-clear zones for plants, rocks and debris.
+// only), cut it level where it runs into a hillside (lower only, with a 1:1 cut face behind it:
+// the yard paving is visual and cars drive on the ground, and behind Joey Island's yard the hill
+// stood 12 m through the paving), then dredge (lower only: the berth polygon follows the quay
+// faces, so it cuts the fill's bank back out in front of the quay walls and keeps the berth deep),
+// then raise the breakwater cores; then the keep-clear zones for plants, rocks and debris.
+const CUT_BATTER = 1;
 export function applyTerminalSite( terrain, site = TERMINAL_SITE, place = WORLD.ferryTerminal ) {
 
 	const { position: o, yaw } = place, c = Math.cos( yaw ), s = Math.sin( yaw ), y = o.y;
 	const toWorldXZ = ( [ x, z ] ) => [ o.x + x * c + z * s, o.z - x * s + z * c ];
 	for ( const f of site.fill || [] ) terrain.fillPolygon( f.poly.map( toWorldXZ ), y + f.height, f.slope );
+	for ( const f of site.fill || [] ) terrain.cutPolygon( f.poly.map( toWorldXZ ), y + f.height, CUT_BATTER );
 	for ( const d of site.dredge || [] ) terrain.dredgePolygon( d.poly.map( toWorldXZ ), y + d.depth, d.blend );
 	for ( const r of site.ridges || [] ) terrain.ridge( r.line.map( toWorldXZ ), y + r.crest, r.halfWidth, r.slope );
 	for ( const c of site.clear || [] ) terrain.addClearZone( c.poly.map( toWorldXZ ) );
@@ -42,7 +46,7 @@ export function applyTerminalSite( terrain, site = TERMINAL_SITE, place = WORLD.
 
 }
 
-// Parked cars (tools/ferry/parked_cars.py: our four car models at about 5k triangles each), one
+// Parked cars (tools/ferry/parked_cars.py: our four car models at about 5k triangles each, wheels 1600 each), one
 // instanced mesh per car part across the bays they fill, so the whole car park is a few dozen draws.
 // About two bays in three are taken, the mix and the pick fixed by the bay's index.
 const PARKED = [ [ 'ParkedWagon', 0.34 ], [ 'ParkedPickup', 0.3 ], [ 'ParkedAster', 0.2 ], [ 'ParkedJeep', 0.16 ] ];
@@ -168,6 +172,44 @@ export class Terminal {
 
 	}
 
+	// A parked model's four wheels (its <model>WheelFrontL .. nodes, parked_cars.py) set at their hubs
+	// and merged per material: a parked car's wheels never turn, so they add a draw or three a model
+	// rather than one per wheel and material (the traffic in Traffic.js rolls and steers its own).
+	parkedWheels( node ) {
+
+		const byMaterial = new Map();
+		for ( const pivot of node.children ) {
+
+			if ( pivot.isMesh ) continue;
+			pivot.updateMatrix();
+			for ( const w of pivot.children ) {
+
+				if ( ! w.isMesh ) continue;
+				if ( ! byMaterial.has( w.material ) ) byMaterial.set( w.material, [] );
+				byMaterial.get( w.material ).push( [ w, w.geometry.clone().applyMatrix4( pivot.matrix ) ] );
+
+			}
+
+		}
+		const out = [];
+		for ( const [ material, list ] of byMaterial ) {
+
+			const merged = list.length > 1 ? mergeGeometries( list.map( e => e[ 1 ] ), false ) : null;
+			// (wheels whose attributes don't match stay one mesh each)
+			for ( const [ w, geometry ] of merged ? [ [ list[ 0 ][ 0 ], merged ] ] : list ) {
+
+				const mesh = new Mesh( geometry, material );
+				mesh.castShadow = w.castShadow;
+				mesh.layers.mask = w.layers.mask;
+				out.push( mesh );
+
+			}
+
+		}
+		return out;
+
+	}
+
 	// Fill the car park: for each car model, one instanced mesh per part over the bays it takes.
 	park( model, bays = TERMINAL_SITE.parking || [] ) {
 
@@ -189,10 +231,9 @@ export class Terminal {
 			const node = model.pivots.get( name );
 			if ( ! node ) continue;
 			node.position.set( 0, 0, 0 );
-			for ( const part of [ ...node.children ] ) {
+			for ( const part of [ ...node.children.filter( c => c.isMesh ), ...this.parkedWheels( node ) ] ) {
 
-				if ( ! part.isMesh ) continue;
-				node.remove( part );
+				part.parent?.remove( part );
 				if ( ! list.length ) continue;
 				const mesh = new InstancedMesh( part.geometry, part.material, list.length );
 				list.forEach( ( [ x, z, yaw ], i ) => mesh.setMatrixAt( i, m.compose( this.toWorld( [ x, PAVING, z ], p ), q.setFromAxisAngle( up, yaw + this.yaw ), one ) ) );
@@ -317,10 +358,12 @@ export class Terminal {
 		const { colliders } = this.app;
 		const center = new Vector3(), half = new Vector3();
 		this.gangwayBoxes = [];
+        this.disasterColliders=[];
 		for ( const b of boxes ) {
 
 			const box = colliders.addBox( this.toWorld( b.center, center ), half.set( ...b.half ), this.yaw, KINDS[ b.kind ] || KINDS.solid );
 			const [ x, y, z ] = b.center;
+            if (!(x>GANGWAY.x[0]&&x<GANGWAY.x[1]&&z>GANGWAY.z[0]&&z<GANGWAY.z[1]&&y>GANGWAY.y)) this.disasterColliders.push(box);
 			if ( x > GANGWAY.x[ 0 ] && x < GANGWAY.x[ 1 ] && z > GANGWAY.z[ 0 ] && z < GANGWAY.z[ 1 ] && y > GANGWAY.y ) this.gangwayBoxes.push( { box, walk: b.kind === 'walk' } );
 
 		}

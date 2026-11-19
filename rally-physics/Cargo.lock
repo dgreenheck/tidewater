@@ -191,8 +191,6 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 [[package]]
 name = "avian3d"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b82608b43397affac139547dfa9beb3208034c53e1a3cfe5d4079db1af362104"
 dependencies = [
  "approx",
  "avian_derive",

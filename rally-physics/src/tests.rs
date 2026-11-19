@@ -12,7 +12,7 @@ fn world_at(kind:u8,paved:bool,h:f32,z:f32)->RallyPhysics {
     let mut sim=RallyPhysics::new();
     assert!(sim.set_terrain(&vec![h;81],9,4000.0,-2000.0));
     if paved { assert!(sim.set_roads(&ASPHALT)); }
-    if kind==1 { assert!(sim.select_vehicle(1)); }
+    if kind!=0 { assert!(sim.select_vehicle(kind),"vehicle {kind} does not exist"); }
     sim.reset(0.0,h+0.5,z,0.0);
     run(&mut sim,3.0,[0.0,0.0,0.0,0.0]);
     sim
@@ -666,4 +666,192 @@ fn the_walker_shoves_a_crate_but_cannot_plough_a_full_barrel() {
     let c=prop(&sim,6);
     assert!(c[1]-10.0>1.0,"an empty crate is shoved along: moved {} m",c[1]-10.0);
     sim.set_pusher(0.0,0.0,0.0,0.0,0.0,0.0,0.3,1.8,false);
+}
+
+#[test]
+fn extreme_car_fluid_drag_is_passive_in_actual_native_steps() {
+    for kind in [0,1] {for current in [250.0,300.0,400.0] {for angle in [0.0,0.7] {
+        let mut sim=RallyPhysics::new();sim.select_vehicle(kind);sim.app.insert_resource(Gravity(Vec3::ZERO));
+        sim.app.world_mut().resource_mut::<VehicleConfig>().displacement=0.0;
+        let u=Vec3::new(current,0.0,-current*0.3);let q=Quat::from_euler(EulerRot::XYZ,angle,0.43,-angle*0.6);
+        sim.restore_disaster_car(&[0.0,100.0,0.0,q.x,q.y,q.z,q.w,0.0,0.0,0.0,2.0,-3.0,5.0]);
+        sim.set_water(3000.0,0.0,0.0,0.0,0.0,0.0);sim.set_fluid_velocity(u.x,u.y,u.z,u.x,u.z);
+        let energy=|s:&RallyPhysics| {let world=s.app.world();let v=world.get::<LinearVelocity>(s.car).unwrap().0-u;let w=world.get::<AngularVelocity>(s.car).unwrap().0;let q=world.get::<Rotation>(s.car).unwrap().0;let m=world.get::<ComputedMass>(s.car).unwrap().value();let local=q.inverse()*w;let inertia=world.get::<ComputedAngularInertia>(s.car).unwrap().value();0.5*m*v.length_squared()+0.5*local.dot(inertia*local)};
+        let initial=energy(&sim);let mut old=initial;
+        for step in 0..240 {sim.advance(1.0/120.0,0.0,0.0,0.0,0.0);let next=energy(&sim);assert!(next.is_finite()&&next<=old+initial*2e-5,"kind{kind} current{current} angle{angle} step{step}: {old}->{next}");old=next;}
+        assert!(old<initial*0.001,"current must entrain the actual native body");
+    }}}
+}
+
+#[test]
+fn car_air_drag_uses_world_velocity_while_riding_a_moving_deck() {
+    fn run(speed:f32)->Vec<f32>{
+        let mut sim=RallyPhysics::new();
+        assert!(sim.add_platform(25,&[0.0,-0.5,0.0,50.0,0.5,50.0,0.0,0.65]));
+        sim.reset(0.0,0.5,0.0,0.0);for _ in 0..360 {sim.advance(1.0/120.0,0.0,0.0,0.0,0.0);}
+        assert_eq!(sim.snapshot()[10],4.0);
+        let mut state=sim.disaster_car_state();state[7]=speed;assert!(sim.restore_disaster_car(&state));
+        assert!(sim.set_platform(25,&[0.0,0.0,0.0,0.0,0.0,0.0,1.0,speed,0.0,0.0,0.0,0.0,0.0]));
+        sim.set_fluid_velocity(speed,0.0,0.0,0.0,0.0);sim.advance(1.0/120.0,0.0,0.0,0.0,0.0);let mut out=sim.disaster_car_state();out[7]-=speed;out
+    }
+    let a=run(0.0);let b=run(6.0);for i in 7..13 {assert!((a[i]-b[i]).abs()<2e-6,"co-moving deck/air component{i}: {} vs{}",a[i],b[i]);}
+}
+
+#[test]
+fn car_water_speed_reports_world_relative_current_over_a_moving_deck() {
+    let mut sim=RallyPhysics::new();
+    assert!(sim.add_platform(25,&[0.0,-0.5,0.0,50.0,0.5,50.0,0.0,0.65]));
+    sim.reset(0.0,0.5,0.0,0.0);for _ in 0..360 {sim.advance(1.0/120.0,0.0,0.0,0.0,0.0);}
+    assert_eq!(sim.snapshot()[10],4.0);let mut state=sim.disaster_car_state();state[7]=6.0;assert!(sim.restore_disaster_car(&state));
+    assert!(sim.set_platform(25,&[0.0,0.0,0.0,0.0,0.0,0.0,1.0,6.0,0.0,0.0,0.0,0.0,0.0]));
+    sim.set_water(0.65,0.0,0.0,0.0,0.0,0.0);sim.set_fluid_velocity(6.0,0.0,0.0,6.0,0.0);
+    sim.advance(1.0/120.0,0.0,0.0,0.0,0.0);let out=sim.snapshot();assert!(out[73]>0.0);assert!(out[95].abs()<1e-5,"co-moving car/deck/current water speed {}",out[95]);
+}
+
+/// The cars added for item 7 (docs/cars.md gives each reference car, its figures and sources):
+/// (kind, name, mass kg, 0-100 km/h s, top speed km/h, 100-0 km/h stop m, peak lateral g).
+/// Each band is the real car's published or road-tested figure widened for a simulator, never a
+/// number read back from the config.
+type Bands=(u8,&'static str,f32,(f32,f32),(f32,f32),(f32,f32),(f32,f32));
+const NEW_CARS:[Bands;4]=[
+    // Huracan EVO class: 2.9 s, 325 km/h, 31.9 m (maker); 1.0 to 1.1 g on road-test skidpads.
+    (2,"Fulmine V10",1550.0,(2.6,3.6),(300.0,332.0),(28.0,38.0),(0.9,1.35)),
+    // Chiron class: 2.4 s, 380 km/h governed outside top-speed mode, 31.3 m (maker).
+    (3,"Corsaire W16",1995.0,(2.2,3.2),(355.0,386.0),(28.0,38.0),(0.9,1.35)),
+    // 911 GT3 (992) PDK class: 3.4 s, 318 km/h (maker); about 31 m and 1.1 g in road tests.
+    (4,"Petrel GT",1450.0,(3.0,4.2),(295.0,325.0),(28.0,38.0),(0.9,1.35)),
+    (5,"Sandpiper",620.0,(5.5,9.5),(140.0,166.0),(32.0,55.0),(0.6,1.0)),
+];
+
+#[test]
+fn new_cars_rest_on_four_loaded_springs() {
+    for (kind,name,mass,..) in NEW_CARS {
+        let mut sim=world(kind,false,0.0);
+        let before=s(&sim);
+        assert_eq!(before[10],4.0,"{name} contacts");
+        assert!((loads(&sim)-mass*9.81).abs()<mass*9.81*0.05,"{name} spring loads {} N for {} N of car",loads(&sim),mass*9.81);
+        assert!(before[1].abs()<0.06,"{name} ride height {} m",before[1]);
+        run(&mut sim,5.0,[0.0;4]);
+        let after=s(&sim);
+        assert!(Vec2::new(after[0]-before[0],after[2]-before[2]).length()<0.005,"{name} crept");
+    }
+}
+
+#[test]
+fn new_cars_reach_100_kmh_like_their_references() {
+    for (kind,name,_,band,..) in NEW_CARS {
+        let t=time_to(&mut world(kind,true,0.0),100.0,25.0).unwrap_or(25.0);
+        eprintln!("{name}: 0-100 km/h {t:.2} s");
+        assert!((band.0..band.1).contains(&t),"{name} 0-100 km/h in {t:.2} s, real-car band {band:?}");
+    }
+}
+
+#[test]
+fn new_cars_reach_their_reference_top_speeds() {
+    for (kind,name,_,_,band,..) in NEW_CARS {
+        // 35 s flat out covers about 3 km in the fastest car; the strip runs 3.4 km from here.
+        let mut sim=world_at(kind,true,0.0,-1700.0);
+        run(&mut sim,35.0,[1.0,0.0,0.0,0.0]);
+        let v=s(&sim);
+        eprintln!("{name}: {:.0} km/h after 35 s",v[7]);
+        assert_eq!(v[10],4.0,"{name} left the strip at z {} m",v[2]);
+        assert!((band.0..band.1).contains(&v[7]),"{name} top speed {:.0} km/h in gear {} at {:.0} rpm, real-car band {band:?}",v[7],v[8],v[9]);
+    }
+}
+
+#[test]
+fn new_cars_stop_from_100_kmh_like_their_references() {
+    for (kind,name,_,_,_,band,_) in NEW_CARS {
+        let mut sim=world(kind,true,0.0);
+        time_to(&mut sim,100.0,25.0).unwrap();
+        let start=s(&sim);
+        for _ in 0..(8*120) { run(&mut sim,1.0/120.0,[0.0,1.0,0.0,0.0]); if s(&sim)[7]<0.5 { break; } }
+        let end=s(&sim);
+        let distance=Vec2::new(end[0]-start[0],end[2]-start[2]).length();
+        let yaw=heading(&sim).x.atan2(heading(&sim).z).abs();
+        eprintln!("{name}: 100-0 km/h {distance:.1} m");
+        assert!(end[7]<0.5,"{name} did not stop");
+        assert!((band.0..band.1).contains(&distance),"{name} 100-0 km/h in {distance:.1} m, real-car band {band:?}");
+        assert!(yaw<0.05,"{name} swerved {yaw} rad");
+    }
+}
+
+#[test]
+fn new_cars_corner_at_their_reference_grip_without_rolling() {
+    for (kind,name,..,band) in NEW_CARS {
+        let mut sim=world(kind,true,0.0);
+        time_to(&mut sim,60.0,12.0).unwrap();
+        let mut peak=0.0f32; let mut lowest=1.0f32;
+        for _ in 0..(4*120) { run(&mut sim,1.0/120.0,[0.5,0.0,1.0,0.0]); peak=peak.max(s(&sim)[76].abs()); lowest=lowest.min(up_y(&sim)); }
+        eprintln!("{name}: peak lateral {peak:.2} g");
+        assert!(lowest>0.85,"{name} rolled: up.y {lowest}");
+        assert!((band.0..band.1).contains(&peak),"{name} peak lateral {peak:.2} g, real-car band {band:?}");
+    }
+}
+
+/// A slow frame must not buy a longer one. At 10 fps the old loop ran 12 steps of 1/120 s,
+/// each with 8 solver substeps, so the next frame was slower still (the tornado sat at 9 fps
+/// with physics at 40-77 ms a frame). The cap drops the excess time instead of owing it.
+#[test]
+fn a_slow_frame_runs_at_most_three_fixed_steps_and_owes_nothing() {
+    let mut sim = world( 0, false, 0.0 );
+    // During a disaster SimulationPacing sets the 3-step cap.
+    sim.set_max_steps( crate::DISASTER_MAX_STEPS );
+    for frame in 0..20 {
+        let steps = sim.advance( 0.1, 0.0, 0.0, 0.0, 1.0 );
+        assert!( steps <= 3, "frame {frame}: a 100 ms frame ran {steps} fixed steps, cap 3" );
+    }
+    // The dropped time is not carried: a frame one step long runs one step.
+    let steps = sim.advance( 1.0/120.0, 0.0, 0.0, 0.0, 1.0 );
+    assert!( steps <= 1, "a 1/120 s frame after a slow run ran {steps} steps: the dropped time was owed" );
+    let alpha = *sim.blend().last().unwrap();
+    assert!( ( 0.0..=1.0 ).contains( &alpha ), "interpolation alpha {alpha}" );
+    // Ordinary frames keep real time: 60 fps runs two steps a frame.
+    let total: u32 = ( 0..60 ).map( |_| sim.advance( 1.0/60.0, 0.0, 0.0, 0.0, 1.0 ) ).sum();
+    assert!( ( 119..=121 ).contains( &total ), "60 frames at 60 fps ran {total} steps, want 120" );
+}
+
+#[test]
+fn outside_a_disaster_a_slow_frame_still_catches_up() {
+    let mut sim = world( 0, false, 0.0 );
+    let steps = sim.advance( 1.0/30.0, 0.0, 0.0, 0.0, 1.0 );
+    assert_eq!( steps, 4, "a 1/30 s frame outside a disaster ran {steps} fixed steps, want 4" );
+    let total: u32 = ( 0..30 ).map( |_| sim.advance( 1.0/30.0, 0.0, 0.0, 0.0, 1.0 ) ).sum();
+    assert!( ( 119..=121 ).contains( &total ), "30 frames at 30 fps ran {total} steps, want 120 (real time)" );
+    // The old 0.1 s catch-up stays: a 100 ms hitch runs 12 steps.
+    let steps = sim.advance( 0.1, 0.0, 0.0, 0.0, 1.0 );
+    assert!( ( 11..=12 ).contains( &steps ), "a 100 ms frame outside a disaster ran {steps} steps, want 12" );
+}
+
+/// A released tree (docs/disaster-damage.md): its spin is capped at 2 rad/s whatever kicks it, and
+/// its crown sphere holds the top off the ground when it lies down.
+#[test]
+fn released_tree_spin_is_capped_and_its_crown_props_the_top_off_the_ground() {
+    let mut sim=world(0,false,0.0);
+    let half=[0.3,6.0,0.3];
+    assert!(sim.wake_prop(90,0,&half,&upright(0.0,8.0,30.0),2000.0,0.9,0.05,false));
+    assert!(sim.set_prop_crown(90,&half,4.0,1.5));
+    assert!(sim.set_prop_motion_limits(90,0.5,2.0));
+    assert!(!sim.set_prop_motion_limits(90,f32::NAN,2.0), "non-finite damping is rejected");
+    assert!(!sim.set_prop_crown(90,&half,4.0,-1.0), "a negative crown radius is rejected");
+    assert!(sim.set_prop_angular_velocity(90,&[0.0,6.0,0.0]));
+    sim.advance(1.0/60.0,0.0,0.0,0.0,0.0);
+    let pose=sim.prop_poses();
+    let i=(0..pose.len()).step_by(10).find(|&i| pose[i]==90.0).expect("tree pose");
+    let p=[pose[i+1],pose[i+2],pose[i+3]];
+    let centre=sim.disaster_contact(90,&p,&[0.0,1.0,0.0]);
+    let rim=sim.disaster_contact(90,&[p[0]+1.0,p[1],p[2]],&[0.0,1.0,0.0]);
+    let spin=(rim[2]-centre[2]).abs();
+    assert!(spin<=2.0+1e-3, "spin {spin} rad/s after a 6 rad/s kick; cap 2");
+    // Lay it down and let it settle: the crown sphere keeps that end 1.5 m up.
+    let q=[0.0,0.0,(std::f32::consts::FRAC_PI_4).sin(),(std::f32::consts::FRAC_PI_4).cos()];
+    assert!(sim.sleep_prop(90));
+    assert!(sim.wake_prop(91,0,&half,&[0.0,2.0,30.0,q[0],q[1],q[2],q[3]],2000.0,0.9,0.05,false));
+    assert!(sim.set_prop_crown(91,&half,4.0,1.5));
+    for _ in 0..240 { sim.advance(1.0/60.0,0.0,0.0,0.0,0.0); }
+    let pose=sim.prop_poses();
+    let i=(0..pose.len()).step_by(10).find(|&i| pose[i]==91.0).expect("tree pose");
+    let rotation=Quat::from_xyzw(pose[i+4],pose[i+5],pose[i+6],pose[i+7]);
+    let crown=Vec3::new(pose[i+1],pose[i+2],pose[i+3])+rotation*Vec3::new(0.0,4.0,0.0);
+    assert!(crown.y>=1.4, "crown centre {} m above the ground; the 1.5 m crown holds it up", crown.y);
 }

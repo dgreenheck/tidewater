@@ -1,6 +1,6 @@
 // Debris stream test: natural debris, village clutter, pebble field and the photoscanned logs /
 // shells over the terrain, rendered headless at 2560x1267 from a few viewpoints.
-//   node test/world-debris.mjs [outPrefix=/tmp/claude-debris-]
+//   node test/world-debris.mjs [outPrefix=test-results/debris-]
 import './headless.mjs';
 import { readFileSync, mkdtempSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -13,7 +13,7 @@ import { computeShoreField } from '../src/world/ShoreField.js';
 import { Colliders } from '../src/world/Colliders.js';
 import { standard } from '../src/materials/Materials.js';
 
-const OUT = process.argv[ 2 ] || '/tmp/claude-debris-';
+const OUT = process.argv[ 2 ] || join( tmpdir(), 'tidewater-debris-' );
 const ROOT = new URL( '../public', import.meta.url ).pathname;
 
 // ---- asset hooks for ScannedDebris (no fetch / image decoding in Node)

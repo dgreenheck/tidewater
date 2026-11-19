@@ -3,8 +3,8 @@
 # Needs: Blender 5.x, Python 3 + Pillow (print tile), curl. No ImageMagick.
 #   tools/characters/player.sh [workdir]
 set -e
-HERE=${0:A:h}; ROOT=${HERE:h:h}; WORK=${1:-/tmp/rocketbox-player}
-BLENDER=${BLENDER:-/Applications/Blender.app/Contents/MacOS/Blender}
+HERE=${0:A:h}; ROOT=${HERE:h:h}; WORK=${1:-${TMPDIR:-$(node -p "require('node:os').tmpdir()")}/rocketbox-player}
+BLENDER=${BLENDER:-blender}
 mkdir -p $WORK && cd $WORK
 A=Assets/Avatars/Adults/Male_Adult_01
 : > files

@@ -199,7 +199,12 @@ ${ fetch }#if !HAS_POSITION
 		let lp = vec4f( v.position, 1.0 );
 		wp = ( v.model * lp ).xyz + v.worldOffset;
 		wn = cofactor3( v.model ) * v.normal;
-		pwp = ( v.prevModel * lp ).xyz + select( v.prevWorldOffset, v.worldOffset, v.prevWorldOffset.x > 1e29 );
+		var previousLocal = v.position;
+#if HAS_PREVIOUS_POSITION
+		// Retain the material's local displacement while undoing the CPU batch motion.
+		previousLocal += i.previousPosition - i.position;
+#endif
+		pwp = ( v.prevModel * vec4f( previousLocal, 1.0 ) ).xyz + select( v.prevWorldOffset, v.worldOffset, v.prevWorldOffset.x > 1e29 );
 	}
 	o.worldPos = wp;
 	o.normal = wn;
@@ -370,6 +375,7 @@ struct FragOut {
 	defs.HAS_SHADOW_HOOK = material.shadow ? 1 : 0;
 	defs.NEEDS_DEPTH_FRAGMENT = kind === 'depth' && ( material.alphaTest > 0 || material.shadow ) ? 1 : 0;
 	defs.HAS_POSITION = has.has( 'position' ) ? 1 : 0;
+	defs.HAS_PREVIOUS_POSITION = has.has( 'previousPosition' ) ? 1 : 0;
 
 	const code = main
 		.replace( 'fn fragInput(', shadowHook + 'fn fragInput(' )

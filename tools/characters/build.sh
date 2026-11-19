@@ -3,8 +3,8 @@
 # Needs: Blender 4.2+ (tested 5.2), ImageMagick, curl, gh (GitHub CLI) for listing texture files.
 #   tools/characters/build.sh [workdir]
 set -e
-HERE=${0:A:h}; ROOT=${HERE:h:h}; WORK=${1:-/tmp/rocketbox}
-BLENDER=${BLENDER:-/Applications/Blender.app/Contents/MacOS/Blender}
+HERE=${0:A:h}; ROOT=${HERE:h:h}; WORK=${1:-${TMPDIR:-$(node -p "require('node:os').tmpdir()")}/rocketbox}
+BLENDER=${BLENDER:-blender}
 mkdir -p $WORK && cd $WORK
 # avatar : texture prefix : clip set (m / f) : output name
 AVATARS=( "Professions/Wood_Male_01:m110:m:joe" "Adults/Female_Adult_04:f004:f:marta" )

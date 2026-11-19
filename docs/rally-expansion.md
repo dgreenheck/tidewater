@@ -5,19 +5,6 @@ Blender, custom number plates, recorded Jeep engine audio from Swift Parking,
 shared multiplayer driving, direction/distance indicators and minimap players.
 Also requested: a graded coastal road loop with entrances onto the sand.
 
-## Asset review
-
-The first Jeep Blender studio exports were reviewed front and rear across the
-whole frame: `assets/rally/previews/black_jeep_front.png` and
-`assets/rally/previews/black_jeep_rear.png`. Wheel arches are open, tread and
-beadlocks are distinct, glazing meets the frame, and the spare/rack/bumpers
-are fitted to the body. The final front and rear plates contain the requested
-custom lettering and were reviewed again after export. The dark paint's studio reflections are intentional;
-its linear base colour is near black, rather than grey paint.
-
-The existing Aster and support-vehicle meshes remain original snapshots;
-Blender-built raised-letter plates are attached over their original plates.
-
 ## Physics adapter
 
 Superseded on 25 September 2026: the string-patched copy of Rally's controller
@@ -71,7 +58,7 @@ fading; recovery refreshes the HUD immediately so old wheel contacts are not sho
 
 ## Audio and networking
 
-Recorded audio is copied from the user's Swift Parking project: its Dodge Ram
+Recorded audio is copied from Swift Parking: its Dodge Ram
 HEMI V8 for the Jeep and BMW M4 inline-six for the Aster. Source records and credits
 are under `public/rally/audio/`. They are licensed game recordings, not recordings
 of the exact fictional vehicles. Playback pitch/filter/gain respond to real RPM,
@@ -90,46 +77,10 @@ profile-sized swept footprints and tread blocks. They skip air, water, props and
 teleports; asphalt/rock require slip. A bounded 24,000-segment history fades near
 the wet shoreline faster than dry sand. They do not modify terrain collision.
 
-## Local handover
-
-GitHub was fetched on 25 September 2026. `origin/main` and local HEAD both remain
-`1438b1a`, so there were no upstream commits to merge. All integration changes
-remain uncommitted local working changes. Rally and Swift Parking were read only.
-
-Run `npm test` for native physics, shipped WASM, room transport, contact effects,
-original game/engine checks and the maintained Given/When/Then browser scenarios.
-Run `npm run build` for the production build. The development game and room server
-are served together at `http://127.0.0.1:5189` by `npm run dev`.
-
-## 25 September polish round
-
-A second round rebuilt the driving on top of this expansion:
-- **Car physics:** Tidewater's own controller replaces the patched Rally copy
-  (`docs/rally-physics.md`). Cars now float and ride the sea instead of resetting, and R
-  recovers near the car.
-- **HUD:** a speedo cluster, a compact vehicle card and dock, gamepad support, and in-world
-  name tags for other drivers.
-- **Tyre marks:** relief-lit impressions per tread pattern, plus skid marks on asphalt only
-  under real slip.
-- **The road:** textured asphalt, verges that follow the ground, and W-beam guardrails with
-  colliders.
-- **The circuit:** a 1.1 km mountain branch, `route.circuit`, adds town and mountain starts.
-- **The ferry road:** a 380 m sealed spur, `route.ferryRoad`, leaves the circuit behind the town
-  and runs down the bay's east shore to the ferry terminal's road entry (`docs/ferry.md`, Road),
-  with a Ferry road start. `test/ferry-road.mjs` and `test/browser/ferry-road.spec.js` pin it.
-- **Crash damage** (`src/rally/Damage*.js`, `Wreckage.js`, `CarFire.js`):
-  - Dents where the body was hit.
-  - Parts and wheels that break off as debris.
-  - Engine, steering and suspension damage fed back to the physics.
-  - Steam, then smoke, then fire.
-  - T repairs.
-
-Visual defects found and fixed are in the ledger in `rally-integration.md`.
-
 ## Joey Island ring road
 
 - `route.joeyLoop` (src/world/CoastalRoute.js `buildJoeyLoop`, control points `JOEY_LOOP`): a closed two-lane sealed ring round Joey Island's main body, 1136 m. +Z is south, so from the terminal it runs south-west round the island's west end, east along the ocean coast on a bench above the beaches, north up the east shore, round the bay head and west along the strait shore, then back behind the terminal flat 12 m clear of its edge. The eastern peninsula has no road yet.
-- Junction: `JOEY_STUB` (6 m) straight out from the Joey terminal's road entry (`TERMINAL_SITE.roadEntry` placed at `WORLD.joeyTerminal`, about (-143.4, 776.4)). `route.joeyLink` runs level at 3.1 m (the flat the car drives on) from the junction into the yard; the ring crosses it at a T and stays level for 12 m either side. Two `joeyMouth` turning lanes (9 m radius, one each side of the link) make the bell mouth, so a car turning in or out stays on the seal; their outer edge is the kerb line.
+- Junction: `JOEY_STUB` (6 m) straight out from the Joey terminal's road entry (`TERMINAL_SITE.roadEntry` placed at `WORLD.joeyTerminal`, about (-143.4, 776.4)). `route.joeyLink` runs level at 3.1 m (the flat the car drives on) from the junction into the yard; the ring crosses it at a T and stays level for 12 m either side. Two `joeyMouth` turning lanes (9 m radius, one each side of the link) make the bell mouth, so a car turning in or out stays on the seal; their outer edge is the kerb line. The yard road out of the marshalling lanes runs on the terrain: the site's cut (`TerrainData.cutPolygon`) levels the flat where it runs into the hill behind the lanes, and Joey's grading keeps a 1.5-texel shoulder round the flat so the ring's banks never reach the paving. `test/terminal-flat.mjs` pins the level way out, and `test/browser/joey-road.spec.js` drives it with the player's keys, from the lanes through the check-in boom to the junction.
 - Profile: the same `spline()` and `profile()` as the circuit and the ferry road, grade limit 10 % (max 9.95 %), floor 1.6 m over the low spots. Tightest bend about 33 m radius (the south-east corner), so every bend takes 40 to 60 km/h. Deepest cut 9.5 m, behind the flat's south-east corner; highest fill 5.4 m on the east shore.
 - Grading runs per island (`grade( segments, keep )`): `maxEarthwork` keeps meaning Tidewater's, `joeyEarthwork` is Joey's (13.6 m including batters). Joey's grading never touches texels inside the terminal site's fill polygon, so the yard, its paving and the village on the flat stay exactly as the site built them. test/coastal-grade.mjs now applies both terminal sites first, as App.js does.
 - Guardrails: every road except Tidewater's coast loop uses the hill rule (a verge falling 1.4 m by 10 m or 2.2 m by 16 m, or the outside of a tight bend), so the ring has steel on the seaward drops and guide posts elsewhere.

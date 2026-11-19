@@ -1,5 +1,5 @@
 # Blender: decimate the downloaded prop models to a triangle budget (keeps UVs / normals / materials).
-#   /Applications/Blender.app/Contents/MacOS/Blender -b -P tools/props/decimate.py
+#   blender -b -P tools/props/decimate.py
 # Reads tools/props/.raw/mod/<name>/<name>.gltf, writes tools/props/.raw/dec/<name>/<name>.gltf (+ .bin);
 # textures are taken from the original folder by build.mjs.
 import bpy, os, sys

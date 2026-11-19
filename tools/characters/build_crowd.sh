@@ -7,8 +7,8 @@
 # The walk comes from the motextr_xy set (the static set has no walks), so it still carries its root motion:
 # Crowd.js measures the pelvis travel per cycle, strips it and plays the walk at the rate that matches the pace.
 set -e
-HERE=${0:A:h}; ROOT=${HERE:h:h}; WORK=${1:-/tmp/rocketbox-crowd}
-BLENDER=${BLENDER:-/Applications/Blender.app/Contents/MacOS/Blender}
+HERE=${0:A:h}; ROOT=${HERE:h:h}; WORK=${1:-${TMPDIR:-$(node -p "require('node:os').tmpdir()")}/rocketbox-crowd}
+BLENDER=${BLENDER:-blender}
 SIZE=${SIZE:-512}; JOBS=${JOBS:-4}
 OUT=${OUT:-$ROOT/public/models/characters/crowd}   # OUT=<dir> builds elsewhere (check, then crowd_keys.mjs, then copy)
 mkdir -p $WORK/log $OUT && cd $WORK

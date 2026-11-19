@@ -1,6 +1,6 @@
 // Shared headless harness for the world stream tests (terrain, rocks, debris, village, pier, boat).
 //   const H = await worldHarness( { width: 2560, height: 1267 } );
-//   H.scene.add( ... ); H.shot( '/tmp/x.png', { pos: [ x, y, z ], target: [ x, y, z ], fov: 55 } );
+//   H.scene.add( ... ); H.shot( 'view.png', { pos: [ x, y, z ], target: [ x, y, z ], fov: 55 } );
 // Sun shadows from the engine, a simple sky-coloured clear, ACES tonemap. Stubs for modules owned
 // by other streams (shoreSim etc.) live in the tests that need them.
 import { writePNG } from './headless.mjs';

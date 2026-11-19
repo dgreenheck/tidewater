@@ -110,13 +110,36 @@ export class ThirdPersonCamera {
 	reset() {
 
 		this.y = null;
+		this.swimOrbit = null;
+		this.swimPose = null;
+		this.swimPending = false;
 
 	}
 
-	apply( player, dt, wheel = 0 ) {
+	needsSwimFrame( player ) {
+
+		return player.mode === 'swim' && [ ...player.cameraObstacles || [] ].some( o => o.cameraNear?.( player.position, 7 ) );
+
+	}
+
+	apply( player, dt, wheel = 0, { deferSwim = false, currentPose = false } = {} ) {
 
 		const cam = player.camera;
+		this.swimPending = false;
 		if ( wheel ) this.want = THREE.MathUtils.clamp( this.want * ( 1 + wheel * 0.12 ), BOOM.min, BOOM.max );
+		// A floating foil can leave a mathematically clear 25 cm boom while the
+		// animated swimmer is below the frame. Choose a comfortable, subject-facing
+		// view around a nearby finite obstacle instead of shortening through it.
+		if ( this.needsSwimFrame( player ) ) {
+
+			// Player completes this one search after the displayed pose and its
+			// contact correction exist. Keep the input eye/heading unchanged here.
+			if ( deferSwim ) { this.swimPending = true; return; }
+			if ( this.frameSwimmer( player, dt, currentPose ) ) return;
+
+		}
+		this.swimOrbit = null;
+		this.swimPose = null;
 		const pivot = _p.copy( cam.position );
 		_eye.copy( pivot );
 		if ( this.y === null ) {
@@ -188,6 +211,186 @@ export class ThirdPersonCamera {
 
 	}
 
+	frameSwimmer( player, dt, currentPose = false ) {
+
+		const cam = player.camera, avatar = player.avatar, model = avatar?.model;
+		const delta = currentPose ? new THREE.Vector3() : this.swimPose ? player.position.clone().sub( this.swimPose ) : player.velocity?.clone().multiplyScalar( dt ) || new THREE.Vector3();
+		if ( delta.length() > 1 ) delta.set( 0, 0, 0 );
+		this.swimPose = player.position.clone();
+		const landmarks = [];let headAnchor = null;
+		// Player supplies the current displayed pose after animation/contact.
+		// Standalone pre-pose callers translate their preceding pose by movement;
+		// never translate a current pose twice or use a collapsed/stale head.
+		if ( model && avatar.visible && ! avatar.headHidden && avatar.view !== 'first' ) {
+
+			model.group.updateMatrixWorld();
+			for ( let i = 0; i < model.gltf.nodes.length; i ++ ) {
+
+				if ( ! /(?:Head|Neck|Spine2)$/.test( model.gltf.nodes[ i ].name ) ) continue;
+				const point = new THREE.Vector3().fromArray( model.world, i * 16 + 12 ).applyMatrix4( model.group.matrixWorld ).add( delta );
+				if ( point.distanceTo( player.position ) < 2.5 ) { landmarks.push( point );if ( /Head$/.test( model.gltf.nodes[ i ].name ) ) headAnchor = point; }
+
+			}
+
+		}
+		const posed = landmarks.length >= 2;
+		const surface = posed ? this.swimmerSurface( model, delta ) : [];
+		if ( ! posed ) landmarks.splice( 0, landmarks.length, player.position.clone().add( new THREE.Vector3( 0, 0.16, 0 ) ), player.position.clone().add( new THREE.Vector3( 0, - 0.12, 0 ) ) );
+		headAnchor ||= landmarks[ 0 ];
+		const target = new THREE.Vector3();
+		for ( const p of landmarks ) target.add( p );
+		target.divideScalar( landmarks.length );
+		const probes = landmarks.map( p => p.clone() );
+		// Only use an upright head envelope while the real pose is unavailable.
+		// A swimming head pitches forward; imaginary upright probes can lie on the
+		// other side of a foil even when the actual animated skull is wholly clear.
+		if ( ! surface.length ) {
+
+			const head = landmarks.reduce( ( a, b ) => a.y > b.y ? a : b );
+			probes.push( head.clone().add( new THREE.Vector3( 0, 0.13, 0 ) ) );
+			for ( const sign of [ - 1, 1 ] ) probes.push( head.clone().add( new THREE.Vector3( Math.cos( player.yaw ) * sign * 0.1, 0, - Math.sin( player.yaw ) * sign * 0.1 ) ) );
+
+		}
+		const under = ! player.floating && target.y < player.waterH - WATERLINE.below;
+		// The first visible pose after V can differ from the collapsed head. Treat
+		// that view toggle as initial placement, rather than orbiting from a guess.
+		const previous = this.swimOrbit && ( ! posed || this.swimOrbit.posed ) ? this.swimOrbit : null, h = Math.max( 0, Math.min( 0.05, dt ) );
+		const desiredRadius = THREE.MathUtils.clamp( this.want + 0.5, 4, 6 );
+		const wrap = a => Math.atan2( Math.sin( a ), Math.cos( a ) );
+		const preferred = previous?.angle ?? player.yaw - Math.PI / 12;
+		const position = ( angle, radius, height ) => new THREE.Vector3( headAnchor.x + Math.sin( angle ) * radius, under ? Math.min( target.y + height, player.waterH - WATERLINE.below ) : player.waterH + height, headAnchor.z + Math.cos( angle ) * radius );
+		const clear = eye => {
+
+			if ( player.terrain && eye.y < player.terrain.heightAt( eye.x, eye.z ) + 0.3 ) return false;
+			if ( ! under && eye.y < player.waterH + WATERLINE.above ) return false;
+			for ( const point of probes ) {
+
+				const direction = eye.clone().sub( point ), length = direction.length();
+				if ( length < 2.5 || this.cast( player, point, direction.divideScalar( length ), length ) < length - 0.035 ) return false;
+
+			}
+			// The posed head joint is near the skull base. A foil may hide the face
+			// while every joint ray is clear, so check actual skinned head vertices.
+			let hidden = 0;
+			for ( const point of surface ) {
+
+				const direction = eye.clone().sub( point ), length = direction.length();
+				if ( this.cast( player, point, direction.divideScalar( length ), length ) < length - 0.035 && ++ hidden > surface.length * 0.25 ) return false;
+
+			}
+			return true;
+
+		};
+		const pathClear = ( from, to ) => {
+
+			const d = to.clone().sub( from ), length = d.length();
+			return length < 0.001 || this.cast( player, from, d.divideScalar( length ), length + 0.12 ) >= length + 0.1;
+
+		};
+		const offsets = [ 0 ];
+		for ( let i = 1; i <= 12; i ++ ) offsets.push( i * Math.PI / 12, - i * Math.PI / 12 );
+		offsets.unshift( wrap( preferred - player.yaw ) );
+		const candidates = [];
+		for ( const radius of [ desiredRadius, 4.5, 6 ] ) for ( const height of under ? [ 0.2, - 0.3 ] : [ 0.85, 0.55, 1.3, 2 ] ) for ( const offset of offsets ) {
+
+			const angle = player.yaw + offset;
+			candidates.push( { angle, radius, height, score: Math.abs( offset ) * 0.25 + Math.abs( radius - desiredRadius ) * 0.3 + Math.abs( height - 0.85 ) * 0.2 + Math.abs( wrap( angle - preferred ) ) * 2 } );
+
+		}
+		candidates.sort( ( a, b ) => a.score - b.score );
+		let selected = null;const clearGoals = [];
+		for ( const candidate of candidates ) {
+
+			const eye = position( candidate.angle, candidate.radius, candidate.height );
+			if ( ! clear( eye ) ) continue;
+			clearGoals.push( { ...candidate, eye } );
+			if ( previous ) {
+
+				// Follow a connected clear orbit. The input heading remains Player.yaw;
+				// neither lookAt nor the chosen side feeds back into movement controls.
+				const angle = previous.angle + THREE.MathUtils.clamp( wrap( candidate.angle - previous.angle ), - h * 2.5, h * 2.5 );
+				const radius = previous.radius + THREE.MathUtils.clamp( candidate.radius - previous.radius, - h * 4, h * 4 );
+				const height = previous.height + THREE.MathUtils.clamp( candidate.height - previous.height, - h * 3, h * 3 );
+				const eased = position( angle, radius, height );
+				if ( ! clear( eased ) || ! pathClear( previous.eye, eased ) ) continue;
+				selected = { angle, radius, height, eye: eased };break;
+
+			}
+			selected = { ...candidate, eye };break;
+
+		}
+		if ( ! selected && previous && clear( previous.eye ) ) selected = previous;
+		if ( ! selected && previous ) {
+
+			// An animated head can briefly cross the foil's edge between two poses.
+			// Keep a connected, subject-facing lens while moving toward a clear view;
+			// never discard the orbit and snap to the old 25 cm forward boom. This
+			// continuation may briefly lose part of the head behind the edge, but
+			// the camera itself cannot pass through the sail or a world obstacle.
+			for ( const goal of clearGoals ) {
+
+				const movement = goal.eye.clone().sub( previous.eye ), distance = movement.length();
+				const eye = previous.eye.clone().addScaledVector( movement, Math.min( 1, h * 6 / Math.max( distance, 1e-6 ) ) );
+				if ( ! under ) eye.y = Math.max( eye.y, player.waterH + WATERLINE.above );
+				if ( eye.distanceTo( headAnchor ) < 2.5 || player.terrain && eye.y < player.terrain.heightAt( eye.x, eye.z ) + 0.3 || ! pathClear( previous.eye, eye ) ) continue;
+				selected = { angle: Math.atan2( eye.x - headAnchor.x, eye.z - headAnchor.z ), radius: Math.hypot( eye.x - headAnchor.x, eye.z - headAnchor.z ), height: under ? eye.y - target.y : eye.y - player.waterH, eye, continuing: true };break;
+
+			}
+			if ( ! selected ) selected = { ...previous, continuing: true };
+
+		}
+		if ( ! selected ) return false;
+		selected.posed = posed;
+		this.swimOrbit = selected;
+		cam.position.copy( selected.eye );
+		cam.lookAt( target );
+		this.y = player.position.y + 0.162;
+		this.dist = selected.eye.distanceTo( target );
+		player.people?.occlude?.( cam.position, target );
+		return true;
+
+	}
+
+	swimmerSurface( model, delta ) {
+
+		if ( ! model.jointData || ! model.skin || ! model.gltf.meshes ) return [];
+		if ( this.swimSkin?.model !== model ) {
+
+			const node = model.gltf.nodes.findIndex( n => /Head$/.test( n.name ) ), joint = model.skin.joints.indexOf( node );
+			const meshNode = model.gltf.nodes.find( n => n.mesh !== undefined && n.skin !== undefined ), vertices = [];
+			for ( const primitive of model.gltf.meshes[ meshNode?.mesh ] || [] ) {
+
+				const A = primitive.attributes, p = A.POSITION.array, j = A.JOINTS_0?.array, w = A.WEIGHTS_0?.array;
+				if ( ! j || ! w ) continue;
+				for ( let i = 0; i < p.length / 3; i ++ ) {
+
+					let sum = 0, influence = 0;
+					for ( let k = 0; k < 4; k ++ ) { sum += w[ i * 4 + k ];if ( j[ i * 4 + k ] === joint ) influence += w[ i * 4 + k ]; }
+					if ( influence / sum > 0.45 ) vertices.push( { position: Array.from( p.slice( i * 3, i * 3 + 3 ) ), joints: Array.from( j.slice( i * 4, i * 4 + 4 ) ), weights: Array.from( w.slice( i * 4, i * 4 + 4 ), value => value / sum ) } );
+
+				}
+
+			}
+			this.swimSkin = { model, vertices: Array.from( { length: Math.min( 24, vertices.length ) }, ( _, i ) => vertices[ Math.floor( i * vertices.length / Math.min( 24, vertices.length ) ) ] ) };
+
+		}
+		return this.swimSkin.vertices.map( vertex => {
+
+			const p = new THREE.Vector3(), [ x, y, z ] = vertex.position, D = model.jointData;
+			for ( let k = 0; k < 4; k ++ ) {
+
+				const o = vertex.joints[ k ] * 16, w = vertex.weights[ k ];
+				p.x += ( D[ o ] * x + D[ o + 4 ] * y + D[ o + 8 ] * z + D[ o + 12 ] ) * w;
+				p.y += ( D[ o + 1 ] * x + D[ o + 5 ] * y + D[ o + 9 ] * z + D[ o + 13 ] ) * w;
+				p.z += ( D[ o + 2 ] * x + D[ o + 6 ] * y + D[ o + 10 ] * z + D[ o + 14 ] ) * w;
+
+			}
+			return p.applyMatrix4( model.group.matrixWorld ).add( delta );
+
+		} );
+
+	}
+
 	// distance along dir from o to the first thing in the way (or len); this.thin: a post or brace is
 	// nearer than any wall (this.hard)
 	cast( player, o, dir, len ) {
@@ -196,6 +399,18 @@ export class ThirdPersonCamera {
 		const C = player.colliders;
 		if ( C && C.raycast ) best = Math.min( best, C.raycast( o, dir, best ) );
 		if ( player.mode === 'ferry' && player.vessel && player.vessel.boomHit ) best = Math.min( best, player.vessel.boomHit( o, dir, best ) );
+		// Dynamic walking supports (including a tilted carrier) own live collision
+		// frames that are not present in the static island collider collection.
+		for ( const provider of player.groundProviders || [] ) {
+
+			if ( provider.raycast ) best = Math.min( best, provider.raycast( o, dir, best ) );
+
+		}
+		for ( const obstacle of player.cameraObstacles || [] ) {
+
+			best = Math.min( best, obstacle.cameraRaycast ? obstacle.cameraRaycast( o, dir, best ) : obstacle.raycast( o, dir, best ) );
+
+		}
 		// the terrain: march the boom, then bisect the first crossing (20 cm clearance)
 		const T = player.terrain;
 		if ( T ) {

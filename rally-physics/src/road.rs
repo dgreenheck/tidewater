@@ -84,3 +84,8 @@ impl WaterPlane {
         self.active.then(|| self.height+self.slope_x*(x-self.x0)+self.slope_z*(z-self.z0))
     }
 }
+
+/// Uniform sampled air and horizontal-water velocities at the local car, SI m/s.
+/// WaterPlane separately supplies height, slope and vertical surface rate.
+#[derive(Resource,Default,Clone,Copy,Debug)]
+pub struct FluidVelocity { pub air:Vec3, pub current:Vec3 }

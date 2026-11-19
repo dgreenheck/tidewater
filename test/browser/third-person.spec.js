@@ -36,15 +36,27 @@ const view = page => page.evaluate( () => {
 test( 'On the beach, the player switches to a third-person view of their own character with V and the on-screen button, and it is remembered', async ( { page } ) => {
 
 	test.setTimeout( 300_000 );
-	await test.step( 'Given a player on foot on the beach, in first person', async () => {
+	// Third person has been the default view since 25f6bd8 ("third person by default"): a fresh
+	// player starts over the shoulder, V goes to their eyes, and V again comes back.
+	await test.step( 'Given a player on foot on the beach, in the default third-person view', async () => {
 
 		await openIsland( page );
 		const v = await view( page );
 		expect( v.mode ).toBe( 'walk' );
-		expect( v.dist ).toBeLessThan( 0.3 );
+		expect( v.avatar.view ).toBe( 'third' );
+		expect( v.dist ).toBeGreaterThan( 1.5 );
 
 	} );
-	await test.step( 'When they press V', async () => {
+	await test.step( 'When they press V, the view goes to their eyes', async () => {
+
+		await page.keyboard.press( 'v' );
+		await page.waitForTimeout( 600 );
+		const v = await view( page );
+		expect( v.dist ).toBeLessThan( 0.3 );
+		await expect( page.getByRole( 'button', { name: 'Third person' } ) ).toBeVisible();
+
+	} );
+	await test.step( 'When they press V again', async () => {
 
 		await page.keyboard.press( 'v' );
 		await page.waitForTimeout( 600 );
@@ -149,10 +161,10 @@ test( 'In third person, a player walks from the ferry car deck through the stair
 		await expect.poll( async () => ( await aboard() ).y, { timeout: 5_000 } ).toBeLessThan( 2.8 );
 
 	} );
-	await test.step( 'When they press V and walk through the door and up the stairs toward her bow', async () => {
+	await test.step( 'When, in the default third-person view, they walk through the door and up the stairs toward her bow', async () => {
 
-		await page.keyboard.press( 'v' );
-		await page.waitForTimeout( 400 );
+		// third person is the default (25f6bd8): no V press, which would now go to first person
+		expect( ( await view( page ) ).avatar.view ).toBe( 'third' );
 		// every frame from here: where the camera is in her frame and how far it is from the head
 		await page.evaluate( () => {
 

@@ -1,4 +1,5 @@
 import { Matrix4, Matrix3, Vector3, Quaternion } from '../engine/index.js';
+import { markGeometryMotion } from '../engine/render/GeometryMotion.js';
 
 // Loose props with physics that costs nothing until something comes near.
 //
@@ -24,7 +25,7 @@ const TYPES = { crate: [ 'wood', 0 ], trap: [ 'plastic', 0 ], barrel: [ 'steel',
 // Walker colliders of prop stacks (DebrisPlacement) handed over to the props they cover.
 const LINKED = new Set( [ 'crate', 'trap', 'barrel' ] );
 const CELL = 8;
-const MAX_AWAKE = 80;
+export const MAX_AWAKE = 80;
 const BREAK_SPEED = 4; // m/s of the hitter
 const REST = 0.6; // seconds at rest before a prop may sleep
 const EPS = 1e-4;
@@ -278,7 +279,7 @@ export class PropPhysics {
 		if ( body?.length === 3 ) {
 
 			const dx = player.position.x - body[ 0 ], dz = player.position.z - body[ 2 ], gap = Math.hypot( dx, dz );
-			if ( gap > REACH && gap < 1.5 ) {
+			if ( gap > REACH && gap < 1.5 && this.physics.pusher_blocked( dx, dz ) ) {
 
 				player.position.x = body[ 0 ] + dx / gap * REACH;
 				player.position.z = body[ 2 ] + dz / gap * REACH;
@@ -337,6 +338,7 @@ export class PropPhysics {
 	}
 
 	wake( p, velocity = null ) {
+		if ( !this.awake.has(p.id) && this.awake.size >= MAX_AWAKE ) return;
 
 		const [ material, shape ] = TYPES[ p.type ];
 		const { density, friction, bounce } = MATERIALS[ material ];
@@ -358,11 +360,13 @@ export class PropPhysics {
 			volume = 8 * half.x * half.y * half.z;
 
 		}
-		if ( ! this.physics.wake_prop( p.id, shape, this._dims, state, Math.max( 0.5, volume * density ), friction, bounce, false ) ) return;
+		p.physical={mass:Math.max(.5,volume*density),volume,area:shape===1?2*this._dims[0]*2*half.y:4*half.y*Math.max(half.x,half.z),height:2*half.y};
+        if ( ! this.physics.wake_prop( p.id, shape, this._dims, state, p.physical.mass, friction, bounce, false ) ) return;
 		this.awake.set( p.id, p );
 		p.rest = 0;
 		this.stats.wakes ++;
 		for ( const w of p.walker ) this.dropWalker( w );
+		p.originalWalker ||= p.walker.slice();
 		p.walker.length = 0;
 		if ( p.box ) p.box.solid = false;
 
@@ -382,7 +386,7 @@ export class PropPhysics {
 
 	dropWalker( w ) {
 
-		if ( w.center ) w.solid = false;
+		if ( w.center ) { w.solid = false; w.walkable = false; }
 		else { w.yMin = - 1e9; w.yMax = - 1e9; }
 
 	}
@@ -422,7 +426,7 @@ export class PropPhysics {
 
 			const o = p.position;
 			const far = pushers.every( h => ( o.x - h.x ) ** 2 + ( o.z - h.z ) ** 2 > ( h.r + 3 ) ** 2 );
-			if ( ! far ) continue;
+			if ( ! far || p.disasterActive ) continue;
 			if ( p.panel ) { this.sleep( p ); continue; }
 			if ( p.rest < REST ) continue;
 			let leaning = false;
@@ -459,10 +463,11 @@ export class PropPhysics {
 	// The panel's sensor goes; its pre-split pieces wake loose, thrown along with the car.
 	breakPanel( panel, car ) {
 
+		if ( this.awake.size - (this.awake.has(panel.id)?1:0) + panel.pieces.length > MAX_AWAKE ) return false;
 		this.physics.sleep_prop( panel.id );
 		this.awake.delete( panel.id );
 		panel.broken = true;
-		if ( panel.box ) panel.box.solid = false;
+		if ( panel.box ) { panel.box.solid = false; panel.box.walkable = false; }
 		this.stats.breaks ++;
 		const v = new Vector3();
 		for ( const piece of panel.pieces ) {
@@ -519,6 +524,7 @@ export class PropPhysics {
 		const e = _d.elements, ne = _n.elements;
 		for ( const s of p.spans ) {
 
+			markGeometryMotion( s.geo, s.start, s.count );
 			const pos = s.geo.attributes.position, nrm = s.geo.attributes.normal;
 			const a = s.start * 3, n = s.count * 3;
 			if ( ! s.pos ) {

@@ -1,7 +1,7 @@
 # Jetski
 
 Rideable jetskis: three at the Tidewater beach hire stand and two at Joey (`src/jetski/spots.js`
-from the model lane, the built-in `DEFAULT_SPOTS` in `src/jetski/Jetski.js` otherwise).
+from the model, the built-in `DEFAULT_SPOTS` in `src/jetski/Jetski.js` otherwise).
 
 | File | What |
 | --- | --- |
@@ -21,6 +21,14 @@ standard gamepad works through `RallyDrive.gamepad()` (stick steers, triggers th
 On foot or swimming within ~3 m: E rides, climbs aboard from the water, or rights a capsized ski.
 
 ## Physics model
+
+### Extreme-current integration correction (QA)
+
+The original explicit panel update could amplify relative-flow energy and become non-finite in a 100 m/s current within twelve 120 Hz steps. `FluidStep.js` now solves all passive point resistances together using `(M + h K) twistNext = M twist + h (externalWrench + fluidTargets)`. The matrix includes the declared, rotated added mass and inertia; each resistance contributes a positive rank-one `k [n, r cross n] [n, r cross n]^T`. This accounts for the rotational effective mass and interaction of the hull panels. There is no new velocity cap, and the old 20 rad/s angular clamp was removed.
+
+Panel flow uses shared current and queried vertical water motion. Radiation damping acts normal to the free surface; crossing a steep surface is no longer counted as an extra vertical fluid velocity for a deeply submerged hull. The previous hull-aero `+k v_y` term added energy and now opposes cross-flow. Hydrostatic, contact, rider, drive and empirical downforce terms remain separate external loads. Coefficients are still tuned assumptions; the model is not a validated craft response at hundreds of metres per second. The shallow-water field has no resolved breaking-wave or three-dimensional vertical circulation.
+
+Maintained `test/jetski-fluid.mjs` exercises actual `step`, query/update and the evolving 257-grid 3,000 m field. The unchanged old-source selection fails five physical assertions and passes the calm riding check; the correction passes all six. The field fixture samples 2,784.62 m water height and 307.35 m/s current, with finite physical advection. Calm flat-water 0–60 km/h remains 3.73 s and 0–100 remains 9.57 s; twenty-second speed changes from 107.87 to 107.93 km/h. Existing equal body/current/wind translation checks also pass. These CPU results are supplemented by the integration lane's actual 3,000 m UI run: 86 event observations across 13.0166 simulated seconds plus Restore, all observed native/craft/parked-ski/NPC values finite and zero browser errors. Jetski peak speed was 202.652 m/s and angular speed 28.757 rad/s; Restore returned within 5 m of the pre-event neighbourhood. Evidence is `task/output/playwright/gameplay-recovery/jetski-coupled-extreme/tsunami`. This closes the demonstrated NaN path; it does not claim real-world extreme-craft fidelity or resolve the separately tracked NPC stability issue.
 
 - **Mass**: 350 kg ski plus an 85 kg rider. His weight sits on the seat and shifts sideways into the
   turn (0.28 m) and fore and aft on tuck or lean back (0.22 m), so the centre of gravity moves.
@@ -99,10 +107,8 @@ fades in (gain 0 to 1.06) and runs 0.79x to 1.19x with rpm, and both fall back o
   and `appendage` (the top end). `cf` stays at a plausible skin friction.
 - Turn radius comes from the strake grip distribution along the hull, relative to the centre of gravity.
   With the grip aft, the ski weathervanes and will not turn. The rider leaning forward in a carve wets the forward strakes.
-- A hull file whose panels stop short of the bow cannot rise over the hump. The model lane's `jetski.json`
+- A hull file whose panels stop short of the bow cannot rise over the hump. The model’s `jetski.json`
   stops at z = 0.85 m, so it is rejected and `defaultHull()` is used (`state().slots.hullSource` says which).
-- The in-game verify runs vite with `hmr: false` (scratch `vite.noreload.config.mjs`): another lane rewriting
-  `public/models` reloads the page mid-run otherwise.
 - Parked skis get the parked query slots in order (not by spot index), and a stale result (asked for another ski) is
   skipped, so all four parked skis ride the real surface.
 
@@ -259,7 +265,6 @@ Scratch harness `jpolish.mjs` (Playwright :5373, no-HMR vite, typical sea).
 - **Rear seat**: from behind (`cap3/seat-behind.png`), the grey cylinder is the passenger seat itself: a tall round bolster that
   reads as a tank. Not changed yet (a `jetski_build.py` rebuild).
 
-
 ## Back-seat mate
 
 Emily (`src/jetski/Mate.js`) waits ankle deep at the water's edge by the beach hire skis (`MATE.home`, 40.5, -40). She is a female crowd cast (`f03`, the swimwear re-dress in `models/characters/crowd/swim/` when it is there, the plain cast otherwise), loaded the way the beach crowd loads them (`SkinnedModel.create` with `fadeOptions`). She is not registered with the people hub (no brain, no LOD skipping): she is animated every frame and speaks through `app.people.say`.
@@ -307,13 +312,11 @@ Rising only matters: a symmetric damper at 30 dug the hull in and rolled it in t
 
 ## Emily in the water and on the back seat (2026-09-27)
 
-- Her own sea: one water-query slot (`mate`); treading water she reads the sea where she is, not the ski's level.
-  Her chest node (`Bip01 Spine2`, measured on load, 1.26 m) sets the waterline.
+- Her own sea: one water-query slot (`mate`); treading water she reads the sea where she is, not the ski's level. Her chest node (`Bip01 Spine2`, measured on load, 1.26 m) sets the waterline.
 - Treading pose (`Mate.treadPose`, no swim clip on the crowd rig): hands sculling out to the sides just under the
   surface, elbows bent, legs cycling slowly half a stroke apart, a small lift with each stroke. `MATE.scull`, `cycle`.
 - The chase camera: while her head sits within `MATE.clear` of the sight line to the rider's head or chest she fades
-  to `MATE.ghost` on the people's dither (`setFade`). Not yet proven in a capture: see the lane handback (the chase
-  camera read NaN in the probe set-up).
+  to `MATE.ghost` on the people's dither (`setFade`).
 
 ## Camera NaN and Emily's sea slot (2026-09-27)
 
@@ -350,7 +353,6 @@ Rising only matters: a symmetric damper at 30 dug the hull in and rolled it in t
   is in the field but still hard to read from above; the foam patches render with hard edges (WaterSurface foam, not here).
 - **Probe trap**: pinning her speed by overwriting `ctl.velocity` every frame sinks her (hUp -1.1 to -1.5 m, the camera
   ends up under water). Let the rocket accelerate her instead.
-
 
 ## Spray, wake and course FX (round 3)
 

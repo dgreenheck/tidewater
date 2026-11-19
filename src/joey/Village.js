@@ -221,7 +221,7 @@ export class JoeyVillage {
 
 		const { colliders } = this.app;
 		const center = new Vector3(), half = new Vector3();
-		for ( const b of boxes ) colliders.addBox( this.toWorld( b.center, center ), half.set( ...b.half ), this.yaw, KINDS[ b.kind ] || KINDS.solid );
+		this.disasterColliders=boxes.map(b=>colliders.addBox( this.toWorld( b.center, center ), half.set( ...b.half ), this.yaw, KINDS[ b.kind ] || KINDS.solid ));
 		this.boxCount = boxes.length;
 		for ( const [ name, p ] of Object.entries( stations ) ) this.stations[ name ] = this.toWorld( p );
 

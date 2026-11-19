@@ -1,6 +1,6 @@
 import { defineConfig } from '@playwright/test';
 
-// PW_PORT lets parallel local lanes run isolated product hosts (default 5190).
+// PW_PORT lets test runs use isolated product hosts (default 5190).
 const port = Number( process.env.PW_PORT || 5190 );
 
 export default defineConfig( {

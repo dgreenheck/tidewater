@@ -1,3 +1,4 @@
+import { tempOutput } from './output-path.mjs';
 // End-to-end headless test of the boat's water effects: the real hull lines (HullLines) driving
 // BoatSpray -> Spray (CPU requests, hull collisions) and WakeSim, the boat running at speed through a
 // head swell. Writes a side view of the bow spray and a top-down view of the wake.
@@ -21,7 +22,7 @@ import { WakeSim } from '../src/ocean/WakeSim.js';
 
 await GPU.init( { headless: true } );
 const W = Number( process.env.W || 1280 ), H = Number( process.env.H || 720 );
-const out = process.argv[ 2 ] || '/tmp/ocean-boat';
+const out = process.argv[ 2 ] || tempOutput( 'ocean-boat' );
 
 // head swell (also the stub water query)
 const A = 0.45, K = 2 * Math.PI / 22, OM = Math.sqrt( 9.81 * K );

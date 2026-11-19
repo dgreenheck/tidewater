@@ -13,6 +13,8 @@ import { GameHUD } from './GameHUD.js';
 import { Minimap } from './Minimap.js';
 import { Guide } from './Guide.js';
 import { AtmNetwork } from './Atm.js';
+import { rodHint, cameraHeading } from './CastReach.js';
+import { G } from '../core/Globals.js';
 
 // how long the catch card stays up unless dismissed (ms)
 const CATCH_CARD_MS = 9000;
@@ -24,6 +26,10 @@ const CATCH_CARD_MS = 9000;
 //   RMB        reel an empty line back in
 //   I / Tab    cooler / hold contents and the fish log
 //   E          at the fish stand: sell your catch; at an ATM: use it (Atm.js)
+// prompt() runs every frame: one frozen hint object, no allocation
+const ROD_HINT = Object.freeze( { key: 'R', text: 'Take out the rod' } );
+const _view = new Vector3(); // prompt(): the camera's world direction, the way the cast will go
+
 export class Game {
 
 	constructor( app ) {
@@ -321,9 +327,11 @@ export class Game {
 		const rod = this.rod, p = this.app.player;
 		if ( ! rod.equipped ) {
 
-			// by the water (boat deck, pier, the wet beach, wading): suggest the rod
-			const byWater = p.mode === 'deck' || ( p.mode === 'walk' && [ 'wood', 'wetsand', 'water' ].includes( p.surface ) ) || ( p.mode === 'ferry' && !! p.vessel?.fishable?.( p ) );
-			return byWater ? { key: 'R', text: 'Take out the rod' } : null;
+			// open water within casting reach where the view faces (the cast aims along the camera, not
+			// the body), no disaster live (CastReach.js; R works everywhere)
+			const app = this.app;
+			const heading = cameraHeading( app.camera.getWorldDirection( _view ) );
+			return rodHint( p, app.terrainData, G.seaLevel.value, app.disasters, heading ) ? ROD_HINT : null;
 
 		}
 

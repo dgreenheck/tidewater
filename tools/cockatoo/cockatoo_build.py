@@ -1,6 +1,6 @@
 """Sulphur-crested cockatoo (Cacatua galerita): the player's pet, built from code.
 
-    /Applications/Blender.app/Contents/MacOS/Blender -b -P tools/cockatoo/cockatoo_build.py -- \
+    blender -b -P tools/cockatoo/cockatoo_build.py -- \
         [--out public/models/cockatoo.glb] [--render DIR]
 
 No source mesh. A lofted body and head, a hooked two-part beak, dark eyes in a bare blue-white

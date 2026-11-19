@@ -29,6 +29,9 @@ const _v = new Vector3(), _c = new Vector3(), _q = new Quaternion();
 // few degrees of soft edge: the sidelights from dead ahead to 22.5 deg abaft the beam on their own side (112.5 deg),
 // the stern light 67.5 deg either side of dead astern, the headlamp lens over the forward half
 const ARC = 1.963, STERN_ARC = 1.178, EDGE = 0.05;
+// the lamps in their lighting order (the order of this.lamps), and the share of each one's arc the camera sits in
+const LAMP_NAMES = [ 'port', 'star', 'stern', 'head' ];
+const inArc = ( a, lo, hi ) => smooth( a, lo - EDGE, lo + EDGE ) * ( 1 - smooth( a, hi - EDGE, hi + EDGE ) );
 // red reads darker than green at the same value (its luminance weight is 0.21 against 0.72): the port lamp's halo and glare x RED_LIFT
 const RED_LIFT = 2.2;
 
@@ -58,6 +61,7 @@ export class JetskiLights {
 			cap: new Mesh( new CylinderGeometry( 0.02, 0.02, 0.012, 12 ), cap ), base: new Vector3(), h: SKI_LAMPS.mast };
 		this.headAt = new Vector3();
 		this.pods = [];
+		this._arcs = { port: 0, star: 0, stern: 0, head: 0 };
 
 	}
 
@@ -149,11 +153,18 @@ export class JetskiLights {
 		const px = camera ? 2 * Math.tan( ( camera.fov || 60 ) * Math.PI / 360 ) / Math.max( 1, innerHeight ) : 0;
 		let brg = 0;
 		if ( camera ) { _c.copy( camera.position ).sub( g.position ).applyQuaternion( _q.copy( g.quaternion ).invert() ); brg = Math.atan2( _c.x, _c.z ); }
-		const inArc = ( a, lo, hi ) => smooth( a, lo - EDGE, lo + EDGE ) * ( 1 - smooth( a, hi - EDGE, hi + EDGE ) );
-		const arcs = { port: inArc( brg, 0, ARC ), star: inArc( - brg, 0, ARC ), stern: inArc( Math.PI - Math.abs( brg ), - 1, STERN_ARC ), head: inArc( Math.abs( brg ), - 1, Math.PI / 2 ) };
-		for ( const [ name, l ] of Object.entries( this.lamps ) ) {
+		// the arcs object and the lamp loop are reused: Object.entries, an arcs literal and an inArc closure a frame left
+		// 1.7-2.6 KB of heap (test/frame-garbage.mjs)
+		const arcs = this._arcs;
+		// the ski's world matrix once a frame, not once per lamp (localToWorld refreshed it four times)
+		if ( camera ) g.updateWorldMatrix( true, false );
+		arcs.port = inArc( brg, 0, ARC );
+		arcs.star = inArc( - brg, 0, ARC );
+		arcs.stern = inArc( Math.PI - Math.abs( brg ), - 1, STERN_ARC );
+		arcs.head = inArc( Math.abs( brg ), - 1, Math.PI / 2 );
+		for ( const name of LAMP_NAMES ) {
 
-			const a = on * arcs[ name ], lift = name === 'port' ? RED_LIFT : 1;
+			const l = this.lamps[ name ], a = on * arcs[ name ], lift = name === 'port' ? RED_LIFT : 1;
 			l.lens.visible = l.halo.visible = show && a > 0.01;
 			l.glare.visible = show && a > 0.01 && name !== 'head';
 			if ( ! l.lens.visible ) continue;
@@ -161,7 +172,7 @@ export class JetskiLights {
 			l.lens.material.emissive.copy( c ).multiplyScalar( ( name === 'head' ? SKI_LAMPS.headLens : SKI_LAMPS.nav ) * a );
 			// the core halo and the coloured glare never shrink under their least pixel sizes (seen from 200 m and more);
 			// the core runs a little white-hot (bloom), the glare stays at a level the tone curve keeps saturated
-			const d = camera ? g.localToWorld( _c.copy( l.at ) ).distanceTo( camera.position ) : 0;
+			const d = camera ? _c.copy( l.at ).applyMatrix4( g.matrixWorld ).distanceTo( camera.position ) : 0;
 			l.halo.scale.setScalar( Math.max( 1, SKI_LAMPS.haloPx * 0.5 * px * d / SKI_LAMPS.haloR ) );
 			l.halo.material.emissive.copy( c ).lerp( WHITE, 0.25 ).multiplyScalar( SKI_LAMPS.halo * a * lift );
 			l.glare.scale.setScalar( Math.max( 1, SKI_LAMPS.glarePx * 0.5 * px * d / SKI_LAMPS.glareR ) );

@@ -1,5 +1,6 @@
 import { WORLD } from './WorldLayout.js';
 import { TERMINAL_SITE } from '../ferry/terminalSite.js';
+import { shapeDistance, CUT_SHOULDER } from './TerrainData.js';
 
 // A graded coastal loop west of the village, and a mountain circuit that forks off
 // it behind the town, climbs the hills and dives back into it. All points are metres.
@@ -66,14 +67,6 @@ const clamp = ( x, a, b ) => Math.max( a, Math.min( b, x ) );
 const smooth = x => { const t = clamp( x, 0, 1 ); return t * t * ( 3 - 2 * t ); };
 const distance = ( a, b ) => Math.hypot( a.x - b.x, a.z - b.z );
 const CELL = 16;
-const inside = ( poly, x, z ) => {
-	let hit = false;
-	for ( let i = 0, j = poly.length - 1; i < poly.length; j = i ++ ) {
-		const [ xi, zi ] = poly[ i ], [ xj, zj ] = poly[ j ];
-		if ( ( zi > z ) !== ( zj > z ) && x < ( xj - xi ) * ( z - zi ) / ( zj - zi ) + xi ) hit = ! hit;
-	}
-	return hit;
-};
 // Face of the steel barrier, metres from the road centreline: a 1.2 m sealed
 // shoulder beyond the 2.7 m lane edge, and clear of the 3.1 m spawn footprint.
 export const RAIL_OFFSET = 3.9;
@@ -137,11 +130,19 @@ export class CoastalRoute {
 		// Earthworks per island, each over its own box of texels; maxEarthwork keeps meaning Tidewater's.
 		const joey = segment => segment.path.island === 'joey';
 		this.maxEarthwork = this.grade( this.segments.filter( segment => ! joey( segment ) ) );
-		// Joey's grading leaves the terminal site alone: its fill polygon carries the yard, the
-		// village and the hillside fringe behind them (the game applies the site before the roads).
+		// Joey's grading leaves the terminal site alone: the flat carries the yard and the village
+		// (the game applies the site before the roads). A shoulder round it is kept too (the
+		// width of TerrainData.cutPolygon's level shoulder: a ground read blends texels up to a
+		// diagonal away), so the ring's banks behind the yard run out from beyond it and their toe
+		// never stands on the paving. Only the link and its bell mouths cross the shoulder, graded
+		// as road at the flat's own height.
 		const { position: o, yaw } = WORLD.joeyTerminal, c = Math.cos( yaw ), s = Math.sin( yaw );
 		const flats = TERMINAL_SITE.fill.map( f => f.poly.map( ( [ x, z ] ) => [ o.x + x * c + z * s, o.z - x * s + z * c ] ) );
-		this.joeyEarthwork = this.grade( this.segments.filter( joey ), ( x, z ) => flats.some( poly => inside( poly, x, z ) ) );
+		const shoulder = CUT_SHOULDER * terrain.texel;
+		this.joeyEarthwork = this.grade( this.segments.filter( joey ), ( x, z ) => flats.some( poly => {
+			const d = shapeDistance( poly, true, x, z );
+			return d <= 0 || ( d <= shoulder && ! this.gradeAt( x, z )?.road );
+		} ) );
 		this.guardrails = this.planGuardrails();
 		const originalPathDistance = terrain.pathDistance.bind( terrain );
 		terrain.pathDistance = ( x, z ) => Math.min( originalPathDistance( x, z ), this.clearance( x, z ) );

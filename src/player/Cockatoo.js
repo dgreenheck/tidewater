@@ -146,7 +146,7 @@ const PAD = 0.0125, GRIP = 0.004, CROUCH = 0.006;
 // 50 cm with the tail, so the bird is drawn 1.3x (47 cm). PAD stays in model space; GRIP and CROUCH are world metres.
 // In the cage at Joe's he stays 1.0 (the cage was fitted around the 36 cm model: tools/cockatoo/cage_build.py).
 const SIZE = 1.3;
-const CAGE_KEY = 'tidewater.cockatoo.v1'; // localStorage, next to the game save: { caged: true } while he is at Joe's
+const CAGE_STORAGE_SLOT = 'tidewater.cockatoo.v1'; // localStorage, next to the game save: { caged: true } while he is at Joe's
 
 // The skin of his left shoulder: a fixed patch of avatar triangles (shirt over the trapezius, collar, top of the
 // deltoid), picked once and CPU skinned each frame with the avatar's own joint matrices, the same ones the
@@ -1479,12 +1479,12 @@ function sampleRot( ch, t, out ) {
 // the caged state survives a reload (localStorage next to the game save; storage can be missing or throw)
 function loadCaged() {
 
-	try { return JSON.parse( globalThis.localStorage?.getItem( CAGE_KEY ) || 'null' )?.caged === true; } catch ( e ) { return false; }
+	try { return JSON.parse( globalThis.localStorage?.getItem( CAGE_STORAGE_SLOT ) || 'null' )?.caged === true; } catch ( e ) { return false; }
 
 }
 
 function saveCaged( caged ) {
 
-	try { globalThis.localStorage?.setItem( CAGE_KEY, JSON.stringify( { caged, at: 'joe' } ) ); } catch ( e ) { /* no storage: he is on the shoulder after a reload */ }
+	try { globalThis.localStorage?.setItem( CAGE_STORAGE_SLOT, JSON.stringify( { caged, at: 'joe' } ) ); } catch ( e ) { /* no storage: he is on the shoulder after a reload */ }
 
 }

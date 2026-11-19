@@ -1,5 +1,5 @@
 import { Group, Mesh, BufferGeometry, BufferAttribute, Color, Vector3, Matrix4 } from '../engine/index.js';
-import { loadGLB } from '../engine/loaders/GLTF.js';
+import { loadGLB, decodeImage } from '../engine/loaders/GLTF.js';
 import { Material } from '../engine/render/Material.js';
 import { LAYERS } from '../core/SceneRenderer.js';
 import { Texture } from '../engine/gpu/Texture.js';
@@ -8,7 +8,7 @@ import { generateMipmaps } from '../engine/gpu/Mipmaps.js';
 // Rally's original untextured GLBs retain their complete authored hierarchy,
 // materials and wheel pivots. Only the renderer-facing material is adapted.
 export async function loadVehicle( name, withPlates = true ) {
-	const model = await loadModel( `${ import.meta.env.BASE_URL }rally/${ name }.glb` );
+	const model = await loadModel( `${ import.meta.env.BASE_URL }rally/${ name }.glb`, { studioMaps: name === 'cosier_gt3rs' } );
 	if ( withPlates && PLATES[ name ] ) {
 		platePromise ||= loadVehicle( 'cosier_plate', false ).then( paintPlate );
 		const plate = await platePromise;
@@ -22,12 +22,12 @@ export async function loadVehicle( name, withPlates = true ) {
 	return model;
 }
 
-// Any untextured GLB (cars, the ferry, the terminal): nodes as named pivots, glTF PBR factors
+// A rigid GLB (cars, the ferry, the terminal): nodes as named pivots, glTF PBR factors
 // mapped to engine materials, alpha-blended ones on the transparent layer. `customize( source,
 // options )` may extend a material's options (shader snippets) by its glTF source before it is built.
-export async function loadModel( url, { customize = null } = {} ) {
+export async function loadModel( url, { customize = null, studioMaps = false } = {} ) {
 	const gltf = await loadGLB( url );
-	const materials = gltf.materials.map( source => {
+	const materials = await Promise.all( gltf.materials.map( async source => {
 		const pbr = source.pbrMetallicRoughness || {};
 		const rgba = pbr.baseColorFactor || [ 1, 1, 1, 1 ];
 		const coat = source.extensions?.KHR_materials_clearcoat;
@@ -43,14 +43,29 @@ export async function loadModel( url, { customize = null } = {} ) {
 			side: source.doubleSided ? 'double' : 'front',
 			surface: coat ? `s.clearcoat = ${ ( coat.clearcoatFactor || 0 ).toFixed( 5 ) }; s.clearcoatRoughness = ${ ( coat.clearcoatRoughnessFactor || 0 ).toFixed( 5 ) };` : '',
 		};
+		if ( studioMaps ) {
+			options.vertexColors = true; // occlusion baked into the studio rig
+			options.textures = {};
+			if ( pbr.baseColorTexture ) {
+				options.textures.carAlbedo = await readMap( gltf, pbr.baseColorTexture, true );
+				const sampler = options.textures.carAlbedo.sampler === 'anisoClamp' ? 'smpAnisoClamp' : 'smpAnisoRepeat';
+				options.surface += `let decal = textureSample( carAlbedo, ${ sampler }, in.uv ); s.albedo *= decal.rgb; s.alpha *= decal.a;`;
+			}
+			if ( source.normalTexture ) {
+				options.textures.carNormal = await readMap( gltf, source.normalTexture, false );
+				const sampler = options.textures.carNormal.sampler === 'anisoClamp' ? 'smpAnisoClamp' : 'smpAnisoRepeat';
+				options.surface += `let n = textureSample( carNormal, ${ sampler }, in.uv ).xyz * 2.0 - 1.0; s.normal = perturbNormalByMap( in.P, in.N, in.uv, n );`;
+			}
+		}
 		return new Material( customize ? customize( source, options ) : options );
-	} );
+	} ) );
 	const root = new Group(), pivots = new Map();
 	let parts = 0;
 	const nodes = gltf.nodes.map( source => {
 		const node = new Group();
 		node.name = source.name;
 		node.position.fromArray( source.t );
+		if ( /^Wheel(Front|Rear)[LR]$/.test( source.name ) ) node.userData.loadedRadius = source.t[ 1 ];
 		node.quaternion.fromArray( source.r );
 		node.scale.fromArray( source.s );
 		pivots.set( source.name, node );
@@ -75,6 +90,22 @@ export async function loadModel( url, { customize = null } = {} ) {
 	for ( let i = 0; i < nodes.length; i ++ ) for ( const child of gltf.nodes[ i ].children ) nodes[ i ].add( nodes[ child ] );
 	for ( const index of gltf.roots ) root.add( nodes[ index ] );
 	return { root, pivots, parts };
+}
+
+// The studio export embeds its vinyl, badges and moulded tyre relief. glTF image
+// rows and UVs both start at the top, including the colour maps on the far door.
+async function readMap( gltf, info, srgb ) {
+	const map = gltf.textures[ info.index ];
+	const image = gltf.images[ map.source ];
+	const clamp = gltf.json.samplers?.[ map.sampler ]?.wrapS === 33071; // glTF CLAMP_TO_EDGE on the studio decals
+	const { data, width, height } = await decodeImage( image.bytes, image.mimeType );
+	const texture = new Texture( {
+		label: 'carMap' + info.index, width, height, data, format: srgb ? 'rgba8unorm-srgb' : 'rgba8unorm',
+		mips: true, usage: [ 'sample', 'copyDst' ], sampler: clamp ? 'anisoClamp' : 'anisoRepeat',
+	} );
+	texture.getGPU();
+	generateMipmaps( texture );
+	return texture;
 }
 
 let platePromise;
@@ -157,6 +188,14 @@ const PLATES = {
 	aster_rs: [ [ 0, 0.532, - 2.27, Math.PI ], [ 0, 0.41, 2.29, 0 ] ],
 	// Over the plates built into the Jeep's bumpers (rear one beside the spare wheel).
 	black_jeep: [ [ - 0.55, 0.79, - 2.373, Math.PI ], [ 0, 0.79, 2.413, 0 ] ],
+	// From the import's plate report (assets/rally/asset_report.json plates_gltf_xyz_yaw).
+	concept_gt: [ [ 0, 0.315, - 2.007, Math.PI ], [ 0, 0.41, 2.337, 0 ] ],
+	// From assets/rally/fulmine_v10_report.json plates_gltf_xyz_yaw (tools/rally/build_fulmine_v10.py).
+	fulmine_v10: [ [ 0, 0.6, - 2.218, Math.PI ], [ 0, 0.26, 2.316, 0 ] ],
+	// From assets/rally/corsaire_w16_report.json (tools/rally/build_corsaire_w16.py).
+	corsaire_w16: [ [ 0, 0.66, - 2.248, Math.PI ], [ 0, 0.26, 2.246, 0 ] ],
+	// From assets/rally/sandpiper_report.json (tools/rally/build_sandpiper.py): under the valance, on the nose.
+	sandpiper: [ [ 0, 0.4, - 1.528, Math.PI ], [ 0, 0.5, 1.626, 0 ] ],
 	support_wagon: [ [ 0, 0.695, - 2.493, Math.PI ] ],
 	support_pickup: [ [ 0, 0.452, - 2.798, Math.PI ] ],
 };

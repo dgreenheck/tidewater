@@ -18,10 +18,13 @@
 // Solid: each car near the player's has two kinematic bodies in the car physics (solid()), so the
 // player's car stops against it. Aboard, a car's pose is kept in her frame, so it rides with her.
 //   ferry.traffic.update( dt ), ferry.traffic.state(), ferry.traffic.holding()
-import { Group, Mesh, Vector3, Quaternion, mergeGeometries } from '../engine/index.js';
+import { Group, Mesh, Vector3, Quaternion, Matrix4, InstancedMesh, mergeGeometries } from '../engine/index.js';
 import { loadModel } from '../rally/VehicleModel.js';
+import { WheelRig } from './trafficWheels.js';
 
 const MODELS = [ 'ParkedAster', 'ParkedJeep', 'ParkedWagon', 'ParkedPickup' ];
+// each model's wheel nodes in parked_cars.glb (<model>WheelFrontL ..), fronts first: they steer
+const WHEELS = [ 'WheelFrontL', 'WheelFrontR', 'WheelRearL', 'WheelRearR' ];
 const YARD = 3.2, DECK = 2.6;          // m: the yard's paving (terminal frame), her vehicle deck (her frame)
 const LANES = [ 0.75, 4.0 ];           // terminal x of the two marshalling lanes cars queue in
 const HEAD = - 48, STEP = 7.5;         // terminal z of the queue's head (a clear apron off the linkspan for cars driving or backing off), and the spacing back from it
@@ -54,6 +57,7 @@ const LOW = 0.28;
 const FIT = { ParkedAster: [ 0, 0.03, 0.28 ], ParkedWagon: [ 0, 0.1, 0.46 ], ParkedJeep: [ 1, - 0.25, 0.4 ], ParkedPickup: [ 1, - 0.3, 0.7 ] };
 
 const _v = new Vector3(), _w = new Vector3(), _u = new Vector3(), _f = new Vector3(), _s = new Float32Array( 8 ), _q = new Quaternion(), _p = new Quaternion(), _up = new Vector3( 0, 1, 0 ), _x = new Vector3( 1, 0, 0 );
+const _m = new Matrix4(), _r = new Quaternion(), _one = new Vector3( 1, 1, 1 );
 const rand = ( a, b ) => a + Math.random() * ( b - a );
 const bySlot = ( a, b ) => a.slot - b.slot;
 // is q ahead of p along heading (hx, hz) (length h): in a cone, or a corridor 2.6 m either side (see blocked)
@@ -89,6 +93,7 @@ export class Traffic {
 
 		const model = await loadModel( `${ import.meta.env.BASE_URL }ferry/parked_cars.glb` );
 		this.parts = new Map( MODELS.map( n => [ n, ( model.pivots.get( n )?.children || [] ).filter( c => c.isMesh ) ] ) );
+		this.wheelMeshes( model );
 		for ( const b of this.ferry.berths ) {
 
 			const stop = this.stop( b.terminal );
@@ -139,6 +144,7 @@ export class Traffic {
 			g.add( m );
 
 		}
+		this.wheelsFor( g, name );
 		this.app.scene.add( g );
 		return g;
 
@@ -169,6 +175,113 @@ export class Traffic {
 		}
 		this._merged.set( name, out );
 		return out;
+
+	}
+
+	// Each model's wheels (tools/ferry/parked_cars.py): its hubs, its front left wheel's parts (the
+	// right hand pair is the same wheel turned half round about Y, as on a real car), the tyre's
+	// radius and the wheelbase. Each car draws them as one InstancedMesh per wheel material, four
+	// instances, inside its own group (wheelsFor). Not one mesh per model across every car: the
+	// engine reprojects an instance with this frame's matrix as last frame's (MeshRenderer: prevModel
+	// = draw.prevModel * instance), so wheels of moving cars drawn that way had no motion vectors and
+	// left dark TAA trails behind the cars (traffic-wheels-closeup.png, 2026-10-05). In the car's
+	// group they move with its tracked matrix; only their own roll goes unblurred.
+	wheelMeshes( model ) {
+
+		this.wheelSpec = new Map();
+		for ( const name of MODELS ) {
+
+			const hubs = [];
+			for ( const suffix of WHEELS ) {
+
+				const pivot = model.pivots.get( name + suffix );
+				if ( pivot ) hubs.push( pivot.position.clone() );
+
+			}
+			const parts = ( model.pivots.get( name + WHEELS[ 0 ] )?.children || [] ).filter( c => c.isMesh );
+			// (a GLB from before 2026-10-05 has no wheel nodes: its cars draw without wheels to turn)
+			if ( hubs.length < 4 || ! parts.length ) continue;
+			// the tyre's radius: the wheel's half height (its mesh is centred on the hub); the
+			// wheelbase from the hubs (fronts first)
+			let radius = 0;
+			for ( const m of parts ) {
+
+				if ( ! m.geometry.boundingBox ) m.geometry.computeBoundingBox();
+				radius = Math.max( radius, m.geometry.boundingBox.max.y, - m.geometry.boundingBox.min.y );
+
+			}
+			this.wheelSpec.set( name, { hubs, parts, radius, wheelbase: hubs[ 0 ].z - hubs[ 2 ].z } );
+
+		}
+
+	}
+
+	// A car group's wheels: per wheel material an InstancedMesh of the four, at rest at their hubs.
+	wheelsFor( g, name ) {
+
+		const spec = this.wheelSpec?.get( name );
+		g.wheelMeshes = [];
+		if ( ! spec ) return;
+		for ( const part of spec.parts ) {
+
+			const mesh = new InstancedMesh( part.geometry, part.material, 4 );
+			mesh.name = 'TrafficWheels:' + name + ':' + part.material.name;
+			mesh.castShadow = part.castShadow;
+			mesh.receiveShadow = true;
+			mesh.layers.mask = part.layers.mask;
+			g.add( mesh );
+			g.wheelMeshes.push( mesh );
+
+		}
+		this.placeWheels( g, spec, 0, 0 );
+		for ( const mesh of g.wheelMeshes ) mesh.computeBoundingSphere();
+
+	}
+
+	// The four wheels in the car's frame: at the hub, steered (front pair) about the wheel's Y, then
+	// rolled about its axle (X). A right hand wheel (k odd) is the left one turned half round: its
+	// axle points the other way, so the same roll forward is the opposite angle about it.
+	placeWheels( g, spec, steer, spin ) {
+
+		for ( let k = 0; k < 4; k ++ ) {
+
+			const right = k % 2 === 1;
+			_r.setFromAxisAngle( _up, ( k < 2 ? steer : 0 ) + ( right ? Math.PI : 0 ) ).multiply( _p.setFromAxisAngle( _x, right ? - spin : spin ) );
+			_m.compose( spec.hubs[ k ], _r, _one );
+			for ( const mesh of g.wheelMeshes ) mesh.setMatrixAt( k, _m );
+
+		}
+		for ( const mesh of g.wheelMeshes ) mesh.instanceMatrix.needsUpdate = true;
+
+	}
+
+	// Every visible car's wheels to its rig's roll and steer, after drive() has moved them.
+	drawWheels() {
+
+		if ( ! this.wheelSpec ) return;
+		for ( const car of this.cars ) {
+
+			const spec = this.wheelSpec.get( car.name ), g = car.group;
+			if ( ! spec || ! g.visible || ! g.wheelMeshes?.length ) continue;
+			const rig = car.wheels || ( car.wheels = new WheelRig( spec.radius, spec.wheelbase ) );
+			if ( rig.spin === g.drawnSpin && rig.steer === g.drawnSteer ) continue;   // standing: nothing to upload
+			g.drawnSpin = rig.spin;
+			g.drawnSteer = rig.steer;
+			this.placeWheels( g, spec, rig.steer, rig.spin );
+
+		}
+
+	}
+
+	// Test hook: the drawn front left wheel in its car's frame, read back from its instances: its
+	// steer, and how far its roll is from the rig's (rad). Null while the car has no wheels drawn.
+	drawnWheel( car ) {
+
+		const mesh = car.group.wheelMeshes?.[ 0 ];
+		if ( ! mesh || ! car.wheels ) return null;
+		const e = _m.fromArray( mesh.instanceMatrix.array, 0 ).elements, steer = Math.atan2( - e[ 2 ], e[ 0 ] );
+		const off = Math.atan2( e[ 4 ] * Math.sin( steer ) + e[ 6 ] * Math.cos( steer ), e[ 5 ] ) - car.wheels.spin;
+		return { steer, spinError: Math.abs( off - 2 * Math.PI * Math.round( off / ( 2 * Math.PI ) ) ), draws: car.group.wheelMeshes.length };
 
 	}
 
@@ -269,6 +382,7 @@ export class Traffic {
 
 		}
 		this.cars.length = keep;
+		this.drawWheels();
 
 	}
 
@@ -288,7 +402,7 @@ export class Traffic {
 			let i = 0, s = car.s;
 			while ( i < seg.length - 1 && s > seg[ i ] ) s -= seg[ i ++ ];
 			// the segment's speed, easing down to a stop at the path's end (backing out: its start)
-			const back = car.state === 'back', by = this.blocked( car, pts, seg, i, len );
+			const back = car.state === 'back', by = this.blocked( car, pts, seg, i, len ), s0 = car.s;
 			const want = by ? 0 : Math.min( back ? SLOW : P.points[ i + 1 ][ 4 ], 0.15 + 1.4 * Math.sqrt( Math.max( 0, back ? car.s : len - car.s ) ) );
 			car.braking = want < car.v - 0.05 || want === 0;
 			car.v = want < car.v ? Math.max( want, car.v - 4 * dt ) : Math.min( want, car.v + 1.5 * dt );
@@ -309,6 +423,8 @@ export class Traffic {
 				car.grade = Math.atan2( b.y - a.y, Math.hypot( b.x - a.x, b.z - a.z ) );
 				car.local = P.points[ i ][ 0 ] === 'S' && P.points[ i + 1 ][ 0 ] === 'S' ? this.ferry.ship.toLocal( car.world, car.local || new Vector3() ) : null;
 				if ( car.local ) car.localYaw = car.heading - this.ferry.ship.yaw;
+				// its wheels roll by the road it covered and steer for the road ahead (trafficWheels.js)
+				car.wheels?.follow( pts, seg, car.s, car.world, car.heading, car.s - s0, dt );
 
 			}
 

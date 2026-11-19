@@ -2,19 +2,24 @@
   "name": "tidewater",
   "version": "1.0.0",
   "scripts": {
+    "assets:prepare": "node tools/distribution-assets.mjs unpack",
+    "postinstall": "npm run assets:prepare",
+    "prebuild": "npm run assets:prepare",
+    "predev": "npm run assets:prepare",
     "dev": "vite --host 127.0.0.1 --port 5189",
     "build": "vite build",
     "preview": "vite preview",
     "start": "node server/start.mjs",
-    "test": "npm run test:physics && node test/rally-bridge.mjs && node --test test/tyre-tracks.mjs test/rally-network.mjs test/damage.mjs test/ferry-road.mjs test/ferry-mooring.mjs && node test/game-logic.mjs && node test/engine-smoke.mjs && npm run test:rally",
+    "test": "npm run test:physics && npm run test:simulation && node test/rally-bridge.mjs && node --test test/hud-context.mjs test/tyre-tracks.mjs test/rally-network.mjs test/damage.mjs test/ferry-road.mjs test/terminal-flat.mjs test/coastal-grade.mjs test/ferry-mooring.mjs && node test/game-logic.mjs && node test/engine-smoke.mjs && node test/taa-debris.mjs && node test/geometry-motion-gpu.mjs && node test/tornado-plume-gpu.mjs && npm run test:rally",
     "test:rally": "playwright test",
     "test:physics": "cargo test --locked --manifest-path rally-physics/Cargo.toml -j 6",
     "build:rally": "node tools/rally/build.mjs",
-    "sync:rally": "node tools/rally/sync.mjs"
+    "sync:rally": "node tools/rally/sync.mjs",
+    "test:simulation": "node --test test/physical-loads.mjs test/gt3-rs.mjs test/gt3-handling.mjs test/traffic-wheels.mjs test/vehicle-parity.mjs test/vehicle-glass.mjs test/disasters.mjs test/disaster-bridge.mjs test/disaster-coupling.mjs test/disaster-frame-cost.mjs test/disaster-playback-status.mjs test/disaster-bookkeeping-alloc.mjs test/disaster-randomness.mjs test/disaster-panel-cost.mjs test/aviation-physics.mjs test/sharks.mjs test/windfarm.mjs test/aviation-assets.mjs test/fallen-vegetation.mjs test/evacuation.mjs test/water-wind.mjs test/walker-pusher.mjs test/disaster-wreckage.mjs test/debris-motion.mjs test/tornado-visuals.mjs test/glider-physics.mjs test/glider-assets.mjs test/disaster-people.mjs test/people-evacuation.mjs test/geometry-upload.mjs test/disaster-fragments.mjs test/aviation-controls.mjs test/tornado-aerosols.mjs test/refraction-bounds.mjs test/livestock.mjs test/livestock-assets.mjs test/player-flood.mjs test/prop-clearance.mjs test/livestock-balance.mjs test/aviation-gameplay.mjs test/glider-camera.mjs test/glider-station.mjs test/ocean-displacement-bounds.mjs test/shadow-caster-motion.mjs test/gameplay-people.mjs test/tree-loads.mjs test/structural-members.mjs test/tsunami-extreme.mjs test/walker-cadence.mjs test/car-extreme-fluid.mjs test/ferry-support-order.mjs test/chairlift.mjs test/chairlift-integration.mjs test/chairlift-towers.mjs test/jetski-fluid.mjs test/grass-clearance.mjs test/chairlift-terminal.mjs test/chairlift-camera.mjs test/articulated-contact.mjs test/articulated-solver.mjs test/ragdoll-tornado-burial.mjs test/articulated-mass.mjs test/articulated-response.mjs test/articulated-neighbors.mjs test/tornado-plume.mjs test/tornado-plume-director.mjs test/imported-structures.mjs test/glider-head-contact.mjs test/player-swim-head.mjs test/articulated-hot-paths.mjs test/articulated-workers.mjs test/async-frame.mjs test/simulation-pacing.mjs test/disaster-hot-paths.mjs test/render-hot-paths.mjs test/aviation-flight-feel.mjs test/tsunami-approach.mjs test/tsunami-plan.mjs test/tsunami-coast.mjs test/tsunami-farfield.mjs test/tsunami-mega.mjs test/field-acceleration-scratch.mjs test/rig-snapshot-water.mjs test/tsunami-solver.mjs test/disaster-next-seed.mjs test/tree-failure.mjs test/building-damage.mjs test/rod-hint.mjs test/start-walk.mjs test/chairlift-panel.mjs test/frame-garbage.mjs test/collider-queries.mjs test/debris-clear-zones.mjs test/resolution-governor.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",
-    "vite": "^8.3.0",
+    "vite": "^8.3.8",
     "webgpu": "^0.6.1"
   },
   "license": "MIT",

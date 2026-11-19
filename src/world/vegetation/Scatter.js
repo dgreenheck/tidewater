@@ -661,6 +661,10 @@ export function buildGrassMask( site ) {
 			const k = j * res + i;
 			const x = t.origin + ( i + 0.5 ) * texel;
 			if ( t.heightAt( x, z ) < 1.7 ) continue;
+			// Grass uses a separate filtered density mask from tree scattering.
+			// Honour the same reserved floors, allowing one metre for blade sway
+			// plus the diagonal reach of bilinear interpolation at their edges.
+			if ( t.inClearZone?.( x, z, 1 + Math.SQRT2 * texel ) ) continue;
 			if ( site.rock( x, z ) > 0.45 ) continue;
 			site.cover( x, z, c );
 			if ( c.bare > 0.5 ) continue;
