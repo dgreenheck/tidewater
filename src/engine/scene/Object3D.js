@@ -11,6 +11,10 @@ import { Matrix4 } from '../math/Matrix4.js';
 import { generateUUID } from '../math/MathUtils.js';
 import { Layers } from './Layers.js';
 
+// Bumped by every add, remove and attach in any scene graph. MeshRenderer draws a posed scene from a
+// flat list of its nodes (src/engine/render/SceneWalk.js) and rebuilds that list only when this moves.
+export const SceneHierarchy = { version: 0 };
+
 let _id = 0;
 
 const _v1 = /*@__PURE__*/ new Vector3();
@@ -150,6 +154,7 @@ export class Object3D extends EventDispatcher {
 			object.removeFromParent();
 			object.parent = this;
 			this.children.push( object );
+			SceneHierarchy.version ++;
 			object.dispatchEvent( _addedEvent );
 			_childAddedEvent.child = object;
 			this.dispatchEvent( _childAddedEvent );
@@ -175,6 +180,7 @@ export class Object3D extends EventDispatcher {
 
 			object.parent = null;
 			this.children.splice( i, 1 );
+			SceneHierarchy.version ++;
 			object.dispatchEvent( _removedEvent );
 			_childRemovedEvent.child = object;
 			this.dispatchEvent( _childRemovedEvent );
@@ -205,6 +211,7 @@ export class Object3D extends EventDispatcher {
 		object.removeFromParent();
 		object.parent = this;
 		this.children.push( object );
+		SceneHierarchy.version ++;
 		object.updateWorldMatrix( false, true );
 		object.dispatchEvent( _addedEvent );
 		return this;

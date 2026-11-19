@@ -10,6 +10,7 @@ import { getDetailTexture } from './DetailTextures.js';
 //   rot2( v, a )     -> WGSL expression rotating the vec2 expression v by a constant angle
 // WGSL (terrainShadingModule(); the detail texture is bound as `terrainDetailTex`):
 //   fn terrainPerturbNormal( P: vec3f, N: vec3f, hd: f32, scale: f32 ) -> vec3f   surface-gradient bump
+//   fn terrainPerturbNormalD( P: vec3f, N: vec3f, dhdx: f32, dhdy: f32 ) -> vec3f  same from given derivatives
 //   fn terrainTriWeights( N: vec3f ) -> vec3f
 //   fn terrainTriplanar( p: vec3f, w: vec3f, tile: f32, g: RockGrad ) -> vec4f
 //   fn terrainRockSurface( p, N, h, mcr, seed, mossAmount, g: RockGrad ) -> RockSurface
@@ -100,8 +101,13 @@ fn terrainImplicitGrad( p: vec3f ) -> RockGrad {
 //    of CDLOD geomorphing, which otherwise light up as bright lines along the grid) or where the
 //    rendered facet disagrees with N (sub-texel crags)
 fn terrainPerturbNormal( p: vec3f, N: vec3f, hd: f32, scale: f32 ) -> vec3f {
+	return terrainPerturbNormalD( p, N, dpdxFine( hd ) * scale, dpdyFine( hd ) * scale );
+}
+
+// same bump from height derivatives the caller takes itself (fine: per pixel, not per 2x2 quad,
+// or a strong relief shades in quad-sized blocks), so it can leave a mask's own edge out
+fn terrainPerturbNormalD( p: vec3f, N: vec3f, dhdx: f32, dhdy: f32 ) -> vec3f {
 	let dpx = dpdx( p ); let dpy = dpdy( p );
-	let dhdx = dpdx( hd ) * scale; let dhdy = dpdy( hd ) * scale;
 	let r1 = cross( dpy, N );
 	let r2 = cross( N, dpx );
 	let det = dot( dpx, r1 );

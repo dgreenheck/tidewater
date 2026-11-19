@@ -3,6 +3,7 @@ import { mergeGeometries } from '../engine/geometry/BufferGeometryUtils.js';
 import { prepare, mergePrepared, box, cylinder, sphere, rod, mat4 } from '../world/boat/GeoKit.js';
 import { createPropMaterial, PAT } from './GameMaterials.js';
 import { Vendor } from './Vendor.js';
+import { BirdCage } from '../player/BirdCage.js';
 import { loadStallAssets, KitBuilder, LAYER, ATLAS, place, Shapes } from './StallKit.js';
 import { FishProps } from '../world/fish/FishProps.js';
 import { FISH } from './FishTable.js';
@@ -16,6 +17,64 @@ export const STAND = { x: 49.9, z: - 74.6, yaw: 1.45 }; // beside the boardwalk 
 
 const STALL_FLOOR = 0.06; // top of the stall's plank floor (local y)
 const ICE_TOP = 1.27; // top of the ice in the chest on the counter (local y)
+// the fish on the ice (species, length m) and where each lies (stand local): across the chest, alternating flanks
+const ICE_FISH = [ [ 'jack', 0.36 ], [ 'redSnapper', 0.34 ], [ 'yellowtail', 0.3 ], [ 'grunt', 0.26 ], [ 'mullet', 0.33 ] ];
+const iceFishAt = ( i ) => ( { x: - 0.55 + ( i % 2 ? 0.04 : - 0.04 ), z: 0.7 + i * 0.085, yaw: i % 2 ? 0.12 : - 0.1, L: ICE_FISH[ i ][ 1 ] } );
+
+// Crushed ice over the bed in the fish box (w x d, centred on cx, cz, stand local): loose irregular chunks, each a
+// jittered octahedron with flat facets (the kit's ice shading gives them the glassy blue-grey body, the white
+// frosted faces and the wet clearcoat, so the facets catch hard little highlights), 0.7 to 2.2 cm, heaped up
+// around the fish so they lie bedded in the ice, not on it. Deterministic (the kit's rnd).
+function crushedIce( K, w, d, cx, cz ) {
+
+	const V = ( x, y, z ) => new Vector3( x, y, z ), e1 = new Vector3(), e2 = new Vector3(), nn = new Vector3();
+	const R = new Matrix4(), Q = new Quaternion(), ax = new Vector3();
+	const fish = ICE_FISH.map( ( _, i ) => iceFishAt( i ) );
+	// how far (in fish half-lengths / half-depths) a point is from each fish's outline, lying on its side
+	const heap = ( x, z ) => {
+
+		let h = 0, under = false;
+		for ( const f of fish ) {
+
+			const c = Math.cos( f.yaw ), s = Math.sin( f.yaw ), u = ( x - f.x ) * c - ( z - f.z ) * s, v = ( x - f.x ) * s + ( z - f.z ) * c;
+			const r = Math.hypot( u / ( f.L * 0.5 ), v / ( f.L * 0.13 ) );
+			if ( r < 0.55 ) under = true;
+			h = Math.max( h, 0.02 * Math.exp( - ( ( ( r - 0.85 ) / 0.3 ) ** 2 ) ) ); // heaped up the flanks
+
+		}
+
+		return under ? null : h;
+
+	};
+	const n = Math.round( w * d * 5200 );
+	for ( let k = 0; k < n; k ++ ) {
+
+		const x = cx + ( K.rnd() - 0.5 ) * ( w - 0.02 ), z = cz + ( K.rnd() - 0.5 ) * ( d - 0.02 ), h = heap( x, z );
+		if ( h === null ) continue; // under a fish: never seen
+		const size = 0.007 + K.rnd() ** 1.6 * 0.015;
+		const y = ICE_TOP - 0.012 + K.rnd() * 0.012 + h;
+		ax.set( K.rnd() - 0.5, K.rnd() - 0.5, K.rnd() - 0.5 ).normalize();
+		R.makeRotationFromQuaternion( Q.setFromAxisAngle( ax, K.rnd() * Math.PI ) );
+		// six tips, each pushed in or out, the chunk flattened a little (crushed ice breaks into slabs)
+		const tip = [ V( 1, 0, 0 ), V( - 1, 0, 0 ), V( 0, 1, 0 ), V( 0, - 1, 0 ), V( 0, 0, 1 ), V( 0, 0, - 1 ) ].map( ( t ) => {
+
+			t.multiplyScalar( size * 0.5 * ( 0.65 + K.rnd() * 0.6 ) ).add( e1.set( K.rnd() - 0.5, K.rnd() - 0.5, K.rnd() - 0.5 ).multiplyScalar( size * 0.35 ) );
+			t.y *= 0.7;
+			return t.applyMatrix4( R ).add( e2.set( x, y, z ) );
+
+		} );
+		for ( const [ a, b, c ] of [ [ 0, 2, 4 ], [ 4, 2, 1 ], [ 1, 2, 5 ], [ 5, 2, 0 ], [ 4, 3, 0 ], [ 1, 3, 4 ], [ 5, 3, 1 ], [ 0, 3, 5 ] ] ) {
+
+			nn.crossVectors( e1.subVectors( tip[ b ], tip[ a ] ), e2.subVectors( tip[ c ], tip[ a ] ) ).normalize();
+			const i0 = K.pos.length / 3;
+			for ( const t of [ tip[ a ], tip[ b ], tip[ c ] ] ) K._vert( t, nn, [ t.x, t.z ], [ 1, 1, 1 ], LAYER.ICE, [ 0, 0 ] );
+			K.idx.push( i0, i0 + 1, i0 + 2 );
+
+		}
+
+	}
+
+}
 
 export class FishStand {
 
@@ -60,6 +119,8 @@ export class FishStand {
 			character: { url: ( ( import.meta.env && import.meta.env.BASE_URL ) || '/' ) + 'models/characters/joe.glb', idle: 'idle_neutral_01', talk: 'gestic_talk_relaxed_01', greet: 'wave_01' },
 		} );
 		scene.add( this.vendor.group );
+		// Cocky's cage on the counter's right end, where Joe can mind him (src/player/BirdCage.js)
+		this.cage = new BirdCage( { scene, stand: this } );
 
 		// the stall is solid (counter front and the side walls)
 		if ( colliders ) {
@@ -81,7 +142,7 @@ export class FishStand {
 	iceFish() {
 
 		const out = [];
-		const list = [ [ 'jack', 0.36 ], [ 'redSnapper', 0.34 ], [ 'yellowtail', 0.3 ], [ 'grunt', 0.26 ], [ 'mullet', 0.33 ] ];
+		const list = ICE_FISH;
 		const base = new Matrix4().makeRotationY( STAND.yaw ).setPosition( STAND.x, this.group.position.y, STAND.z );
 		list.forEach( ( [ species, L ], i ) => {
 
@@ -90,7 +151,8 @@ export class FishStand {
 			// side so it rests on the ice instead of sinking into it; later fish lie a little higher,
 			// overlapping the one before like a real display.
 			const rest = FishProps.restHeight( FISH[ species ].model, L );
-			const local = new Matrix4().makeRotationY( ( i % 2 ? 0.12 : - 0.1 ) ).setPosition( - 0.55 + ( i % 2 ? 0.04 : - 0.04 ), ICE_TOP + rest + 0.006 * i, 0.7 + i * 0.085 );
+			const f = iceFishAt( i );
+			const local = new Matrix4().makeRotationY( f.yaw ).setPosition( f.x, ICE_TOP + rest + 0.006 * i, f.z );
 			out.push( { species, frame: new Matrix4().multiplyMatrices( base, local ), L, pose: i % 2 ? 'sideFlip' : 'side' } );
 
 		} );
@@ -172,10 +234,10 @@ function buildStall() {
 	add( box( 0.84, 0.03, 0.44 ), { color: 0xe7eef0, rough: 0.15, matrix: mat4( - 0.55, 1.255, 0.85 ) } );
 	// (the fish on the ice are real fish models: FishStand.iceFish / CatchDisplay)
 
-	// hanging scale
-	add( rod( V( 0.6, 2.25, 0.62 ), V( 0.6, 1.75, 0.62 ), 0.006, 4 ), { color: 0x555a5c, rough: 0.4, metal: 1 } );
-	add( cylinder( 0.1, 0.1, 0.05, 18 ), { color: 0xc9c2b0, rough: 0.5, metal: 0.4, pattern: PAT.rusty, matrix: mat4( 0.6, 1.66, 0.62, Math.PI / 2, 0, 0 ) } );
-	add( cylinder( 0.14, 0.11, 0.05, 16 ), { color: 0xa9b0b3, rough: 0.35, metal: 1, matrix: mat4( 0.6, 1.45, 0.62 ) } );
+	// hanging scale (over the left of the ice chest, clear of the buyer's face and the birdcage, as in the kit stall)
+	add( rod( V( - 0.8, 2.25, 0.78 ), V( - 0.8, 1.75, 0.78 ), 0.006, 4 ), { color: 0x555a5c, rough: 0.4, metal: 1 } );
+	add( cylinder( 0.1, 0.1, 0.05, 18 ), { color: 0xc9c2b0, rough: 0.5, metal: 0.4, pattern: PAT.rusty, matrix: mat4( - 0.8, 1.66, 0.78, Math.PI / 2, 0, 0 ) } );
+	add( cylinder( 0.14, 0.11, 0.05, 16 ), { color: 0xa9b0b3, rough: 0.35, metal: 1, matrix: mat4( - 0.8, 1.45, 0.78 ) } );
 	// floats hanging from the eave, a coiled line and a bucket
 	for ( let i = 0; i < 5; i ++ ) add( sphere( 0.06, 10, 8 ), { color: [ 0xe2552a, 0xf2c230, 0xe8e2d0, 0x2f8f6f, 0xe2552a ][ i ], rough: 0.5, matrix: mat4( - 1.1 + i * 0.5, 2.05 + jit( 0.1 ), 0.95 ) } );
 	for ( let i = 0; i < 5; i ++ ) add( rod( V( - 1.1 + i * 0.5, 2.4, 0.95 ), V( - 1.1 + i * 0.5, 2.1, 0.95 ), 0.004, 3 ), { color: 0xcbb999, rough: 0.9 } );
@@ -269,23 +331,31 @@ function buildStallKit( assets ) {
 
 	}
 
-	K.ice( bw - 2 * t - 0.01, bd - 2 * t - 0.01, place( bx, 1.245, bz ), 0.02 );
+	// the bed under it sits a little lower, a darker wet layer the chunks lie in
+	K.ice( bw - 2 * t - 0.01, bd - 2 * t - 0.01, place( bx, 1.238, bz ), 0.01 );
+	crushedIce( K, bw - 2 * t - 0.01, bd - 2 * t - 0.01, bx, bz );
 
 	// cutting board and a filleting knife by the box
 	K.prop( 'wooden_cutting_board', place( 0.32, b0, 0.88, 0.12 ) );
 	K.prop( 'fish_knife', place( 0.3, b0 + 0.041 + 0.008, 0.84, 1.1, - Math.PI / 2 ) );
 
 	// hanging spring scale: hook, red enamelled body with the dial, steel pan on three chains
-	const sx0 = 0.62, sz0 = 0.84;
-	const steel = { layer: PLAIN, color: [ 0.52, 0.53, 0.52 ], params: [ 0.38, 1 ] };
-	K.geometry( Shapes.cylinder( 0.004, 0.004, 0.5, 6 ), place( sx0, 2.06, sz0 ), steel );
+	// It hangs over the left half of the fish box, off a batten under the rafters: from the front and the
+	// left front it sits well left of Joe's face and never in front of the birdcage on the counter's right end.
+	const sx0 = - 0.8, sz0 = 0.78;
+	const steel = { layer: PLAIN, color: [ 0.56, 0.57, 0.56 ], params: [ 0.45, 0.4 ] }; // hook, rod and chains, as the pan
+	// the batten: nailed across the undersides of the left and middle rafters, just behind the sign
+	const ry = 2.33 + sz0 * Math.tan( 0.16 ) - 0.045; // rafter underside at z sz0 (the rafters pitch 0.16)
+	K.box( 1.32, 0.045, 0.05, place( - 0.625, ry - 0.0225, sz0, 0, 0, J( 0.004 ) ), { layer: DECK, along: 'x', color: tone() } );
+	K.geometry( Shapes.torus( 0.012, 0.003, 6, 12 ), place( sx0, ry - 0.057, sz0, Math.PI / 2 ), steel );
+	K.geometry( Shapes.cylinder( 0.004, 0.004, ry - 0.069 - 1.81, 6 ), place( sx0, ( ry - 0.069 + 1.81 ) / 2, sz0 ), steel );
 	K.geometry( Shapes.torus( 0.018, 0.004, 6, 14 ), place( sx0, 1.82, sz0, Math.PI / 2 ), steel );
 	K.geometry( Shapes.cylinder( 0.1, 0.1, 0.05, 28 ), place( sx0, 1.7, sz0, 0, Math.PI / 2 ), { layer: FLOAT, color: [ 0.55, 0.1, 0.07 ] } );
 	K.geometry( Shapes.torus( 0.093, 0.009, 8, 32 ), place( sx0, 1.7, sz0 + 0.026 ), { layer: PLAIN, color: [ 0.62, 0.6, 0.56 ], params: [ 0.36, 1 ] } );
 	K.disc( 0.088, place( sx0, 1.7, sz0 + 0.0265 ), { layer: DIAL, uv2Rect: ATLAS.dial } );
 	K.box( 0.005, 0.075, 0.003, place( sx0, 1.7, sz0 + 0.032, 0, 0, - 0.9 ).multiply( new Matrix4().makeTranslation( 0, 0.03, 0 ) ), { layer: PLAIN, color: [ 0.08, 0.07, 0.06 ], params: [ 0.4, 0 ] } );
 	K.geometry( Shapes.cylinder( 0.003, 0.003, 0.1, 6 ), place( sx0, 1.6, sz0 ), steel );
-	K.geometry( Shapes.lathe( [ [ 0.0, 0.0 ], [ 0.12, 0.008 ], [ 0.15, 0.035 ], [ 0.155, 0.04 ] ], 24 ), place( sx0, 1.43, sz0 ), { layer: PLAIN, color: [ 0.72, 0.72, 0.7 ], params: [ 0.5, 1 ] } );
+	K.geometry( Shapes.lathe( [ [ 0.0, 0.0 ], [ 0.12, 0.008 ], [ 0.15, 0.035 ], [ 0.155, 0.04 ] ], 24 ), place( sx0, 1.43, sz0 ), { layer: PLAIN, color: [ 0.66, 0.67, 0.66 ], params: [ 0.52, 0.35 ] } ); // brushed steel: part metal, so it does not mirror the dark roof
 	for ( let k = 0; k < 3; k ++ ) {
 
 		const a = k / 3 * Math.PI * 2;

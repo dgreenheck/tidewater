@@ -1,5 +1,6 @@
 import { Color, Matrix4, Vector3 } from '../engine/index.js';
-import { Builder, mat4, gridPart, slabPart, sagPoints } from './village/GeoBuilder.js';
+import { Builder, mat4, gridPart, slabPart, sagPoints, tagSpans } from './village/GeoBuilder.js';
+import { PROPS } from '../physics/Props.js';
 import { FishProps } from './fish/FishProps.js';
 import { mulberry32 } from '../util/Noise.js';
 
@@ -813,37 +814,55 @@ export function fence( B, pts, groundFn, style = 'picket', tint = C.white, seed 
 			const ta = i / n, tb = ( i + 1 ) / n;
 			const ax = x0 + ( x1 - x0 ) * ta, az = z0 + ( z1 - z0 ) * ta, bx = x0 + ( x1 - x0 ) * tb, bz = z0 + ( z1 - z0 ) * tb;
 			const ga = groundFn( ax, az ), gb = groundFn( bx, bz );
-			for ( const ry of painted ? [ 0.25, 0.7 ] : [ 0.35, 0.78 ] ) {
+			const L2 = Math.hypot( bx - ax, bz - az );
+			const at = ( u ) => [ ax + ( bx - ax ) * u, ga + ( gb - ga ) * u, az + ( bz - az ) * u ];
+			// In the world each panel is a breakable (src/physics/Props.js): whole until a car hits it
+			// hard, then its thirds (pre-split here, rails included) come loose. It has its own walker box.
+			let panel = null, wyaw = 0;
+			if ( colliders && toWorld ) {
 
-				B.beam( 'wood', [ ax, ga + ry, az ], [ bx, gb + ry, bz ], 0.03, 0.08, { tint: painted ? tint : [ 1, 1, 1 ], data: WOOD( seed + ry + i, 0.8, painted ? 0.45 : 0, 0 ) } );
-
-			}
-
-			if ( painted ) {
-
-				const L2 = Math.hypot( bx - ax, bz - az );
-				const np = Math.floor( L2 / 0.14 );
-				for ( let k = 0; k < np; k ++ ) {
-
-					const tt = ( k + 0.5 ) / np;
-					const px = ax + ( bx - ax ) * tt, pz = az + ( bz - az ) * tt;
-					const g = ga + ( gb - ga ) * tt;
-					const h = 0.9 + ( ( k * 7 + i * 3 ) % 5 ) * 0.012;
-					B.box( 'wood', px, g + h / 2 - 0.05, pz, 0.075, h, 0.022, { grain: 1, ry: yaw + Math.PI / 2, tint, data: WOOD( seed + k * 0.37, 0.8, 0.45, 0 ) } );
-					B.box( 'wood', px, g + h - 0.03, pz, 0.053, 0.053, 0.022, { grain: 1, ry: yaw + Math.PI / 2, rz: Math.PI / 4, tint, data: WOOD( seed + k * 0.37, 0.8, 0.45, 0 ) } );
-
-				}
+				const a = toWorld( ax, az ), b = toWorld( bx, bz );
+				wyaw = Math.atan2( b.x - a.x, b.z - a.z );
+				const g = Math.max( ga, gb );
+				panel = PROPS.panel( new Vector3( ( a.x + b.x ) / 2, g + 0.45, ( a.z + b.z ) / 2 ), wyaw, new Vector3( 0.08, 0.55, L2 / 2 ) );
+				panel.box = colliders.addBox( new Vector3( ( a.x + b.x ) / 2, g + 0.5, ( a.z + b.z ) / 2 ), new Vector3( 0.06, 0.6, L2 / 2 ), wyaw, { tag: 'fence' } );
+				panel.box.prop = true;
 
 			}
 
-		}
+			const np = painted ? Math.floor( L2 / 0.14 ) : 0;
+			const PIECES = 3;
+			for ( let q = 0; q < PIECES; q ++ ) {
 
-		if ( colliders && toWorld ) {
+				const qa = q / PIECES, qb = ( q + 1 ) / PIECES;
+				const emit = () => {
 
-			const a = toWorld( x0, z0 ), b = toWorld( x1, z1 );
-			const cx = ( a.x + b.x ) / 2, cz = ( a.z + b.z ) / 2;
-			const g = Math.max( groundFn( x0, z0 ), groundFn( x1, z1 ) );
-			colliders.addBox( new Vector3( cx, g + 0.5, cz ), new Vector3( 0.06, 0.6, L / 2 ), Math.atan2( b.x - a.x, b.z - a.z ), { tag: 'fence' } );
+					for ( const ry of painted ? [ 0.25, 0.7 ] : [ 0.35, 0.78 ] ) {
+
+						const [ px0, py0, pz0 ] = at( qa ), [ px1, py1, pz1 ] = at( qb );
+						B.beam( 'wood', [ px0, py0 + ry, pz0 ], [ px1, py1 + ry, pz1 ], 0.03, 0.08, { tint: painted ? tint : [ 1, 1, 1 ], data: WOOD( seed + ry + i, 0.8, painted ? 0.45 : 0, 0 ) } );
+
+					}
+
+					// the pickets whose centres fall in this third
+					for ( let k = Math.max( 0, Math.ceil( qa * np - 0.5 ) ); k < Math.ceil( qb * np - 0.5 ); k ++ ) {
+
+						const tt = ( k + 0.5 ) / np;
+						const px = ax + ( bx - ax ) * tt, pz = az + ( bz - az ) * tt;
+						const g = ga + ( gb - ga ) * tt;
+						const h = 0.9 + ( ( k * 7 + i * 3 ) % 5 ) * 0.012;
+						B.box( 'wood', px, g + h / 2 - 0.05, pz, 0.075, h, 0.022, { grain: 1, ry: yaw + Math.PI / 2, tint, data: WOOD( seed + k * 0.37, 0.8, 0.45, 0 ) } );
+						B.box( 'wood', px, g + h - 0.03, pz, 0.053, 0.053, 0.022, { grain: 1, ry: yaw + Math.PI / 2, rz: Math.PI / 4, tint, data: WOOD( seed + k * 0.37, 0.8, 0.45, 0 ) } );
+
+					}
+
+				};
+				if ( ! panel ) { emit(); continue; }
+				const [ px0, py0, pz0 ] = at( qa ), [ px1, py1, pz1 ] = at( qb );
+				const a = toWorld( px0, pz0 ), b = toWorld( px1, pz1 );
+				tagSpans( PROPS.piece( panel, new Vector3( ( a.x + b.x ) / 2, ( py0 + py1 ) / 2 + 0.45, ( a.z + b.z ) / 2 ), wyaw, new Vector3( 0.06, 0.5, L2 / PIECES / 2 ) ), emit );
+
+			}
 
 		}
 
@@ -1070,11 +1089,14 @@ export class InstancedProps {
 		const n = this.counts[ type ] ++;
 		const seedOffset = ( ( n * 0.6180339887 + type.length * 0.137 ) % 1 ) * 7.0;
 		mat4( x, y, z, ry, rx, rz, this._m );
+		// each copy is a loose prop that can wake with physics (src/physics/Props.js)
+		const prop = PROPS.add( type, this._m, proto.batches );
 		for ( const key in proto.batches ) {
 
-			this.target.batch( key ).addBatch( proto.batches[ key ], this._m, color, seedOffset );
+			this.target.batch( key ).addBatch( proto.batches[ key ], this._m, color, seedOffset, prop );
 
 		}
+		return prop;
 
 	}
 

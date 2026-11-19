@@ -479,6 +479,12 @@ fn shoreBreakDepth( xz: vec2f, dir: vec2f, u: f32, lam: f32, d: f32 ) -> f32 {
 fn shoreDirAt( xz: vec2f ) -> vec3f {
 	let res = f32( textureDimensions( shoreDirTex ).x );
 	let fp = ( xz - shoreP.dirMin ) / shoreP.dirSize * res - 0.5;
+	// outside the texture's region (other beaches, Joey Island) or before it exists: the shore field
+	if ( shoreP.dirOn < 0.5 || any( fp < vec2f( -0.5 ) ) || any( fp > vec2f( res - 0.5 ) ) ) {
+		let e = terrainShoreSample( xz ).yz;
+		let l = length( e );
+		return vec3f( e / max( l, 1e-4 ), min( 1.0, l * 1.4 ) );
+	}
 	let fc = clamp( fp, vec2f( 0.0 ), vec2f( res - 1.001 ) );
 	let i = vec2i( floor( fc ) );
 	let t = fract( fc );
@@ -588,11 +594,15 @@ fn shoreSwashRunup( sh: vec4f, along: f32, groundH: f32 ) -> ShoreRunup {
 	let sb = sat( ( tau - SHORE_SWASH_UP ) / SHORE_SWASH_DOWN );
 	let isUp = tau < SHORE_SWASH_UP;
 	let Rh = select( 1.0 - pow( sb, 1.6 ), 1.0 - pow( 1.0 - su, 1.5 ), isUp ) * RhMax - 0.3;
-	// the front is lobed, not a straight line: each wave runs up a little differently along the beach
-	let lobes = sin( along * 0.61 + ms * 2.3 ) * 0.5 + sin( along * 1.73 + ms * 5.1 ) * 0.3 + sin( along * 4.3 + ms * 1.7 ) * 0.2;
+	// the front is lobed, not a straight line: each wave runs up differently along the beach, in long
+	// tongues (tens of metres), shorter scallops and small cusps, scaled with the run-up. A +-0.35 m
+	// ripple on a 10 m wavelength drew a ruler-straight front on a uniform beach.
+	let wv = ms * 1.37;
+	let lobes = perlin2( vec2f( along * 0.03, wv ) ) * 1.1 + perlin2( vec2f( along * 0.09 + 3.7, wv * 1.7 + 5.0 ) ) * 0.6
+		+ perlin2( vec2f( along * 0.27 + 9.1, wv * 0.6 + 11.0 ) ) * 0.3 + sin( along * 1.73 + ms * 5.1 ) * 0.08;
 	// the backwash never quite exposes the lower beach face: a film of water always covers the
 	// first decimetres past the shoreline, so the sea never meets the sand along mesh triangles
-	let Rt = max( Rh + lobes * ( max( Rh, 0.0 ) * 0.07 + 0.35 ), 0.35 ) * shoreP.enabled;
+	let Rt = max( Rh + lobes * ( max( Rh, 0.0 ) * 0.16 + 0.45 ), 0.35 ) * shoreP.enabled;
 	return ShoreRunup( tau, Rt, inland, RhMax, su, sb, isUp );
 }
 
@@ -633,6 +643,21 @@ fn shoreSwashClip( p: vec2f, t: f32 ) -> f32 {
 ${ evaluateCode( 'shoreEvaluate', 'normal' ) }
 ${ evaluateCode( 'shoreEvaluateNoNormal', 'plain' ) }
 ${ evaluateCode( 'shoreEvaluateWorld', 'world' ) }
+
+// breaking-wave foam only (o.foam of shoreEvaluate at the same point, without the displacement,
+// normal and swash): cheap enough for the water fragment shader
+fn shoreFoamAt( xz: vec2f, depth: f32 ) -> f32 {
+	let ph = shorePhaseAt( xz );
+	let d = depth;
+	let lam = sqrt( clamp( d, 0.3, 25.0 ) * SHORE_GRAVITY ) * shoreP.period;
+	let m = floor( ph.s + 0.5 );
+	let u = ph.s - m;
+	let A = mix( shoreWaveAmp( m, ph.along ), shoreWaveAmp( m + sign( u ), ph.along ), smoothstep( 0.32, 0.5, abs( u ) ) * 0.5 );
+	let dB = shoreBreakDepth( xz, ph.dir, u, lam, d );
+	let env = smoothstep( 26.0, 13.0, d ) * smoothstep( -0.25, 0.05, d ) * sat( ph.exposure * 1.4 ) * shoreP.enabled;
+	let wwPatch = smoothstep( -0.5, 0.45, perlin2( vec2f( ph.along * 0.06 + frame.time * 0.05, m * 2.9 + 0.4 ) ) );
+	return shoreShape( u, A, dB, lam ).z * env * mix( 0.3, 1.0, wwPatch );
+}
 `;
 
 	}

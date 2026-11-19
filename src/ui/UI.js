@@ -147,6 +147,8 @@ const CARDINALS = [ 'N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW' ];
 function modeIcon( label ) {
 
 	const s = String( label || '' ).toLowerCase();
+	if ( s.includes( 'jetski' ) ) return 'boat';
+	if ( s.includes( 'thrown' ) ) return 'swim';
 	if ( s.includes( 'boat' ) ) return 'boat';
 	if ( s.includes( 'div' ) ) return 'dive';
 	if ( s.includes( 'swim' ) ) return 'swim';
@@ -2139,22 +2141,25 @@ export class UI {
 				<div class="tw-help-grid">
 					<section>
 						<h3>Move</h3>
-						${ row( wasd, 'Move' ) }
+						${ row( wasd, 'Move<small>Driving: W accelerates, S brakes or reverses, A/D steer</small>' ) }
 						${ row( mouse, 'Look around<small>Click to capture</small>' ) }
 						${ row( k( 'Shift' ), 'Sprint, boat boost' ) }
-						${ row( k( 'Space' ), 'Jump, swim up' ) }
+						${ row( k( 'Space' ), 'Jump, swim up, car handbrake' ) }
+						${ row( k( 'W', 'S' ), 'Rear-drive burnout<small>Hold both at rest. Release S to launch.</small>' ) }
+						${ row( k( 'J' ), 'Driving aids<small>Toggle traction and stability assistance</small>' ) }
 						${ row( k( 'C' ), 'Crouch, dive' ) }
 					</section>
 					<section>
 						<h3>Interact</h3>
-						${ row( k( 'E' ), 'Interact<small>Board, helm, step ashore, trade</small>' ) }
-						${ row( k( 'V' ), 'Boat camera<small>1st / 3rd person</small>' ) }
-						${ row( k( 'R' ), 'Fishing rod<small>Take out / put away</small>' ) }
+						${ row( k( 'E' ), 'Interact<small>Board, helm, step ashore, trade, enter or leave a car</small>' ) }
+						${ row( k( 'V' ), 'Camera<small>1st / 3rd person, on foot and at the helm</small>' ) }
+						${ row( k( 'B' ), 'Whistle<small>Call the cockatoo back to your shoulder</small>' ) }
+						${ row( k( 'R' ), 'Take out / put away rod<small>In a car: recover</small>' ) }
 						${ row( k( 'LMB' ), 'Cast, strike, reel<small>Hold to wind up / reel</small>' ) }
 						${ row( k( 'RMB' ), 'Reel in an empty line' ) }
 						${ row( k( 'I' ), 'Cooler and fish log' ) }
 						${ row( k( 'F' ), 'Free camera' ) }
-						${ row( k( 'T' ), 'Pause time' ) }
+						${ row( k( 'T' ), 'Pause time<small>In a car: repair</small>' ) }
 						${ row( k( 'L' ), 'Flashlight' ) }
 						${ row( k( 'M' ), 'Mute' ) }
 					</section>
@@ -2340,7 +2345,7 @@ export class UI {
 
 	_onKey( e ) {
 
-		if ( isTypingTarget( e.target ) || e.ctrlKey || e.metaKey || e.altKey ) return;
+		if ( isTypingTarget( e.target ) || e.ctrlKey || e.metaKey || e.altKey || this.isGameKeyClaimed?.( e.code ) ) return;
 
 		if ( e.code === 'F1' || e.key === '?' ) {
 
@@ -3266,6 +3271,35 @@ export class UI {
 		ld.status = String( message );
 		if ( ld.statusEl ) ld.statusEl.textContent = ld.status;
 		ld.stopped = true;
+
+	}
+
+	// The graphics device was lost: nothing can draw again in this page. Stop the loader (it would
+	// otherwise spin forever) and show an alert dialog whose one action, Reload, has the focus so
+	// Enter or Space takes it. Fired once by main.js on GPU.js's 'tw-device-lost' event.
+	showDeviceLost() {
+
+		if ( this.deviceLost ) return;
+		this.deviceLost = true;
+		if ( this._ld ) {
+
+			this._ld.stopped = true;
+			cancelAnimationFrame( this._ld.raf );
+
+		}
+		const L = document.getElementById( 'loader' );
+		if ( L ) L.style.display = 'none';
+		const el = document.createElement( 'div' );
+		el.className = 'tw-device-lost tw-interactive';
+		el.innerHTML = `<div class="tw-device-lost-card tw-glass" role="alertdialog" aria-modal="true" aria-labelledby="tw-device-lost-title" aria-describedby="tw-device-lost-text">
+			<h2 id="tw-device-lost-title" class="tw-device-lost-title">The graphics device was lost</h2>
+			<p id="tw-device-lost-text" class="tw-device-lost-text">The browser reset the graphics card, so the island cannot be drawn any more. Reload the page to start again.</p>
+			<button type="button" class="tw-btn tw-btn-primary">Reload</button>
+		</div>`;
+		const button = el.querySelector( 'button' );
+		button.addEventListener( 'click', () => location.reload() );
+		document.body.append( el );
+		button.focus();
 
 	}
 

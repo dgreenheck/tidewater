@@ -2,7 +2,7 @@
 import { FISH, FISH_IDS, fishValue, fishLengthCm } from '../src/game/FishTable.js';
 import { habitatAt, pickSpecies, rollWeight, biteDelay } from '../src/game/Bites.js';
 import { CatchMinigame } from '../src/game/CatchMinigame.js';
-import { GameState } from '../src/game/GameState.js';
+import { GameState, STARTING_MONEY, STARTING_BANK, DAILY_LIMIT, withdrawMessage, randomPin, isPin, isWeakPin } from '../src/game/GameState.js';
 import { gearStats, defaultUpgrades, UPGRADES } from '../src/game/Gear.js';
 
 let fails = 0;
@@ -109,13 +109,14 @@ const mem = new Map();
 const storage = { getItem: ( k ) => mem.get( k ) ?? null, setItem: ( k, v ) => mem.set( k, v ) };
 const s = new GameState( storage );
 ok( s.stats.holdKg === 30, 'cooler holds 30 kg' );
+ok( s.money === 80 && STARTING_MONEY === 80, 'a new game starts with $80 in his pocket' );
 const a = s.addFish( 'grunt', 0.84, 9.5 );
 const b = s.addFish( 'yellowtail', 1.31, 10 );
 ok( a && b && s.inventory.length === 2, 'fish go into the cooler' );
 ok( s.addFish( 'tarpon', 40, 22 ) === null && s.log.tarpon.count === 1, 'a fish too big for the hold is logged but not kept' );
 const value = s.holdValue;
 const sale = s.sell( [ a.id ] );
-ok( sale.count === 1 && s.money === a.value && s.inventory.length === 1, 'selling one fish pays for it' );
+ok( sale.count === 1 && s.money === STARTING_MONEY + a.value && s.inventory.length === 1, 'selling one fish pays for it' );
 s.upgrades.hold = 1;
 const s2 = new GameState( storage );
 s.save();
@@ -151,6 +152,11 @@ ok( s2.addFish( 'grunt', 0.5 ).id > b.id, 'ids keep counting after a load' );
 	const old = { v: 1, money: 5, inventory: [ { id: 1, species: 'grunt', kg: 0.84, value: 6, caughtAt: 9 } ], log: { grunt: { count: 1, bestKg: 0.84 } }, upgrades: {}, fuel: null, nextId: 2 };
 	const st2 = new GameState( { getItem: () => JSON.stringify( old ), setItem: () => {} } );
 	ok( st2.load() && st2.inventory[ 0 ].cm === 36 && st2.log.grunt.bestCm === 36, 'old saves load with lengths filled in' );
+	ok( st2.money === 5 + STARTING_MONEY, 'a save from before the starting purse gets the $80 once' );
+	const again = new GameState( { getItem: () => JSON.stringify( st2.toJSON() ), setItem: () => {} } );
+	ok( again.load() && again.money === st2.money, 'the starting purse is only paid once' );
+	st2.reset();
+	ok( st2.money === STARTING_MONEY, 'a reset starts again with $80' );
 
 }
 ok( new GameState( { getItem: () => { throw new Error( 'blocked' ); }, setItem: () => { throw new Error( 'blocked' ); } } ).load() === false, 'blocked storage does not throw' );
@@ -169,6 +175,78 @@ ok( Object.keys( defaultUpgrades() ).length === Object.keys( UPGRADES ).length &
 	st.money = 1000;
 	ok( st.buy( 'fuel' ) && st.fuelL === 80, 'a new tank comes full' );
 	ok( st.buy( 'fishFinder' ) && st.stats.finder === true && st.buy( 'fishFinder' ) === null, 'fish finder: one level' );
+
+}
+{
+
+	// souvenirs from the Joey Island gift shop: bought with money, kept in the save
+	const m = new Map();
+	const st = new GameState( { getItem: ( k ) => m.get( k ) ?? null, setItem: ( k, v ) => m.set( k, v ) } );
+	st.money = 30;
+	ok( st.buySouvenir( 'stubby' ) && st.money === 18 && st.souvenirs.join() === 'stubby', 'buying a souvenir takes its price and keeps it' );
+	ok( st.buySouvenir( 'plushjoey' ) === null && st.money === 18, 'cannot buy a souvenir you cannot afford' );
+	ok( st.buySouvenir( 'nope' ) === null, 'unknown souvenirs are not sold' );
+	const st2 = new GameState( { getItem: ( k ) => m.get( k ) ?? null, setItem: () => {} } );
+	ok( st2.load() && st2.souvenirs.join() === 'stubby' && st2.money === 18, 'souvenirs persist in the save' );
+	st2.reset();
+	ok( st2.souvenirs.length === 0, 'reset clears souvenirs' );
+
+}
+{
+
+	// the bank account behind the ATM: $1,000 to start, notes of $20 and $50, a $1,000 daily limit
+	const m = new Map();
+	const store = { getItem: ( k ) => m.get( k ) ?? null, setItem: ( k, v ) => m.set( k, v ) };
+	const st = new GameState( store );
+	ok( STARTING_BANK === 1000 && DAILY_LIMIT === 1000 && st.bank === 1000 && st.balance() === 1000, 'a new game has $1,000 in the bank' );
+	let changes = 0;
+	st.onChange( () => changes ++ );
+	const w = st.withdraw( 100 );
+	ok( w.ok && st.money === STARTING_MONEY + 100 && st.bank === 900 && changes === 1, 'withdrawing $100 moves it from the bank to his pocket' );
+	ok( JSON.parse( m.get( 'tidewater.save.v1' ) ).bank === 900, 'a withdrawal is saved' );
+	const before = [ st.money, st.bank ];
+	const r = ( a ) => st.withdraw( a ).reason;
+	ok( r( 30 ) === 'notes' && r( 10 ) === 'min' && r( 15 ) === 'min' && r( 25 ) === 'multiple' && r( 105 ) === 'multiple', '$30 cannot be made from 20s and 50s; under $20 and odd amounts are refused' );
+	ok( r( 0 ) === 'invalid' && r( - 20 ) === 'invalid' && r( 20.5 ) === 'invalid' && r( NaN ) === 'invalid' && r( '40' ) === 'invalid', 'only whole positive dollars' );
+	ok( st.money === before[ 0 ] && st.bank === before[ 1 ], 'a refused withdrawal changes nothing' );
+	ok( st.withdraw( 70 ).ok && st.withdraw( 20 ).ok && st.withdraw( 90 ).ok && st.withdraw( 50 ).ok && st.bank === 670, '$20, $50, $70 and $90 can all be paid out' );
+	ok( r( 700 ) === 'funds' && st.bank === 670, 'cannot take out more than the balance' );
+	st.bank = 5000;
+	ok( r( 1000 ) === 'limit' && st.withdraw( 670 ).ok && r( 20 ) === 'limit', 'the daily limit counts everything taken out today' );
+	ok( st.withdraw( 1000, 1 ).ok && st.withdraw( 20, 1 ).reason === 'limit', 'a new game day brings a new daily limit' );
+	ok( withdrawMessage( 'notes', 30 ) === 'Unable to dispense $30. Notes available: $20 and $50' &&
+		withdrawMessage( 'multiple', 25 ) === 'Amount must be a multiple of $10' &&
+		withdrawMessage( 'funds', 700, { bank: 670 } ) === 'Insufficient funds. Available balance $670' &&
+		withdrawMessage( 'limit', 20, { left: 0 } ) === 'Exceeds your daily limit of $1,000. $0 left today' &&
+		withdrawMessage( 'min', 10 ) === 'Minimum withdrawal is $20', 'each refusal has its own message' );
+	const again = new GameState( store );
+	ok( again.load() && again.bank === st.bank && again.money === st.money, 'the bank balance persists in the save' );
+	again.reset();
+	ok( again.bank === STARTING_BANK, 'a reset puts $1,000 back in the bank' );
+	const old = new Map( [ [ 'tidewater.save.v1', JSON.stringify( { v: 1, purse: true, money: 12, inventory: [], log: {} } ) ] ] );
+	const s3 = new GameState( { getItem: ( k ) => old.get( k ) ?? null, setItem: ( k, v ) => old.set( k, v ) } );
+	ok( s3.load() && s3.bank === 1000 && s3.money === 12, 'a save from before the bank gets $1,000 once' );
+	s3.withdraw( 200 );
+	const s4 = new GameState( { getItem: ( k ) => old.get( k ) ?? null, setItem: () => {} } );
+	ok( s4.load() && s4.bank === 800 && s4.money === 212, 'the opening balance is only paid once' );
+	// the card PIN: random per game, 4 digits, never a weak one, kept in the save
+	const m0 = new Map(), g0 = new GameState( { getItem: ( k ) => m0.get( k ) ?? null, setItem: ( k, v ) => m0.set( k, v ) } );
+	g0.withdraw( 20 );
+	ok( isPin( g0.pin ) && JSON.parse( m0.get( 'tidewater.save.v1' ) ).pin === g0.pin, 'a new game has a random 4 digit PIN, saved with the game' );
+	ok( [ '0000', '7777', '1112', '1234', '9876', '0123', '3210' ].every( isWeakPin ) && ! isWeakPin( '7291' ) && ! isWeakPin( '1357' ), 'repeated digits and straight runs are weak' );
+	const pins = new Set();
+	for ( let i = 0; i < 400; i ++ ) pins.add( randomPin() );
+	ok( pins.size > 300 && [ ...pins ].every( isPin ), 'PINs vary from game to game and are never weak' );
+	const seq = [ 0.1234, 0.0000, 0.5555, 0.7291 ];
+	ok( randomPin( () => seq.shift() ) === '7291', 'a weak draw is drawn again' );
+	const again2 = new GameState( store );
+	ok( again2.load() && again2.pin === again.pin, 'the PIN persists in the save' );
+	ok( s3.pin && isPin( s3.pin ) && JSON.parse( old.get( 'tidewater.save.v1' ) ).pin === s3.pin, 'a save without a PIN gets a new random one, saved straight away' );
+	ok( s4.pin === s3.pin, 'and keeps it on the next load' );
+	const before2 = again2.pin;
+	let fresh = 0;
+	for ( let i = 0; i < 5; i ++ ) { again2.reset(); if ( again2.pin !== before2 ) fresh ++; }
+	ok( fresh >= 4 && isPin( again2.pin ), 'a new game draws a new PIN' );
 
 }
 console.log( `value check ${ value }` );

@@ -1,0 +1,314 @@
+{
+  "towel_a": {
+    "tris": 768,
+    "size": [
+      0.798,
+      0.0458,
+      1.5977
+    ],
+    "min": [
+      -0.399,
+      0.0,
+      -0.7988
+    ],
+    "origin": "bottom centre on the sand; 1.6 m long along Z, 0.8 m wide along X; print faces +Y",
+    "materials": [
+      "towel_navy",
+      "towel_cream"
+    ]
+  },
+  "towel_b": {
+    "tris": 768,
+    "size": [
+      0.798,
+      0.0483,
+      1.5977
+    ],
+    "min": [
+      -0.399,
+      0.0,
+      -0.7989
+    ],
+    "origin": "bottom centre on the sand; 1.6 m long along Z, 0.8 m wide along X; print faces +Y",
+    "materials": [
+      "towel_sunset_sky",
+      "towel_sunset_gold",
+      "towel_sunset_sea"
+    ]
+  },
+  "towel_c": {
+    "tris": 720,
+    "size": [
+      0.7978,
+      0.0456,
+      1.5978
+    ],
+    "min": [
+      -0.3988,
+      0.0,
+      -0.799
+    ],
+    "origin": "bottom centre on the sand; 1.6 m long along Z, 0.8 m wide along X; print faces +Y",
+    "materials": [
+      "towel_teal",
+      "towel_cream"
+    ]
+  },
+  "towel_d": {
+    "tris": 768,
+    "size": [
+      0.798,
+      0.0464,
+      1.5973
+    ],
+    "min": [
+      -0.399,
+      0.0,
+      -0.799
+    ],
+    "origin": "bottom centre on the sand; 1.6 m long along Z, 0.8 m wide along X; print faces +Y",
+    "materials": [
+      "towel_check_blue",
+      "towel_check_white"
+    ]
+  },
+  "umbrella_a": {
+    "tris": 1496,
+    "size": [
+      2.0156,
+      2.1517,
+      1.9435
+    ],
+    "min": [
+      -1.0078,
+      0.0,
+      -0.85
+    ],
+    "origin": "pole foot at the sand line (sink it about 0.2 m); canopy tilts 16 deg toward +Z",
+    "materials": [
+      "umbrella_a_canopy_a",
+      "umbrella_a_canopy_b",
+      "umbrella_metal"
+    ]
+  },
+  "umbrella_b": {
+    "tris": 1496,
+    "size": [
+      2.0156,
+      2.1517,
+      1.9435
+    ],
+    "min": [
+      -1.0078,
+      0.0,
+      -0.85
+    ],
+    "origin": "pole foot at the sand line (sink it about 0.2 m); canopy tilts 16 deg toward +Z",
+    "materials": [
+      "umbrella_b_canopy_a",
+      "umbrella_b_canopy_b",
+      "umbrella_metal"
+    ]
+  },
+  "esky": {
+    "tris": 2764,
+    "size": [
+      0.6107,
+      0.4208,
+      0.4035
+    ],
+    "min": [
+      -0.3054,
+      0.0,
+      -0.2005
+    ],
+    "origin": "bottom centre; 0.55 m long along X, front faces +Z; handle folded back over the lid",
+    "materials": [
+      "esky_white",
+      "esky_blue",
+      "esky_blue_dark",
+      "esky_grey",
+      "esky_scuff",
+      "esky_blue_scuff"
+    ]
+  },
+  "beach_bag": {
+    "tris": 1004,
+    "size": [
+      0.437,
+      0.572,
+      0.1924
+    ],
+    "min": [
+      -0.2186,
+      0.0,
+      -0.0962
+    ],
+    "origin": "bottom centre; 0.46 m wide along X, front faces +Z; handles up",
+    "materials": [
+      "bag_canvas",
+      "bag_navy"
+    ]
+  },
+  "thongs": {
+    "tris": 1128,
+    "size": [
+      0.2331,
+      0.0523,
+      0.2816
+    ],
+    "min": [
+      -0.1183,
+      0.0,
+      -0.1275
+    ],
+    "origin": "pair centre on the sand; toes toward +Z",
+    "materials": [
+      "thong_top",
+      "thong_sole"
+    ]
+  },
+  "cricket_bat": {
+    "tris": 916,
+    "size": [
+      0.108,
+      0.86,
+      0.0639
+    ],
+    "min": [
+      -0.054,
+      -0.86,
+      -0.0424
+    ],
+    "origin": "top end of the handle; blade hangs down -Y, face toward +Z; hands grip y -0.03 to -0.24",
+    "materials": [
+      "bat_willow",
+      "bat_grip"
+    ]
+  },
+  "stumps": {
+    "tris": 684,
+    "size": [
+      0.2286,
+      0.7219,
+      0.0333
+    ],
+    "min": [
+      -0.1143,
+      0.0,
+      -0.0166
+    ],
+    "origin": "foot of the middle stump at the sand line; bails on top; the batter stands on the +Z side",
+    "materials": [
+      "stump_wood"
+    ]
+  },
+  "tennis_ball": {
+    "tris": 808,
+    "size": [
+      0.0687,
+      0.067,
+      0.0687
+    ],
+    "min": [
+      -0.0343,
+      0.0,
+      -0.0343
+    ],
+    "origin": "bottom of the ball (centre is 0.0335 m up)",
+    "materials": [
+      "ball_felt",
+      "ball_seam"
+    ]
+  },
+  "frisbee": {
+    "tris": 960,
+    "size": [
+      0.2704,
+      0.032,
+      0.2689
+    ],
+    "min": [
+      -0.1352,
+      0.0,
+      -0.1345
+    ],
+    "origin": "bottom centre (rim on the sand), dome up",
+    "materials": [
+      "frisbee_orange"
+    ]
+  },
+  "book": {
+    "tris": 552,
+    "size": [
+      0.254,
+      0.0384,
+      0.2
+    ],
+    "min": [
+      -0.127,
+      0.0,
+      -0.1
+    ],
+    "origin": "bottom centre; paperback lying open face up, a few pages fanned up, spine along Z",
+    "materials": [
+      "book_cover",
+      "book_pages",
+      "book_page_edge",
+      "book_print"
+    ]
+  },
+  "sun_hat": {
+    "tris": 1054,
+    "size": [
+      0.4085,
+      0.1458,
+      0.4282
+    ],
+    "min": [
+      -0.2042,
+      0.0,
+      -0.2141
+    ],
+    "origin": "bottom centre (brim edge on the sand); to wear, put the origin 0.135 m below the head top",
+    "materials": [
+      "hat_straw",
+      "hat_band"
+    ]
+  },
+  "bucket_hat": {
+    "tris": 992,
+    "size": [
+      0.2812,
+      0.124,
+      0.296
+    ],
+    "min": [
+      -0.1406,
+      0.0,
+      -0.148
+    ],
+    "origin": "bottom centre (brim edge on the sand); to wear, put the origin 0.115 m below the head top",
+    "materials": [
+      "bucket_cotton"
+    ]
+  },
+  "sunnies": {
+    "tris": 580,
+    "size": [
+      0.1474,
+      0.0557,
+      0.161
+    ],
+    "min": [
+      -0.0737,
+      -0.0336,
+      -0.1574
+    ],
+    "origin": "the bridge; lenses face +Z, arms run back to -Z; eyes sit about 8 mm below and 15 mm behind",
+    "materials": [
+      "sunnies_frame",
+      "sunnies_lens"
+    ]
+  }
+}

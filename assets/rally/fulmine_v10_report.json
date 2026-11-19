@@ -1,0 +1,46 @@
+{
+  "generator": "tools/rally/build_fulmine_v10.py",
+  "blender": "5.0.1",
+  "triangles": 68852,
+  "glb_bytes": 2226812,
+  "materials": [
+    "AlloyDark",
+    "BodyPaint",
+    "BrakeRotor",
+    "BrightMetal",
+    "Caliper",
+    "Glass",
+    "Graphite",
+    "Headlamp",
+    "Indicator",
+    "Interior",
+    "Rubber",
+    "SeatFabric",
+    "TailLamp"
+  ],
+  "wheel_radius_m": 0.336,
+  "wheelbase_m": 2.62,
+  "track_width_m": 1.6440000000000001,
+  "wheel_pivots": [
+    "WheelFrontL",
+    "WheelFrontR",
+    "WheelRearL",
+    "WheelRearR"
+  ],
+  "plates_gltf_xyz_yaw": [
+    [
+      0.0,
+      0.6,
+      -2.218,
+      3.141592653589793
+    ],
+    [
+      0.0,
+      0.26,
+      2.316,
+      0
+    ]
+  ],
+  "length_m": 4.52,
+  "mass_kg": 1550
+}

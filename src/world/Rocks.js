@@ -167,6 +167,7 @@ export class Rocks {
 		const blocked = ( x, z, r, h ) => {
 
 			for ( const f of foot ) if ( Math.hypot( x - f.x, z - f.z ) < f.r + r + 2 ) return true;
+			if ( this.terrainData.inClearZone && this.terrainData.inClearZone( x, z, r + 2 ) ) return true;
 			if ( segDist( walk, x, z ) < r + 4 ) return true;
 			if ( Math.abs( x - pier.x ) < r + 9 && z > pier.zStart - 8 && z < pier.zEnd + 12 ) return true;
 			if ( Math.hypot( x - spawn.x, z - spawn.z ) < r + 10 ) return true;

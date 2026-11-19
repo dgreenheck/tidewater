@@ -3,11 +3,14 @@ import { ShaderModule } from '../engine/gpu/Shader.js';
 // Screen-door cross-fade between levels of detail (and for anything that appears or disappears
 // with distance), so nothing switches over in one frame.
 //
-// Both levels are drawn during a transition band. Each discards the pixels where the ordered-dither
-// (Bayer 4x4) threshold says it isn't visible: the incoming level keeps the pixels below `fade`,
-// the outgoing one the pixels at or above the SAME threshold, so together they cover every pixel
-// exactly once (no holes, no double-drawn pixels). The pattern shifts every frame, so the TAA
-// resolves the 16 dither levels into a smooth blend.
+// Both levels are drawn during a transition band. Each discards the pixels where the dither
+// threshold says it isn't visible: the incoming level keeps the pixels below `fade`, the outgoing one
+// the pixels at or above the SAME threshold, so together they cover every pixel exactly once (no
+// holes, no double-drawn pixels). The threshold is interleaved gradient noise (Jimenez 2014) moved
+// every frame: every 3x3 block holds the whole threshold range (the TAA clip box sees both levels)
+// and it never repeats as a regular grid, so the TAA resolves it into a smooth blend. (It was a
+// Bayer 4x4 pattern shifted on a 16-frame cycle: the TAA kept the regular grid, which read as
+// stippled, dotted foliage edges and tree lines.)
 //
 // fade: 0..1, the share of this level that is visible (the same value for both levels of one
 // instance: ramp it with distance across the band on the CPU or in the vertex stage).
@@ -21,16 +24,12 @@ import { ShaderModule } from '../engine/gpu/Shader.js';
 export const lodFadeModule = new ShaderModule( {
 	name: 'lodFade',
 	code: /* wgsl */`
-// Bayer 4x4 threshold in (0, 1): bit-interleaved formula of
-//   0  8  2 10 / 12  4 14  6 / 3 11  1  9 / 15  7 13  5
+// dither threshold in (0, 1) for a fragment coordinate: interleaved gradient noise, offset every
+// frame along the direction Jimenez gives for temporal IGN (the name is kept for the callers)
 fn bayer4( pixel: vec2f ) -> f32 {
-	let f = frame.frameIndex;
-	// shift the pattern by a different offset every frame (all 16 over 16 frames)
-	let p = vec2u( pixel ) + vec2u( f * 3u, ( f >> 2u ) * 1u );
-	let x0 = p.x & 1u; let x1 = ( p.x >> 1u ) & 1u;
-	let y0 = p.y & 1u; let y1 = ( p.y >> 1u ) & 1u;
-	let v = ( ( x0 ^ y0 ) << 3u ) | ( y0 << 2u ) | ( ( x1 ^ y1 ) << 1u ) | y1;
-	return ( f32( v ) + 0.5 ) / 16.0;
+	let f = f32( frame.frameIndex % 64u );
+	let p = floor( pixel ) + f * 5.588238;
+	return clamp( fract( 52.9829189 * fract( dot( p, vec2f( 0.06711056, 0.00583715 ) ) ) ), 0.001, 0.999 );
 }
 
 fn lodFadeVisible( pixel: vec2f, fade: f32, outgoing: bool ) -> bool {

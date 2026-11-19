@@ -282,7 +282,11 @@ ${ common }
 	// cross-fade from the near geometry (incoming level of the band around nearDist)
 	let nd = ${ nearDist( 'g1Flag' ) };
 	let fade = smoothstep( nd * ( 1.0 - VEG_LOD_BAND / 2.0 ), nd * ( 1.0 + VEG_LOD_BAND / 2.0 ), length( vegParams.camPos - base ) );
-	if ( ! ( vA.w > 0.42 && bayer4( in.pixel ) < fade ) ) { discard; }
+	// anti-aliased alpha test (as the near canopy): coverage within a pixel of the 0.42 cut is kept with
+	// that probability each frame, so far crowns against the sky resolve to soft edges, not speckle
+	let n = bayer4( in.pixel );
+	let covA = sat( ( vA.w - 0.42 ) / max( fwidth( vA.w ), 1e-4 ) + 0.5 );
+	if ( ! ( covA > fract( n + 0.618034 ) && n < fade ) ) { discard; }
 
 	let cov = max( vA.w, 1e-3 );
 	let bright = vA.x / cov; let leaf = vA.y / cov; let cr = vA.z / cov;

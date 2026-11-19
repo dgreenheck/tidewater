@@ -1,0 +1,10 @@
+{
+  "source": "Rally",
+  "snapshot": "2026-09-24",
+  "sha256": {
+    "src/driving/input.rs": "57ffb6f290efb8fed05db32247699cfc2d833979b7c149adb73e4a8eabbed8e9",
+    "assets/vehicles/aster_rs.glb": "d2559696bfeef4065d5afc7069aef16d10bf8a417e4acf105d65e098a4bebf7d",
+    "assets/vehicles/support_wagon.glb": "aeae823c33cc52005cb14aa9479f59b046e2885d89cb62cde1ff0a8dc5fc7474",
+    "assets/vehicles/support_pickup.glb": "3b302919d9ce0dc239d8a7606c2265d654445321d83585f556b6a6dce64e04b8"
+  }
+}

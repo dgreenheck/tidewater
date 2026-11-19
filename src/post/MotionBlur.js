@@ -36,11 +36,16 @@ fn mbUvVelocity( vel: vec4f, uv: vec2f, d: f32 ) -> vec2f {
 	return select( ( ndc - prev.xy / prev.w ) * vec2f( 0.5, -0.5 ), vel.xy, d > 1e-7 );
 }
 
-// uv velocity -> half streak vector in output pixels (shutter applied, capped at one tile)
-fn mbToPx( vel: vec2f ) -> vec2f {
+// uv velocity -> half streak vector in output pixels (shutter applied, capped at one tile) of a
+// surface at reversed-Z depth d. Surfaces within a few metres of the lens (the cockatoo's wing flying
+// past it, a rail the camera skims) are capped to a fifth of that: a full-tile streak of something
+// that fills a quarter of the frame read as a large smeared blob of colour, not as motion
+fn mbToPx( vel: vec2f, d: f32 ) -> vec2f {
 	let v = vel * mbParams.outSize * ( mbParams.shutter * 0.5 );
 	let l = length( v );
-	return v * min( 1.0, MB_TILE / max( l, 1e-6 ) );
+	let dist = mbParams.near / max( d, 1e-7 );
+	let cap = MB_TILE * mix( 0.2, 1.0, smoothstep( 1.0, 5.0, dist ) );
+	return v * min( 1.0, cap / max( l, 1e-6 ) );
 }
 `;
 
@@ -56,6 +61,7 @@ export class MotionBlur {
 			// fraction of the frame time the shutter is open: 0.5 = 180 degree shutter, 0 = off
 			shutter: [ 'f32', 0.5 ],
 			frameIndex: [ 'f32', 0 ],
+			near: [ 'f32', 0.06 ], // camera near plane (m): reversed-Z depth -> distance
 		}, { label: 'motionBlur' } );
 		const U = this.uniforms.fields;
 		this.shutter = U.shutter;
@@ -63,6 +69,7 @@ export class MotionBlur {
 		this.tileCount = U.tileCount;
 		this.frameIndex = U.frameIndex;
 		this.skyReproj = U.skyReproj;
+		this.near = U.near;
 		this._vp = new Matrix4();
 		this._prevVP = new Matrix4();
 		this._hasPrev = false;
@@ -104,7 +111,7 @@ fn mbApply( sharpColor: vec3f, uvIn: vec2f ) -> vec3f {
 			let inSize = vec2f( textureDimensions( mbVelocity ) );
 			let cX = mbTexel( uvIn, inSize );
 			let dX = textureLoad( mbDepth, cX, 0 );
-			let vX = mbToPx( mbUvVelocity( textureLoad( mbVelocity, cX, 0 ), uvIn, dX ) );
+			let vX = mbToPx( mbUvVelocity( textureLoad( mbVelocity, cX, 0 ), uvIn, dX ), dX );
 			let lenX = length( vX );
 			// interleaved gradient noise, shifted every frame
 			let pn = floor( pix ) + mbParams.frameIndex * 5.588238;
@@ -140,7 +147,7 @@ fn mbApply( sharpColor: vec3f, uvIn: vec2f ) -> vec3f {
 						let uvY = uvIn + off * invSize * sgn;
 						let tY = mbTexel( uvY, inSize );
 						let dY = textureLoad( mbDepth, tY, 0 );
-						let lenY = length( mbToPx( mbUvVelocity( textureLoad( mbVelocity, tY, 0 ), uvY, dY ) ) );
+						let lenY = length( mbToPx( mbUvVelocity( textureLoad( mbVelocity, tY, 0 ), uvY, dY ), dY ) );
 						// reversed-Z depth ~ 1/distance: q > 0 when the sample is farther than the centre
 						let q = ( dX - dY ) / max( max( dX, dY ), 1e-12 );
 						let behind = sat( q * 40.0 + 0.5 );
@@ -206,7 +213,8 @@ fn main( @builtin( local_invocation_id ) lid: vec3u, @builtin( workgroup_id ) wi
 		let o = vec2u( u32( k & 1 ), u32( k >> 1u ) );
 		let p = vec2f( wid.xy * ${ TILE }u + lid.xy * 2u + o ) + 0.5;
 		let q = min( vec2i( p / mbParams.outSize * vec2f( inSize ) ), inSize - 1 );
-		let v = mbToPx( mbUvVelocity( textureLoad( mbVelocity, q, 0 ), p / mbParams.outSize, textureLoad( mbDepth, q, 0 ) ) );
+		let dq = textureLoad( mbDepth, q, 0 );
+		let v = mbToPx( mbUvVelocity( textureLoad( mbVelocity, q, 0 ), p / mbParams.outSize, dq ), dq );
 		let l = dot( v, v );
 		if ( l > bestL ) {
 			bestL = l;
@@ -287,6 +295,29 @@ ${ neigh }
 		// previous view-projection * inverse current: far-plane NDC -> last frame's clip position
 		this.skyReproj.value.copy( this._vp ).invert().premultiply( this._prevVP );
 		this._prevVP.copy( this._vp );
+		this.near.value = camera.near ?? 0.06;
+
+	}
+
+	// Free (debug) camera: no motion blur. Its fast pans and orbits smeared the whole frame, which read
+	// as a depth-of-field blur. The shutter comes back as it was when the free camera ends.
+	set freeCamera( on ) {
+
+		on = !! on;
+		if ( on === !! this._free ) return;
+		this._free = on;
+		if ( on ) {
+
+			this._keptShutter = this.shutter.value;
+			this.shutter.value = 0;
+
+		} else if ( this._keptShutter !== undefined ) this.shutter.value = this._keptShutter;
+
+	}
+
+	get freeCamera() {
+
+		return !! this._free;
 
 	}
 

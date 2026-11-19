@@ -210,6 +210,8 @@ export class VegSite {
 		// the pier path corridor: big plants keep RULES.pathClear, small ones half of it
 		if ( this.pathDist( x, z ) < ( big ? RULES.pathClear : RULES.pathClear * 0.5 ) ) return false;
 		if ( this.obstacleDist( x, z ) < RULES.obstacleClear + clear ) return false;
+		// built sites (the ferry terminal) keep their ground clear
+		if ( this.terrain.inClearZone && this.terrain.inClearZone( x, z, clear ) ) return false;
 		if ( this.terrain.pathDistance && this.terrain.pathDistance( x, z ) < 0.6 + clear * 0.5 ) return false;
 		return true;
 
@@ -412,6 +414,8 @@ export function scatterVegetation( site, seed = 99 ) {
 		site.cover( x, z, c );
 		if ( c.h < 2.05 || c.h > 14 || c.bare > 0.2 || c.ny < 0.9 ) return;
 		if ( site.pathDist( x, z ) < RULES.pathClear || site.spawnDist( x, z ) < RULES.spawnClear + 3 ) return;
+		// ... and clear of the coastal road (its clearance already includes the verge).
+		if ( site.terrain.pathDistance && site.terrain.pathDistance( x, z ) < 1.5 ) return;
 		const od = site.obstacleDist( x, z );
 		if ( od < 3.5 ) return;
 		const between = site.hasVillage ? smoothstep( 4.5, 6, od ) * ( 1 - smoothstep( 10, 16, od ) ) : 0;
@@ -657,6 +661,10 @@ export function buildGrassMask( site ) {
 			const k = j * res + i;
 			const x = t.origin + ( i + 0.5 ) * texel;
 			if ( t.heightAt( x, z ) < 1.7 ) continue;
+			// Grass uses a separate filtered density mask from tree scattering.
+			// Honour the same reserved floors, allowing one metre for blade sway
+			// plus the diagonal reach of bilinear interpolation at their edges.
+			if ( t.inClearZone?.( x, z, 1 + Math.SQRT2 * texel ) ) continue;
 			if ( site.rock( x, z ) > 0.45 ) continue;
 			site.cover( x, z, c );
 			if ( c.bare > 0.5 ) continue;
@@ -665,8 +673,13 @@ export function buildGrassMask( site ) {
 			if ( sd < RULES.spawnClear + 2 ) continue;
 			const od = site.obstacleDist( x, z );
 			if ( od < RULES.obstacleClear + 1 ) continue;
+			// Roads: nothing within a metre of the asphalt edge (the path paint only covers the
+			// seal, and tall blades would lean into the lane), thickening over the next 1.5 m.
+			const road = t.roads?.closest( x, z );
+			if ( road && road.distance - road.path.halfWidth < 1 ) continue;
+			const verge = road ? smoothstep( 1, 2.5, road.distance - road.path.halfWidth ) : 1;
 			const keep = smoothstep( RULES.spawnClear + 2, RULES.spawnClear + 4, sd ) * smoothstep( RULES.obstacleClear + 1, RULES.obstacleClear + 3.5, od )
-				* ( 1 - smoothstep( 0.2, 0.5, c.path ) ) * ( 1 - smoothstep( 0.25, 0.45, c.bare ) );
+				* ( 1 - smoothstep( 0.2, 0.5, c.path ) ) * ( 1 - smoothstep( 0.25, 0.45, c.bare ) ) * verge;
 			const bay = site.inBay( x, z );
 			const clump = N.noise( x / 7.5, z / 7.5 ) * 0.65 + N2.noise( x / 19, z / 19 ) * 0.35;
 

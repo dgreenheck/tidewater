@@ -28,6 +28,12 @@ export const FLIGHT = {
 		speed: 9, minSpeed: 6, maxBank: 0.55, roll: 1.2, climb: 1.2, sink: 0.45, freq: 2.0, amp: 0.55,
 		glide: { elev: 0.1, sweep: - 0.18, twist: 0.03, elbow: 0.42, wrist: 0.85, hand: - 0.28 }, duty: 0.02,
 	},
+	// the player's pet sulphur-crested cockatoo (src/player/Cockatoo.js): strong deep beats around
+	// 4.6 Hz, short glides, agile turns
+	cockatoo: {
+		speed: 10.5, minSpeed: 4, maxBank: 1.2, roll: 4.5, climb: 3.2, sink: 1.6, freq: 4.6, amp: 1.0,
+		glide: { elev: 0.08, sweep: - 0.08, twist: 0.02, elbow: 0.2, wrist: 0.35, hand: - 0.1 }, duty: 0.85,
+	},
 	[ BIRD.SANDERLING ]: {
 		speed: 13, minSpeed: 6, maxBank: 1.0, roll: 4, climb: 2.5, sink: 1.2, freq: 11, amp: 0.8,
 		glide: { elev: 0.08, sweep: - 0.05, twist: 0.02, elbow: 0.3, wrist: 0.55, hand: - 0.15 }, duty: 0.8,
@@ -38,11 +44,12 @@ const _g = { elev: 0, sweep: 0, twist: 0, elbow: 0, wrist: 0, hand: 0 };
 
 export class Flyer {
 
-	constructor( species, seed, rng ) {
+	// cfg: a flight profile other than the species' own (the pet cockatoo flies FLIGHT.cockatoo)
+	constructor( species, seed, rng, cfg = null ) {
 
 		this.species = species;
 		this.sp = SPECIES[ species ];
-		this.cfg = FLIGHT[ species ];
+		this.cfg = cfg || FLIGHT[ species ];
 		this.rng = rng;
 		this.P = createPose( species, seed );
 		this.P.scale = 0.92 + rng() * 0.16;

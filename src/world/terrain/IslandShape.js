@@ -22,7 +22,14 @@ export const RIDGES = [
 	[ [ 50, - 495, 168 ], [ 115, - 630, 112 ], [ 165, - 765, 38 ] ],
 	[ [ - 380, - 410, 100 ], [ - 440, - 560, 56 ] ],
 	[ [ 270, - 430, 115 ], [ 390, - 550, 52 ] ],
+	// Joey Island, across the strait to the south: a long low plateau (the main body) and the
+	// Dudley-like peninsula at its east end; the Joey ferry terminal sits on the north-west corner
+	[ [ - 170, 800, 24, 95 ], [ - 40, 788, 40, 110 ], [ 110, 782, 50, 120 ], [ 250, 770, 42, 110 ], [ 330, 752, 28, 85 ] ],
+	[ [ 370, 730, 24, 75 ], [ 460, 712, 38, 90 ], [ 530, 728, 22, 70 ] ],
 ];
+
+// Joey Island's outline: ellipses [x, z, rx, rz] blended with a smooth minimum.
+export const JOEY = [ [ 70, 790, 290, 100 ], [ 340, 752, 90, 55 ], [ 462, 718, 112, 82 ] ];
 
 for ( const r of RIDGES ) for ( const p of r ) if ( p.length < 4 ) p.push( 2.5 * p[ 2 ] + 50 );
 

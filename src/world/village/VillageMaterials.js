@@ -436,9 +436,35 @@ export function createThatchMaterial( T ) {
 // vdata: x seed, y rust (0..1), z metalness, w roughness
 // rope: vdata.w = 2 + rope radius (uv: u along the rope, v around, metres)
 
-export function createHardMaterial( T ) {
+// Wire AA (). The chairlift haul rope is a 0.034 m tube: past ~75 m at 2560x1267
+// (~37 m at ?scale=0.5) it is narrower than a render pixel, so the rasteriser hits it on some pixels
+// only and drew a dotted line that TAA cannot rebuild. The wire variant holds the drawn radius at
+// WIRE_MIN_PIXELS render pixels at least and keeps true / drawn radius of its pixels (a dither that
+// changes every frame, which TAA averages), so a thin rope reads as a faint unbroken line, as a
+// sub-pixel wire does to the eye. A 6-sided tube is cos 30 deg of its diameter at its narrowest, so
+// 0.75 px of radius still covers a whole pixel row. Not in the depth pass: the shadow keeps the true
+// rope. Rope vertices carry their coverage in vData.y (rust, which rope shading never reads).
+const WIRE_VERTEX = /* wgsl */`
+#if !PASS_DEPTH
+	let wireR = v.vdata.w - 2.0;
+	let wireCentre = v.position - v.normal * wireR;
+	let wireDepth = ( frame.viewProj * ( v.model * vec4f( wireCentre, 1.0 ) ) ).w;
+	let WIRE_MIN_PIXELS = 0.75;
+	let drawnR = max( wireR, WIRE_MIN_PIXELS * 2.0 * wireDepth / ( frame.proj[ 1 ][ 1 ] * frame.resolution.y ) );
+	v.position = wireCentre + v.normal * drawnR;
+	o.vData.y = wireR / drawnR;
+#endif
+`;
+const WIRE_SURFACE = /* wgsl */`
+	let wireCover = in.vs.vData.y;
+	if ( wireCover < 1.0 && interleavedGradientNoise( in.pixel + f32( frame.frameIndex % 64u ) * 5.588238 ) >= wireCover ) {
+		discard;
+	}
+`;
 
-	const m = villageMaterial( { roughness: 0.5, metalness: 0.5 }, T, [ 'hardA', 'hardN', 'rope', 'grime' ], { surface: /* wgsl */`
+export function createHardMaterial( T, { wire = false } = {} ) {
+
+	const m = villageMaterial( { roughness: 0.5, metalness: 0.5 }, T, [ 'hardA', 'hardN', 'rope', 'grime' ], { vertex: wire ? WIRE_VERTEX : '', surface: ( wire ? WIRE_SURFACE : '' ) + /* wgsl */`
 	let aTint = in.vs.vTint;
 	let aData = in.vs.vData;
 	let seed = aData.x;
@@ -473,7 +499,7 @@ export function createHardMaterial( T ) {
 	s.metalness = aData.z * ( 1.0 - max( rust, res.wet ) ) * ( 1.0 - isRope );
 	s.ao = mix( HN.a, R.g, isRope );
 ` } );
-	m.name = 'VillageHard';
+	m.name = wire ? 'VillageHardWire' : 'VillageHard';
 	m.modules.push( tidalModule );
 	return m;
 
@@ -696,6 +722,11 @@ export function createVillageMaterials( textures = new VillageTextures() ) {
 		roofMetal: createRoofMetalMaterial( T ),
 		thatch: createThatchMaterial( T ),
 		hard: createHardMaterial( T ),
+		// Wire variant of the hard material for thin rope tubes (chairlift haul rope): the vertex hook holds a
+		// sub-pixel rope at >= 0.75 render px with coverage dither. Built here, once, with the rest of the set, so
+		// consumers take it from app.village.materials (-root; building it from app.village.textures
+		// in the chairlift broke every node fixture that supplies only the material set).
+		hardWire: createHardMaterial( T, { wire: true } ),
 		stone: createStoneMaterial( T ),
 		fabric: createFabricMaterial( T ),
 		net: createNetMaterial( T ),

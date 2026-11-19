@@ -646,7 +646,12 @@ fn vegCanopyMask( in: FragInput, L: vec4f ) -> bool {
 	// cards seen edge-on thin out (no sliver lines through the crown)
 	let facing = abs( dot( normalize( cross( dpdx( in.P ), dpdy( in.P ) ) ), in.V ) );
 	let thr = vegCoverageThreshold( in.uv ) + ( 1.0 - smoothstep( 0.08, 0.35, facing ) ) * 0.45;
-	return ( isBark || L.x > thr ) && bayer4( in.pixel ) >= fade;
+	// anti-aliased alpha test: within one pixel's footprint of the threshold a leaf edge is kept with
+	// the probability of its coverage (per-frame dither), which the TAA resolves into a soft edge; a
+	// hard test aliased sub-pixel leaves into speckled dots along tree lines against the sky
+	let cov = sat( ( L.x - thr ) / max( fwidth( L.x ), 1e-4 ) + 0.5 );
+	let n = bayer4( in.pixel );
+	return ( isBark || cov > fract( n + 0.618034 ) ) && n >= fade;
 }
 fn vegCanopyLeaf( in: FragInput ) -> vec4f {
 	let part = in.vs.vMat.x;

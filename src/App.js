@@ -1,3 +1,8 @@
+import { DisasterWater } from './disasters/Water.js';
+import { RagdollPool } from './player/workers/RagdollPool.js';
+import { SimulationPacing } from './core/SimulationPacing.js';
+import { updateOceanDisplacementBounds } from './ocean/DisplacementBounds.js';
+import { Disasters } from './disasters/Disasters.js';
 import { Vector3, Euler, Color, MathUtils, Mesh } from './engine/index.js';
 import { GPU } from './engine/gpu/GPU.js';
 import { SunShadows } from './engine/render/Shadows.js';
@@ -19,6 +24,8 @@ import { SkyProClouds } from './sky/SkyProClouds.js';
 import { Environment } from './sky/Environment.js';
 
 import { TerrainData } from './world/TerrainData.js';
+import { CoastalRoute } from './world/CoastalRoute.js';
+import { CoastalRoad } from './world/CoastalRoad.js';
 import { TerrainGPU } from './world/TerrainGPU.js';
 import { Terrain } from './world/Terrain.js';
 import { computeShoreField } from './world/ShoreField.js';
@@ -30,7 +37,21 @@ import { BoatModel } from './world/BoatModel.js';
 import { Rocks } from './world/Rocks.js';
 import { Debris } from './world/Debris.js';
 import { Wildlife } from './world/wildlife/Wildlife.js';
+import { Livestock } from './wildlife/Livestock.js';
 import { Whale } from './world/marine/Whale.js';
+import { DolphinPod } from './world/marine/Dolphin.js';
+import { Sharks } from './world/marine/Sharks.js';
+import { addWorldTool } from './ui/WorldTools.js';
+import { Aviation } from './aviation/Aviation.js';
+import { Glider } from './glider/Glider.js';
+import { prepareGliderSite } from './glider/Site.js';
+import { prepareChairliftSite } from './chairlift/Route.js';
+import { Chairlift } from './chairlift/Chairlift.js';
+import { commitGeometryMotion } from './engine/render/GeometryMotion.js';
+import { WindFarm } from './windfarm/WindFarm.js';
+import { prepareWindFarmSites } from './windfarm/Sites.js';
+import { prepareEvacuationRoute } from './evacuation/Route.js';
+import { Evacuation } from './evacuation/Evacuation.js';
 
 import { OceanFFT } from './ocean/OceanFFT.js';
 import { WaterSurface } from './ocean/WaterSurface.js';
@@ -56,15 +77,27 @@ import { PostFX } from './post/PostFX.js';
 import { AirHaze } from './post/AirHaze.js';
 import { FlyCamera } from './player/FlyCamera.js';
 import { Player } from './player/Player.js';
+import { Cockatoo } from './player/Cockatoo.js';
+import { RallyDrive } from './rally/RallyDrive.js';
+import { PropPhysics } from './physics/Props.js';
+import { Ferry } from './ferry/Ferry.js';
+import { People } from './people/People.js';
+import { Beach } from './people/Beach.js';
+import { Jetskis } from './jetski/Jetski.js';
+import { placeJetskiHire } from './world/JetskiHire.js';
+import { Terminal, applyTerminalSite, PLACES } from './ferry/Terminal.js';
 import { Game } from './game/Game.js';
 import { STAND } from './game/FishStand.js';
 import { CHANDLERY } from './game/Chandlery.js';
+import { DAY_RATE, START_HOUR, advanceClock } from './sky/DayClock.js';
+import { JoeyVillage, JOEY_VILLAGE_SITE } from './joey/Village.js';
 import { BoatController } from './player/BoatController.js';
 import { BoatSpray } from './player/BoatSpray.js';
 import { WakeSim } from './ocean/WakeSim.js';
 import { Vegetation } from './world/Vegetation.js';
 import { SoundScape } from './audio/SoundScape.js';
 import { updateCameraVelocity, useStaticVelocity } from './post/CameraVelocity.js';
+import { poseScene } from './engine/render/ScenePose.js'; // L6 perf
 
 const _up = new Vector3( 0, 1, 0 );
 
@@ -72,14 +105,19 @@ export class App {
 
 	constructor() {
 
+		this.simulationPacing = new SimulationPacing();
+		this.qs = new URLSearchParams( location.search );
 		this.settings = {
-			timeOfDay: 16.2,
+			timeOfDay: START_HOUR,
 			sunAzimuth: 0, // degrees: turns the sun's daily path about the vertical
-			timeSpeed: 0, // hours per real second
+			// game hours per real second in daylight (deep night runs faster, src/sky/DayClock.js); 0 holds the
+			// clock, as the benchmark does
+			timeSpeed: this.qs.has( 'bench' ) ? 0 : DAY_RATE,
 			exposure: 0.55,
 			renderScale: 1, // internal resolution (the temporal upscaler reconstructs the output), Performance tab
 		};
-		this.qs = new URLSearchParams( location.search );
+		// The driver's shout on bailing out of a car (off with ?noShout).
+		this.settings.bailShout = ! this.qs.has( 'noShout' );
 
 	}
 
@@ -108,6 +146,9 @@ export class App {
 
 		this.input = new Input( engine.domElement );
 		this.fly = new FlyCamera( camera, engine.domElement, this.input );
+		// every pose set is a camera cut (free-camera toggle, debug views, scripted poses): see cameraCut
+		const setPose = this.fly.setPose.bind( this.fly );
+		this.fly.setPose = ( ...args ) => { setPose( ...args ); this.cameraCut(); };
 		this.fly.setPose( new Vector3( 20, 6, - 20 ), Math.PI * 0.9, - 0.12 );
 
 		// ---------------------------------------------------------------- sky
@@ -135,11 +176,21 @@ export class App {
 		// ---------------------------------------------------------------- island
 		await progress( 0.06, 'Shaping the island…' );
 		this.terrainData = new TerrainData();
+		// the ferry terminal's dredged berth, reclaimed flat and breakwater: before anything else
+		// reads the heights (village pads, roads, plants, shore field, GPU terrain, minimap)
+		for ( const place of Object.values( PLACES ) ) applyTerminalSite( this.terrainData, undefined, place );
+		applyTerminalSite( this.terrainData, JOEY_VILLAGE_SITE, PLACES.joey ); // ground under the village slabs, kept clear
 		this.colliders = new Colliders();
 		// the village flattens building pads into the heightmap: build it before any terrain
 		// data is derived (shore field, GPU textures, meshes)
 		await progress( 0.12, 'Building the village…' );
 		this.village = new Village( { scene, terrain: this.terrainData, colliders: this.colliders } );
+		this.coastalRoute = new CoastalRoute( this.terrainData );
+		prepareEvacuationRoute(this.terrainData);
+		prepareWindFarmSites(this.terrainData);
+		prepareGliderSite(this.terrainData, this.coastalRoute);
+		prepareChairliftSite(this.terrainData, this.coastalRoute);
+		this.coastalRoad = new CoastalRoad( scene, this.terrainData, this.coastalRoute, this.colliders );
 		if ( ! qs.has( 'noVeg' ) ) {
 
 			await progress( 0.14, 'Planting the island…' );
@@ -176,6 +227,8 @@ export class App {
 		this.oceanLOD = new CDLOD( { gridSize: Number( qs.get( 'G' ) || 32 ), leafSize: 8, levels: 12, minY: - 25, maxY: 25 } );
 		this.surface = new WaterSurface( { fft: this.fft, cdlod: this.oceanLOD, foamTexture: this.foamTexture } );
 		this.surface.terrain = this.terrainGPU;
+		this.disasterWater = new DisasterWater(this.terrainGPU);
+		this.surface.disaster = this.disasterWater;
 		this.seaDetail = new SeaDetail();
 		this.surface.detail = this.seaDetail;
 		this.shore = new ShoreWaves( this.terrainGPU );
@@ -304,10 +357,23 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 
 		}
 
+		// a pod of bottlenose dolphins along the coast; they ride the ferry's and the boat's bow waves
+		this.dolphins = new DolphinPod( { scene, terrain: this.terrainData, query: this.query, spray: this.spray, vessels: this } );
+		try {
+
+			await this.dolphins.load();
+
+		} catch ( e ) {
+
+			console.warn( 'dolphin model failed to load', e );
+			this.dolphins = null;
+
+		}
+
 		// interactive wake around the boat (Kelvin pattern, bow/stern waves, prop wash foam)
 		this.wake = new WakeSim( renderer, { terrainGPU: this.terrainGPU, boat: this.boatCtl, colliders: this.colliders } );
 		this.surface.wake = this.wake;
-		this.player = new Player( { camera, input: this.input, terrain: this.terrainData, colliders: this.colliders, query: this.query, boat: this.boatCtl, reef: this.reef } );
+		this.player = new Player( { camera, input: this.input, terrain: this.terrainData, colliders: this.colliders, query: this.query, boat: this.boatCtl, reef: this.reef, scene } );
 		// birds, beach crabs, sanderlings (after spray / query / boat, which they use)
 		this.wildlife = new Wildlife( {
 			scene, renderer, terrain: this.terrainData, terrainGPU: this.terrainGPU, shore: this.shore,
@@ -341,6 +407,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		this.player.audio = this.audio;
 		// the fishing game (rod, bites, catch, cooler, fish stand)
 		this.game = new Game( this );
+		this.cockatoo = new Cockatoo( this, scene ); // the player's pet (src/player/Cockatoo.js)
 		// the lanterns at Joe's fish stand and Marta's chandlery (lit from dusk like the village lamps);
 		// positions are in each stall's frame (x right, z toward the customer), turned by its yaw
 		for ( const [ s, lx, ly, lz ] of [ [ STAND, - 0.9, 1.85, 0.1 ], [ CHANDLERY, - 0.75, 1.58, - 1.45 ] ] ) {
@@ -370,6 +437,52 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		window.__app = this;
 		this.gpu = GPU; // console / test access
 
+		await progress( 0.35, 'Loading Rally cars and physics…' );
+		// the terminal's colliders go in before the car physics exports the static boxes
+		this.terminal = new Terminal( this );
+		await this.terminal.init();
+		this.joeyTerminal = new Terminal( this, 'joey' ); // Joey Island's, across the strait
+		await this.joeyTerminal.init();
+		this.joeyVillage = new JoeyVillage( this, this.joeyTerminal ); // the shopping village on Joey's terminal flat
+		await this.joeyVillage.init();
+		this.evacuation = new Evacuation(this);
+		await this.evacuation.init();
+		// loose props and fence panels wake with physics near the car or the walker (src/physics/Props.js)
+		this.props = new PropPhysics( this );
+		this.props.link( this.colliders );
+		this.rally = new RallyDrive( this );
+		// placing the car (start, reset, recovery) snaps the chase camera: a cut
+		const place = this.rally.place.bind( this.rally );
+		this.rally.place = ( spot ) => { place( spot ); this.cameraCut(); };
+		await this.rally.init();
+		this.props.attach( this.rally.physics );
+		this.people = new People( this ); // the townsfolk brains, events and speech bubbles (src/people, docs/people.md)
+		this.ferry = new Ferry( this );
+		await this.ferry.init();
+		this.jetskis = new Jetskis( this ); // rideable jetskis (src/jetski)
+		await this.jetskis.init();
+		this.player.jetskis = this.jetskis;
+		await placeJetskiHire( this ); // the hire stand, dolly and float line by the pier (src/world/JetskiHire.js)
+		this.beach = new Beach( this ); // the main beach's people, games and the hire attendant (src/people/Beach.js)
+		this.beach.init(); // bodies load in the background
+		await Promise.all( [ this.terminal.ready, this.joeyTerminal.ready, this.joeyVillage.ready ] );
+		this.disasters = new Disasters(this,this.disasterWater);
+		this.windfarm = new WindFarm(this);
+		await this.windfarm.init();
+		this.aviation = new Aviation(this);
+		await this.aviation.init();
+		this.player.aviation = this.aviation; // walk-up E prompt at the carrier jet (lane L2)
+		this.glider = new Glider(this);
+		await this.glider.init();
+		this.chairlift = new Chairlift(this).init({connector:true});
+		this.livestock = new Livestock(this);
+		await this.livestock.init();
+		this.rally.refreshIslandColliders();
+		this.sharks = new Sharks({scene:this.scene,terrain:this.terrainData,reef:this.reef,query:this.query,vessels:this});
+		await this.sharks.load();
+		addWorldTool(this,{id:'sharks',label:'Watch sharks',onActivate:()=>this.sharks.watch()});
+		addWorldTool(this,{id:'shark-bite',label:'Shark bite demo',onActivate:()=>this.sharks.demonstrateBite()});
+
 		// ---- compile pipelines asynchronously (keeps the page responsive), then prime a few
 		// frames behind the loading screen so any remaining first-use stalls happen there
 		// stage weights: in the browser the pipeline compile below takes far longer than everything before it
@@ -378,7 +491,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		await progress( 0.96, 'Warming up…' );
 		for ( let i = 0; i < 2; i ++ ) {
 
-			this.frame( 1 / 60 );
+			await this.frame( 1 / 60 );
 			await GPU.queue.onSubmittedWorkDone();
 
 		}
@@ -417,7 +530,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 			for ( const hull of [ 0, 1 ] ) {
 
 				this.waterMaterial.hullOverride = hull;
-				this.frame( 1 / 60 );
+				await this.frame( 1 / 60 );
 
 			}
 
@@ -467,16 +580,16 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		const horizonFade = MathUtils.smoothstep( sunTrue.y, - 0.03, 0.02 );
 		let c;
 		if ( sunUp ) c = new Color( T[ 0 ], T[ 1 ], T[ 2 ] ).multiplyScalar( SUN_ILLUMINANCE * horizonFade );
-		else c = new Color( 0.6, 0.7, 1.0 ).multiplyScalar( 0.12 * G.night.value );
+		else c = new Color( 0.6, 0.7, 1.0 ).multiplyScalar( 0.3 * G.night.value ); // moonlight: enough to read the shore by
 		G.sunColor.value.copy( c );
 		const irr = a.skyIrradiance;
-		const nightAmb = 0.012 * G.night.value;
+		const nightAmb = 0.04 * G.night.value; // night sky fill: the shore and the sea stay readable
 		G.skyIrradiance.value.setRGB( irr[ 0 ] + nightAmb * 0.6, irr[ 1 ] + nightAmb * 0.7, irr[ 2 ] + nightAmb );
 		G.horizonColor.value.setRGB( a.horizon[ 0 ], a.horizon[ 1 ], a.horizon[ 2 ] );
 
 	}
 
-	// T: let the day run (about 8 minutes per day) or stop it
+	// T: let the day run (about 50 real minutes of daylight, src/sky/DayClock.js) or stop it
 	toggleTime() {
 
 		const s = this.settings;
@@ -487,7 +600,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 
 		} else {
 
-			s.timeSpeed = this._timeSpeed || 0.05;
+			s.timeSpeed = this._timeSpeed || DAY_RATE;
 
 		}
 
@@ -501,18 +614,37 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 
 	}
 
+	// A camera cut the upscaler's 20 m jump test can miss (a short teleport, a pose set, a lens
+	// change): drop its history so the last view does not smear into the new one.
+	cameraCut() {
+
+		this.post?.taau?.reset();
+
+	}
+
 	// Free (debug) camera on F; the walker / boat resumes where it was left.
 	setFreeCam( on ) {
 
+		if ( this.chairlift?.active ) {
+			this.ui?.ui.toast( 'Exit the chairlift at a terminal before changing activities.' );
+			return false;
+		}
+
+		if ( on && this.aviation?.active ) this.aviation.leave();
+		if ( on && this.glider?.active ) this.glider.leave();
 		if ( on === this.freeCam ) return;
 		this.freeCam = on;
+		if ( this.post?.motionBlur ) this.post.motionBlur.freeCamera = on; // no camera blur in the free camera
+		this.cameraCut(); // the other camera, maybe another lens
 		if ( on ) {
+
+			this.rally?.restoreLens();
 
 			const e = new Euler().setFromQuaternion( this.camera.quaternion, 'YXZ' );
 			this.fly.setPose( this.camera.position.clone(), e.y, e.x );
 			this.fly.velocity.set( 0, 0, 0 );
 
-		} else if ( this.player.mode !== 'boat' && this.player.mode !== 'deck' ) {
+		} else if ( this.player.mode !== 'boat' && this.player.mode !== 'deck' && this.player.mode !== 'rally' ) {
 
 			this.dropPlayerAtCamera();
 
@@ -555,7 +687,9 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 
 	start() {
 
-		this.engine.start( ( dt, t ) => this.frame( dt, t ) );
+		this.ragdollPool = new RagdollPool();
+		this.ragdollPool.init();
+		this.engine.start( ( dt ) => this.frame( dt ) );
 
 	}
 
@@ -586,13 +720,59 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 
 	}
 
-	frame( dt ) {
+	// Game time: the world clock the frames advance, slowed by warp().
+	get gameTime() { return G.time.value; }
+
+	// Bullet time: curve( seconds of unslowed time ) gives the world's time scale, or null
+	// once the warp is over.
+	warp( curve ) { this.warping = { curve, t: 0 }; }
+
+	warpTime( dt ) {
+
+		const w = this.warping;
+		if ( ! w ) return dt;
+		w.t += dt;
+		const scale = w.curve( w.t );
+		if ( scale === null ) { this.warping = null; return dt; }
+		return dt * scale;
+
+	}
+
+	frame( dt, wallDt = this.engine.clock.getDelta() || dt ) {
 
 		const t0 = performance.now();
-		this._frame( dt );
-		const ms = performance.now() - t0;
-		this.cpuMs = this.cpuMs === undefined ? ms : this.cpuMs * 0.95 + ms * 0.05;
+		this.input.beginFrame();
+		this.updateFPS( wallDt );
+		if ( this.disasters?.paused ) {
 
+			// Settle temporal rendering while every physical state and clock stays frozen.
+			GPU.beginFrame();
+			FrameUniforms.fields.frameIndex.value = GPU.frame;
+			G.dt.value = 0;
+			this.renderFrame( 0 );
+			this.disasters.refresh(false);
+			this.chairlift?.ui?.update(0);
+			return;
+
+		}
+		const complete = () => {
+			const ms = performance.now() - t0;
+			this.simulationPacing.observe( ms, accepted, wallDt );
+			this.cpuMs = this.cpuMs === undefined ? ms : this.cpuMs * 0.95 + ms * 0.05;
+			this.simulationPending = false;
+			for ( const change of this.simulationChanges?.splice(0) ?? [] ) change();
+		};
+		const accepted = this.warpTime( this.simulationPacing.step( dt, !!this.disasters && (this.disasters.field.events.size > 0 || !this.disasters.restored) ) );
+		const pending = this._frame( accepted );
+		if ( pending?.then ) { this.simulationPending = true; return pending.finally(complete); }
+		complete();
+
+	}
+
+	deferSimulationChange( change ) {
+		if ( ! this.simulationPending ) return false;
+		( this.simulationChanges ??= [] ).push( change );
+		return true;
 	}
 
 	_frame( dt ) {
@@ -600,15 +780,16 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		GPU.beginFrame();
 		FrameUniforms.fields.frameIndex.value = GPU.frame;
 		const s = this.settings;
-		this.updateFPS( dt );
 		G.dt.value = dt;
 		G.time.value += dt;
-		if ( s.timeSpeed !== 0 ) s.timeOfDay = ( s.timeOfDay + dt * s.timeSpeed + 24 ) % 24;
+		s.timeOfDay = advanceClock( s.timeOfDay, s.timeSpeed, dt );
 
 		// ---- player / boat (boat physics first so the cameras follow this frame's pose)
-		if ( this.input.hit( 'KeyF' ) ) this.setFreeCam( ! this.freeCam );
-		if ( this.input.hit( 'KeyT' ) ) this.toggleTime();
-		if ( this.input.hit( 'KeyL' ) ) {
+		if ( this.input.hit( 'KeyF' ) && ! this.aviation?.pilot && ! this.glider?.active && ! this.chairlift?.active ) this.setFreeCam( ! this.freeCam );
+		// (in a car T repairs it instead, see src/rally/DriveHUD.js)
+		if ( this.input.hit( 'KeyT' ) && ! this.rally?.active && ! this.aviation?.pilot && ! this.glider?.active && ! this.chairlift?.active ) this.toggleTime();
+		// (at the ferry's helm L works her mooring lines instead, see src/ferry/FerryDeck.js)
+		if ( this.input.hit( 'KeyL' ) && this.player.mode !== 'ferry-helm' && ! this.aviation?.pilot && ! this.glider?.active && ! this.chairlift?.active ) {
 
 			const on = this.localLights.toggleFlashlight();
 			if ( this.ui ) this.ui.ui.toast( on ? 'Flashlight on' : 'Flashlight off' );
@@ -621,12 +802,50 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 			if ( this.ui ) this.ui.ui.toast( this.audio.muted ? 'Sound off' : 'Sound on' );
 
 		}
+		this.livestock?.update(dt);
+		this.disasters?.before(dt);
 		this.boatCtl.update( dt );
 		this.boatSpray.update( dt );
+		this.jetskis?.update( dt );
 		this.wake.update( dt );
-		if ( this.freeCam ) this.fly.update( dt );
-		else this.player.update( dt );
+		// The ferry first: her deck's pose feeds the car physics as a moving platform.
+		const ferryPending = this.ferry?.update( dt );
+		if ( ferryPending ) return ferryPending.then( () => this.afterFerry( dt ) );
+		return this.afterFerry( dt );
+	}
+
+	afterFerry( dt ) {
+		if ( this.rally ) this.rally.update( dt );
+		this.props?.update( dt );
+		this.windfarm?.update( dt );
+		this.aviation?.update( dt );
+		this.glider?.update( dt );
+		this.chairlift?.update( dt );
+		if ( ! this.aviation?.active && ! this.glider?.active && ! this.chairlift?.active ) {
+
+			if ( this.freeCam ) this.fly.update( dt );
+			else if ( ! this.rally?.active && ! this.rally?.bailout.active ) this.player.update( dt );
+
+		}
+		this.aviation?.updateCamera( dt );
+		this.glider?.updateCamera( dt );
+		// the player's own character (src/player/Avatar.js): hidden in the car and at the helms
+		if ( this.chairlift?.active ) this.chairlift.updateAvatar( dt );
+		else this.player.updateAvatar( dt, { attached: ! this.freeCam, hidden: !! ( this.rally?.active || this.rally?.bailout.active || this.aviation?.active || this.glider?.active ) } );
+		// The seated camera follows this frame's posed head, after pelvis placement.
+		this.chairlift?.updateCamera( dt );
 		this.game.update( dt );
+		this.cockatoo?.update( dt );
+		const pending = this.ragdollPool?.prepare( this.beach?.people ?? [], dt, this.disasters?.field );
+		if ( pending ) return pending.then( () => this.finishFrame( dt ) );
+		this.finishFrame( dt );
+	}
+
+	finishFrame( dt ) {
+		this.beach?.update( dt );
+		this.people?.update( dt );
+		this.disasters?.after();
+		this.evacuation?.update(dt);
 		this.updateSun();
 
 		this.atmosphere.update( dt, this.camera.position.y );
@@ -660,20 +879,29 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		this.environment.update( dt );
 
 		// ---- world
+		updateOceanDisplacementBounds( this.oceanLOD, this.disasters?.field.water, this.disasters?.field.outer, this.disasters?.field.farFieldBounds() ); // + tsunami outer ring; + the wall beyond it
 		this.oceanLOD.update( this.camera );
 		this.terrain.update( this.camera );
 		this.rocks.update( this.camera );
 		this.debris.update( this.camera );
 		this.reef.update( dt, this.camera.position );
 		this.village.update( dt );
+		this.joeyVillage?.update( this.camera ); // hides the Joey village and its keepers from far off
 		if ( this.vegetation ) this.vegetation.update( dt, this.camera );
 		if ( this.whale ) this.whale.update( dt, this.camera );
+		if ( this.dolphins ) this.dolphins.update( dt, this.camera );
+		this.sharks?.update( dt, this.camera );
 		this.boat.update( dt );
-		this.wildlife.update( dt, this.camera, this.freeCam ? null : this.player );
+		this.wildlife.update( dt, this.camera, ( this.freeCam || this.aviation?.active || this.glider?.active || this.chairlift?.active ) ? null : this.player );
 		this.localLights.update( this.camera, dt );
 
-		// ---- render
-		G.exposure.value = s.exposure;
+		this.renderFrame( dt );
+
+	}
+
+	renderFrame( dt ) {
+
+		G.exposure.value = this.settings.exposure;
 		updateCameraVelocity( this.camera );
 		this.post.lens.update( dt, this.camera.position.y < ( this.cameraWaterHeight ?? 0 ) );
 		if ( this.post.flare ) {
@@ -687,17 +915,45 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		// uniforms (setFrameCamera); shadows then render with this frame's sun and camera
 		this.post.beginFrame();
 		this.underwater.updateCamera( this.camera );
-		this.shadows.render( this.scene, this.engine.meshRenderer, this.shadows.update( this.camera, G.sunDir.value ) );
+		// ---- L6 perf: pose the scene graph once for every pass of this frame (src/engine/render/ScenePose.js).
+		// The simulation and the camera are final here; the passes below skip their own whole-scene update.
+		poseScene( this.scene );
+		// ---- end L6 perf
+		this.shadows.render( this.scene, this.engine.meshRenderer, this.shadows.update( this.camera, G.sunDir.value, this.scene ) );
 		this.sceneRenderer.render();
 		if ( this.post.flare ) this.post.flare.kernel.dispatch( 1 );
 		this.post.render();
 		this.post.endFrame();
 		GPU.submit();
+		commitGeometryMotion();
 		this.profiler.update( dt );
 
 		this.updateAudio( dt );
 		if ( this.ui ) this.ui.update( dt );
 		this.input.endFrame();
+
+	}
+
+	// One ambient wind state for waves, foliage and every coupled physics model.
+	setAmbientWind( speed, direction ) {
+
+		if ( ! Number.isFinite( speed ) || speed < 0 || speed > 60 ) throw new RangeError( 'Ambient wind must be between 0 and 60 m/s' );
+		if ( ! Number.isFinite( direction ) ) throw new RangeError( 'Wind direction must be finite' );
+		if ( this.deferSimulationChange( () => this.setAmbientWind( speed, direction ) ) ) return;
+		const degrees = ( ( direction % 360 ) + 360 ) % 360;
+		this.fft.local.windSpeed = speed;
+		this.fft.local.windDirection = degrees;
+		this.fft.updateSpectrumUniforms();
+		const radians = degrees * Math.PI / 180;
+		G.windDir.value.set( Math.cos( radians ), Math.sin( radians ) );
+		G.windSpeed.value = speed;
+		if ( this.ui ) {
+
+			this.ui.s.wind = speed;
+			this.ui.s.windDir = degrees;
+			this.ui.ui.refresh();
+
+		}
 
 	}
 
@@ -738,6 +994,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 				active: this.boatCtl.driven, rpm: this.boatCtl.rpm, throttle: this.boatCtl.throttle, speed: this.boatCtl.velocity.length(),
 				position: this.boat.group.position, listenerInside: this.player.mode === 'boat' && this.player.camMode === 'first',
 			},
+			jetski: this.jetskis?.audioState() || null,
 		} );
 
 	}

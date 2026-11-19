@@ -55,6 +55,29 @@ export class Part {
 
 }
 
+// Long structural surfaces carry section vertices, so compliant member motion
+// bends the authored surface continuously and can separate at a real midspan joint.
+// Only tagged structural parts are refined; loose props and shared prototypes stay intact.
+const sectionCache=new WeakMap(),moduleSectionCache=new WeakMap();
+function sectionPart(part,module=false){
+ const cache=module?moduleSectionCache:sectionCache;
+ if(cache.has(part))return cache.get(part);
+ const lo=[Infinity,Infinity,Infinity],hi=[-Infinity,-Infinity,-Infinity];
+ for(let i=0;i<part.p.length;i++) {const a=i%3;lo[a]=Math.min(lo[a],part.p[i]);hi[a]=Math.max(hi[a],part.p[i]);}
+ const lengths=hi.map((x,i)=>x-lo[i]),axis=lengths.indexOf(Math.max(...lengths));
+ // Local deck/stair modules are rigid, so short treads and battens need no
+ // intermediate bending vertices. Only long parts need cuts for module ownership.
+ if(lengths[axis]<(module?4.5:1.5)){cache.set(part,part);return part;}
+ const strips=Math.min(64,Math.max(module?2:4,Math.ceil(lengths[axis]/3))),planes=Array.from({length:strips-1},(_,i)=>lo[axis]+lengths[axis]*(i+1)/strips),P=[],N=[],UV=[],I=[];
+ const vertex=i=>[...part.p.slice(i*3,i*3+3),...part.n.slice(i*3,i*3+3),...part.uv.slice(i*2,i*2+2)];
+ const clip=(poly,plane,sign)=>{const out=[];for(let i=0;i<poly.length;i++){const a=poly[i],b=poly[(i+1)%poly.length],da=sign*(a[axis]-plane),db=sign*(b[axis]-plane);if(da>=-1e-7)out.push(a);if((da>1e-7&&db< -1e-7)||(da< -1e-7&&db>1e-7)){const t=da/(da-db);out.push(a.map((x,j)=>x+(b[j]-x)*t));}}return out;};
+ for(let k=0;k<part.idx.length;k+=3){let polys=[[vertex(part.idx[k]),vertex(part.idx[k+1]),vertex(part.idx[k+2])]];
+  for(const plane of planes)polys=polys.flatMap(poly=>[clip(poly,plane,1),clip(poly,plane,-1)]).filter(p=>p.length>=3);
+  for(const poly of polys)for(let j=1;j<poly.length-1;j++)for(const v of [poly[0],poly[j],poly[j+1]]){I.push(P.length/3);P.push(...v.slice(0,3));N.push(...v.slice(3,6));UV.push(...v.slice(6,8));}
+ }
+ const result=new Part(P,N,UV,I);result.sectioned=true;cache.set(part,result);return result;
+}
+
 // ---------------------------------------------------------------------------
 // Primitive generators (local space)
 
@@ -545,6 +568,18 @@ export function gablePart( w, h, depth ) {
 // ---------------------------------------------------------------------------
 // Batch: merged geometry for one material
 
+// Vertex ranges owned by one prop (src/physics/Props.js), so it can be moved inside a merged
+// batch: everything emitted inside tagSpans( tag, fn ) is recorded against tag, the spans follow
+// append(), and build() hands each tag its range of the built geometry (tag.bind).
+let spanTag = null;
+export function tagSpans( tag, fn ) {
+
+	const previous = spanTag;
+	spanTag = tag;
+	try { fn(); } finally { spanTag = previous; }
+
+}
+
 export class Batch {
 
 	constructor() {
@@ -556,6 +591,7 @@ export class Batch {
 		this.data = [];
 		this.idx = [];
 		this.vcount = 0;
+		this.spans = [];
 
 	}
 
@@ -565,7 +601,18 @@ export class Batch {
 
 	}
 
-	add( part, m, tint, data ) {
+	span( tag, start, count, member = null ) {
+
+		const last = this.spans[ this.spans.length - 1 ];
+		if ( ! tag.disaster && last && last.tag === tag && last.start + last.count === start ) last.count += count;
+		else this.spans.push( { tag, start, count, member } );
+
+	}
+
+	add( part, m, tint, data, material = null ) {
+
+        const originalPart=part;
+        if(spanTag?.disaster)part=sectionPart(part,/pier|boardwalk|evacuation|stair|station/i.test(spanTag.name));
 
 		_m3.getNormalMatrix( m );
 		const e = m.elements, ne = _m3.elements;
@@ -604,13 +651,22 @@ export class Batch {
 
 		}
 
+		if ( spanTag ) {
+            let member = null;
+            if (spanTag.disaster && material) {
+                const lo=new Vector3(Infinity,Infinity,Infinity),hi=new Vector3(-Infinity,-Infinity,-Infinity);
+                for(let i=0;i<P.length;i+=3){_p.fromArray(P,i);lo.min(_p);hi.max(_p);}
+                member={material,lo,hi,frame:m.clone(),sectioned:!!part.sectioned,originalPoints:originalPart.p,fullCount:nv};
+            }
+            this.span( spanTag, base, nv, member );
+        }
 		this.vcount += nv;
 
 	}
 
 	// Stamp another batch (a prop prototype) into this one: positions / normals transformed by m,
 	// tint multiplied by tintMul, the per-vertex seed (vdata.x) offset so every copy looks different.
-	addBatch( src, m, tintMul = null, seedOffset = 0 ) {
+	addBatch( src, m, tintMul = null, seedOffset = 0, tag = spanTag ) {
 
 		_m3.getNormalMatrix( m );
 		const e = m.elements, ne = _m3.elements;
@@ -649,6 +705,7 @@ export class Batch {
 
 		}
 
+		if ( tag ) this.span( tag, base, nv );
 		this.vcount += nv;
 
 	}
@@ -671,6 +728,7 @@ export class Batch {
 		}
 
 		for ( let i = 0; i < src.idx.length; i ++ ) this.idx.push( base + src.idx[ i ] );
+		for ( const sp of src.spans ) this.span( sp.tag, base + sp.start, sp.count, sp.member );
 		this.vcount += src.vcount;
 
 	}
@@ -687,6 +745,7 @@ export class Batch {
 		g.setIndex( new Idx( this.idx, 1 ) );
 		g.computeBoundingBox();
 		g.computeBoundingSphere();
+		for ( const sp of this.spans ) sp.tag.bind( g, sp.start, sp.count, sp.member );
 		return g;
 
 	}
@@ -773,7 +832,7 @@ export class Builder {
 	add( key, part, local, tint, data ) {
 
 		_m4.multiplyMatrices( this.frame, local );
-		this.batch( key ).add( part, _m4, toArr( tint ), data || [ 0, 0, 0, 0 ] );
+		this.batch( key ).add( part, _m4, toArr( tint ), data || [ 0, 0, 0, 0 ], key );
 
 	}
 

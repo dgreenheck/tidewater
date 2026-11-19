@@ -105,6 +105,7 @@ const input = new InputStub();
 const camera = new E.PerspectiveCamera( 60, 2, 0.1, 5000 );
 const boat = new BoatController( { model, query, terrain, colliders } );
 const player = new Player( { camera, input, terrain, colliders, query, boat } );
+player.setView( 'first' ); // the checks below measure the first-person eye
 
 const dt = 1 / 60;
 const run = ( sec, each = null ) => {

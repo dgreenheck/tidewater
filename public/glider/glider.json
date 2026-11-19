@@ -1,0 +1,14 @@
+{
+  "asset": "glider",
+  "triangles": 11228,
+  "meshes": 13,
+  "pivots": {
+    "Pilot": [
+      0,
+      -0.15,
+      0.0
+    ]
+  },
+  "axes": "+Y up +Z nose metres",
+  "bytes": 487364
+}

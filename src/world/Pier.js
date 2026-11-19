@@ -149,10 +149,18 @@ export function buildPier( { B, terrain, colliders, rand, lights, inst, signB = 
 		const r = rand.next();
 		const j = () => rand.range( - 0.18, 0.18 );
 		const piece = () => rand.chance( 0.2 ) ? { tint: freshTone(), data: WOOD( rand.next(), rand.range( 0.25, 0.5 ), 0, 0 ) } : { tint: tone(), data: pierWood( 0.8, 1 ) };
-		if ( r > 0.12 ) B.beam( 'wood', [ xa, yTop + j(), bz + off ], [ xb, yBot + j(), bz + off ], 0.05, rand.range( 0.17, 0.22 ), piece() );
-		if ( r < 0.84 ) B.beam( 'wood', [ xa, yBot + j(), bz - off ], [ xb, yTop + j(), bz - off ], 0.05, rand.range( 0.17, 0.22 ), piece() );
+		// each brace also a camera-only capsule, so the third-person boom does not sit behind it
+		const beam = ( a, b, t, w, o ) => {
+
+			B.beam( 'wood', a, b, t, w, o );
+			if ( colliders.addBoomCapsule ) colliders.addBoomCapsule( a, b, 0.11, { tag: 'pierBrace' } );
+
+		};
+
+		if ( r > 0.12 ) beam( [ xa, yTop + j(), bz + off ], [ xb, yBot + j(), bz + off ], 0.05, rand.range( 0.17, 0.22 ), piece() );
+		if ( r < 0.84 ) beam( [ xa, yBot + j(), bz - off ], [ xb, yTop + j(), bz - off ], 0.05, rand.range( 0.17, 0.22 ), piece() );
 		// a horizontal waler here and there
-		if ( rand.chance( 0.25 ) ) B.beam( 'wood', [ xa - 0.1, yBot + 0.3, bz + off + 0.05 ], [ xb + 0.1, yBot + 0.3 + rand.range( - 0.06, 0.06 ), bz + off + 0.05 ], 0.05, 0.18, { tint: tone(), data: pierWood( 0.85, 1 ) } );
+		if ( rand.chance( 0.25 ) ) beam( [ xa - 0.1, yBot + 0.3, bz + off + 0.05 ], [ xb + 0.1, yBot + 0.3 + rand.range( - 0.06, 0.06 ), bz + off + 0.05 ], 0.05, 0.18, { tint: tone(), data: pierWood( 0.85, 1 ) } );
 
 	};
 
@@ -220,6 +228,8 @@ export function buildPier( { B, terrain, colliders, rand, lights, inst, signB = 
 		for ( const sx of stringerXs ) {
 
 			B.box( 'wood', X + sx, stringerTop - PIER.stringerH / 2, ( za + zb ) / 2, 0.1, PIER.stringerH, zb - za + 0.04, { grain: 2, tint: tone(), data: pierWood( 0.7, 0.95 ) } );
+			const sy = stringerTop - PIER.stringerH / 2;
+			if ( colliders.addBoomCapsule ) colliders.addBoomCapsule( [ X + sx, sy, za ], [ X + sx, sy, zb ], 0.13, { tag: 'pierStringer' } );
 
 		}
 

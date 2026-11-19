@@ -1,7 +1,7 @@
 import { Noise2D, smoothstep, clamp, lerp } from '../util/Noise.js';
 import { WORLD } from './WorldLayout.js';
 import { softRamp, erosionNoise, sampleGrid, upsample2, boxBlur } from './terrain/TerrainNoise.js';
-import { ridgeEnvelope, SEA_STACKS, PATHS, polylineDistance } from './terrain/IslandShape.js';
+import { ridgeEnvelope, SEA_STACKS, PATHS, polylineDistance, JOEY } from './terrain/IslandShape.js';
 
 const smin = ( a, b, k ) => {
 
@@ -25,6 +25,27 @@ const RES = 2048; // 1 m texels over the 2048 m domain
 // volcanic plugs on the summit ridge: [x, z, radius, height above the envelope]
 const PLUGS = [ [ - 42, - 505, 72, 62 ], [ 152, - 466, 46, 38 ], [ - 238, - 458, 40, 26 ] ];
 const VILLAGE = WORLD.village.center;
+
+export const CUT_SHOULDER = 1.5;
+
+// Distance from (x, z) to a polyline, or the signed distance to a closed polygon (negative inside,
+// even-odd rule). pts: [ [ x, z ], ... ].
+export function shapeDistance( pts, closed, x, z ) {
+
+	let best = Infinity, inside = false;
+	const n = pts.length, m = closed ? n : n - 1;
+	for ( let a = 0; a < m; a ++ ) {
+
+		const [ ax, az ] = pts[ a ], [ bx, bz ] = pts[ ( a + 1 ) % n ];
+		const abx = bx - ax, abz = bz - az;
+		const t = clamp( ( ( x - ax ) * abx + ( z - az ) * abz ) / ( abx * abx + abz * abz || 1 ), 0, 1 );
+		best = Math.min( best, Math.hypot( x - ax - abx * t, z - az - abz * t ) );
+		if ( closed && ( az > z ) !== ( bz > z ) && x < ax + ( z - az ) / ( bz - az ) * abx ) inside = ! inside;
+
+	}
+	return inside ? - best : best;
+
+}
 
 // CPU-side procedural island heightmap plus bilinear queries.
 //
@@ -63,6 +84,7 @@ export class TerrainData {
 		this.scarp = new Uint8Array( n ); // face of the eroded embankment behind the bay beach
 		this.rockSites = []; // outcrops / stacks for the rock scatter: { x, z, r, h, kind }
 		this.pads = []; // building pads flattened by the village (trampled ground in the splat map)
+		this.clearZones = []; // built sites kept free of plants, rocks and debris (addClearZone)
 		this.paths = PATHS;
 		this.timings = {};
 		this._F = { wx: 0, wz: 0, f170: 0, und: 0, deep: 0, E: 0, gx: 0, gz: 0 };
@@ -128,6 +150,9 @@ export class TerrainData {
 		const dW = ellipseDist( x, z, - 272, - 25, 92, 205 );
 		const dE = ellipseDist( x, z, 288, - 12, 108, 228 );
 		let d = smin( dBody, smin( dW, dE, 40 ), 75 );
+		let dJ = Infinity;
+		for ( const [ cx, cz, rx, rz ] of JOEY ) dJ = dJ === Infinity ? ellipseDist( x, z, cx, cz, rx, rz ) : smin( dJ, ellipseDist( x, z, cx, cz, rx, rz ), 45 );
+		d = Math.min( d, dJ );
 		d += F.f170 * 34 * ( 1 - 0.9 * bz );
 		if ( bz < 1 ) d += this.noise.fbm( x / 38, z / 38, 3 ) * 7 * ( 1 - bz );
 		d += F.und * 5 * bz; // gentle beach undulation
@@ -859,6 +884,115 @@ export class TerrainData {
 			const k = j * res + i;
 			this.heights[ k ] = lerp( this.heights[ k ], height, t );
 			this.rock[ k ] *= 1 - t;
+
+		}
+
+	}
+
+	// ------------------------------------------------------------------ built sites (world x, z)
+	// Polygons and polylines are [ [ x, z ], ... ] in world metres (the ferry terminal's edits,
+	// placed by ferry/Terminal.js). Run them before anything derives data from the heights.
+
+	// Reclaimed flat: the ground is raised to `height` inside the polygon (no rock, sand or seabed
+	// cover); outside it a rock revetment falls straight to the natural ground over `slope`
+	// metres. Only ever raises: higher ground is left as it is.
+	fillPolygon( poly, height, slope ) {
+
+		this._eachTexel( poly, slope, true, ( k, d ) => {
+
+			const h = d <= 0 ? height : lerp( height, this.heights[ k ], d / slope );
+			if ( h <= this.heights[ k ] ) return;
+			this.heights[ k ] = h;
+			this.rock[ k ] = d <= 0 ? 0 : 1;
+			this.sand[ k ] = this.seagrass[ k ] = this.rubble[ k ] = this.scarp[ k ] = 0;
+
+		} );
+
+	}
+
+	// Cut flat: the ground is lowered to `height` inside the polygon and a shoulder of
+	// CUT_SHOULDER texels round it (a ground read blends texels up to a diagonal away, so every
+	// read on the flat is then the flat's); beyond that a rock cut face rises at `batter` metres
+	// per metre back into the natural ground. Only ever lowers, so a flat reclaimed from the sea
+	// is untouched; where the flat runs into a hillside the hill is cut back.
+	cutPolygon( poly, height, batter, reach = 60 ) {
+
+		const shoulder = CUT_SHOULDER * this.texel;
+		this._eachTexel( poly, reach, true, ( k, d ) => {
+
+			const h = height + Math.max( 0, d - shoulder ) * batter;
+			if ( h >= this.heights[ k ] ) return;
+			this.rock[ k ] = d <= 0 ? 0 : Math.max( this.rock[ k ], smoothstep( 0, 1.5, this.heights[ k ] - h ) );
+			this.heights[ k ] = h;
+			this.sand[ k ] = this.seagrass[ k ] = this.rubble[ k ] = 0;
+
+		} );
+
+	}
+
+	// Dredged water: the ground is lowered to at most `depth` inside the polygon, blending back to
+	// the natural seabed over `blend` metres. Only ever lowers.
+	dredgePolygon( poly, depth, blend ) {
+
+		this._eachTexel( poly, blend, true, ( k, d ) => {
+
+			const h = d <= 0 ? depth : lerp( depth, this.heights[ k ], smoothstep( 0, blend, d ) );
+			if ( h >= this.heights[ k ] ) return;
+			this.heights[ k ] = h;
+			if ( d <= 0 ) this.seagrass[ k ] = this.rubble[ k ] = 0;
+
+		} );
+
+	}
+
+	// Breakwater core along a polyline: a flat crest `halfWidth` either side of the line, sides at
+	// `slope` metres of run per metre of rise down to the natural seabed, armour rock. Only raises.
+	ridge( line, crest, halfWidth, slope ) {
+
+		this._eachTexel( line, halfWidth + ( crest + 40 ) * slope, false, ( k, d ) => {
+
+			const h = crest - Math.max( 0, d - halfWidth ) / slope;
+			if ( h <= this.heights[ k ] ) return;
+			this.heights[ k ] = h;
+			this.rock[ k ] = 1;
+			this.sand[ k ] = this.seagrass[ k ] = this.rubble[ k ] = 0;
+
+		} );
+
+	}
+
+	// Keep-clear zones: no plants, rocks or debris inside these polygons.
+	addClearZone( poly ) {
+
+		const xs = poly.map( p => p[ 0 ] ), zs = poly.map( p => p[ 1 ] );
+		this.clearZones.push( { poly, x0: Math.min( ...xs ), x1: Math.max( ...xs ), z0: Math.min( ...zs ), z1: Math.max( ...zs ) } );
+
+	}
+
+	inClearZone( x, z, pad = 0 ) {
+
+		for ( const c of this.clearZones ) {
+
+			if ( x < c.x0 - pad || x > c.x1 + pad || z < c.z0 - pad || z > c.z1 + pad ) continue;
+			if ( shapeDistance( c.poly, true, x, z ) <= pad ) return true;
+
+		}
+		return false;
+
+	}
+
+	// Calls fn( k, d ) for every texel within `reach` of the shape: d is the distance to a
+	// polyline, or the signed distance to a closed polygon (negative inside).
+	_eachTexel( pts, reach, closed, fn ) {
+
+		const { res, texel, origin } = this;
+		const xs = pts.map( p => p[ 0 ] ), zs = pts.map( p => p[ 1 ] );
+		const i0 = Math.max( 0, Math.floor( ( Math.min( ...xs ) - reach - origin ) / texel ) ), i1 = Math.min( res - 1, Math.ceil( ( Math.max( ...xs ) + reach - origin ) / texel ) );
+		const j0 = Math.max( 0, Math.floor( ( Math.min( ...zs ) - reach - origin ) / texel ) ), j1 = Math.min( res - 1, Math.ceil( ( Math.max( ...zs ) + reach - origin ) / texel ) );
+		for ( let j = j0; j <= j1; j ++ ) for ( let i = i0; i <= i1; i ++ ) {
+
+			const d = shapeDistance( pts, closed, origin + ( i + 0.5 ) * texel, origin + ( j + 0.5 ) * texel );
+			if ( d <= reach ) fn( j * res + i, d );
 
 		}
 

@@ -1,4 +1,5 @@
 import { Vector2, Vector3, Vector4, MathUtils, DataUtils } from '../engine/index.js';
+import { skiWakeHead } from '../jetski/JetskiController.js';
 import { GPU, UniformBlock, Texture, StorageBuffer, ShaderModule, ComputeKernel, commonModule } from '../engine/webgpu.js';
 import { GRAVITY } from '../core/Globals.js';
 
@@ -83,6 +84,14 @@ export class WakeSim {
 			trim: [ 'vec3f', new Vector3() ], // immersion change: c + a x + b z
 			reset: [ 'f32', 1 ],
 			pileBox: [ 'vec4f', new Vector4( 0, 0, 1, 1 ) ],
+			ski: [ 'vec4f', new Vector4() ], // second craft (the ridden jetski): pressure head (m), footprint z, wash, speed
+			skiPos: [ 'vec2f', new Vector2( 1e6, 1e6 ) ],
+			skiRot: [ 'vec2f', new Vector2( 1, 0 ) ],
+			ferry: [ 'vec4f', new Vector4() ], // third craft (the Tidewater Spirit): pressure head (m), demi-hull half length, half beam, wash
+			ferryPos: [ 'vec2f', new Vector2( 1e6, 1e6 ) ],
+			ferryRot: [ 'vec2f', new Vector2( 1, 0 ) ],
+			ferryHull: [ 'vec2f', new Vector2( 6.7, - 1.5 ) ], // demi-hull centreline offset (x), footprint centre (z), ship frame
+			ferryShape: [ 'vec4f', new Vector4( 2.4, 1.8, 0.6, 3.2 ) ], // bow peak (x head), its length (m), stern trough (x head), its length (m)
 			dt: [ 'f32', 1 / 60 ],
 			amount: [ 'f32', 0 ],
 			source: [ 'f32', 1 ], // pressure gain
@@ -120,6 +129,18 @@ export class WakeSim {
 		// ---- boat
 		this.uBoatPos = U.boatPos;
 		this.uBoatRot = U.boatRot;
+		this.uSki = U.ski;
+		this.uSkiPos = U.skiPos;
+		this.uSkiRot = U.skiRot;
+		this.ski = null; // src/jetski/Jetski.js: a second source, and the window follows it while it is ridden
+		// the ferry (src/ferry/FerryShip.js): two demi-hulls, 45 m waterline, 4.4 m beam each, 13.4 m apart
+		this.uFerry = U.ferry;
+		this.uFerryPos = U.ferryPos;
+		this.uFerryRot = U.ferryRot;
+		this.uFerryShape = U.ferryShape;
+		this.ferryHead = 1.45; // m of pressure head at service speed (tuned: the divergent waves of a 19.5 deg wedge, docs/jetski.md)
+		this.ferryWash = 0.5; // the waterjets' wash (turbulence, so foam) per m/s of speed (low enough that the lace keeps its gaps)
+		this.ferryState = { speed: 0, near: false };
 		this.uTrim = U.trim;
 		this.uSource = U.source;
 		this.uWash = U.wash;
@@ -441,6 +462,51 @@ ${ bases.map( ( base ) => /* wgsl */`		{
 
 		// ---- pass 1: per-cell physics + forward FFT along rows
 		const cellPhysics = /* wgsl */`
+// the second craft (the ridden jetski, src/jetski): planing footprint pressure head (x) and jet wash (y)
+fn wakeSki( p: vec2f ) -> vec2f {
+	let rel = p - wk.skiPos;
+	let cs = wk.skiRot.x; let sn = wk.skiRot.y;
+	let x = rel.x * cs - rel.y * sn;
+	let z = rel.x * sn + rel.y * cs;
+	let q = ( x / 0.6 ) * ( x / 0.6 ) + ( ( z - wk.ski.y ) / 1.45 ) * ( ( z - wk.ski.y ) / 1.45 );
+	let P = wk.ski.x * max( 1.0 - q, 0.0 ) * max( 1.0 - q, 0.0 );
+	let behind = - 1.6 - z;
+	let w = 0.3 + max( behind, 0.0 ) * 0.07;
+	let wash = smoothstep( - 0.5, 0.3, behind ) * smoothstep( 10.0, 1.0, behind ) * smoothstep( w, w * 0.3, abs( x ) );
+	return vec2f( P, wash * wk.ski.z * ( wk.ski.w + 1.5 ) );
+}
+
+// the third craft (the ferry): a pressure patch under each demi-hull (fine entry and run), and the wash of
+// her two waterjets behind the transoms
+fn wakeFerry( p: vec2f ) -> vec2f {
+	let rel = p - wk.ferryPos;
+	let cs = wk.ferryRot.x; let sn = wk.ferryRot.y;
+	let x = abs( rel.x * cs - rel.y * sn ) - wk.ferryHull.x; // across one demi-hull (both by symmetry)
+	let z = rel.x * sn + rel.y * cs - wk.ferryHull.y;
+	let L = wk.ferry.y;
+	if ( wk.ferry.x <= 0.0 && wk.ferry.w <= 0.0 ) { return vec2f( 0.0 ); }
+	let u = clamp( z / L, - 1.0, 1.0 );
+	let xb = clamp( x / wk.ferry.z, - 1.0, 1.0 );
+	// the displaced body (smooth: long transverse waves only), plus what makes the divergent waves of the Kelvin wedge:
+	// the fine entry, a short peak just aft of each stem, and the run, a short trough where the flow leaves each transom
+	let beam = ( 1.0 - xb * xb ) * ( 1.0 - xb * xb ) * step( abs( x ), wk.ferry.z );
+	let sh = wk.ferryShape;
+	let zb = ( z - 0.86 * L ) / sh.y; let zr = ( z + 0.9 * L ) / sh.w; // (WGSL pow is undefined for a negative base)
+	let bow = exp( - zb * zb );
+	let run = exp( - zr * zr );
+	let P = wk.ferry.x * ( ( 1.0 - u * u ) * step( abs( z ), L ) + sh.x * bow - sh.z * run ) * beam;
+	let behind = - L - z;
+	// each jet's race: a narrow churn of white right behind its transom that spreads (the two meet ~60 m aft) and
+	// breaks up into lace: patches and threads fixed in the water, sparser further aft, never a painted stripe
+	let w = 1.0 + max( behind, 0.0 ) * 0.06;
+	let band = mix( smoothstep( w * 1.6, w * 0.4, abs( x ) ) * 0.55, smoothstep( w, w * 0.25, abs( x ) ), smoothstep( 25.0, 0.0, behind ) );
+	let lace = wakeNoise( p * 0.16 ) * 0.6 + wakeNoise( p * 0.6 + 7.1 ) * 0.4;
+	let thr = mix( 0.36, 0.76, smoothstep( 6.0, 55.0, behind ) );
+	let brk = mix( 1.0, smoothstep( thr - 0.08, thr + 0.3, lace ) * 0.85 + 0.15 * smoothstep( thr - 0.3, thr, lace ), smoothstep( 3.0, 16.0, behind ) );
+	let wash = smoothstep( - 1.0, 0.5, behind ) * smoothstep( 60.0, 4.0, behind ) * band * brk;
+	return vec2f( P, wash * wk.ferry.w );
+}
+
 fn wakeCell( col: u32, row: u32 ) -> vec4f {
 	let dt = wk.dt;
 	let idx = row * WAKE_N + col;
@@ -467,7 +533,9 @@ fn wakeCell( col: u32, row: u32 ) -> vec4f {
 	// (then the rooster tail and the quarter waves)
 	let aft = ${ f( L.zAft ) } - bz;
 	let hollow = wakeImmersionAt( bx, ${ f( L.zAft + 0.25 ) } ) * exp( - max( aft, 0.0 ) / wk.hollow ) * smoothstep( - 0.3, 0.3, aft );
-	let P = ( max( Ph, hollow * wk.hollowK ) + entry * wk.dyn ) * wk.source;
+	let skiW = wakeSki( p );
+	let ferW = wakeFerry( p );
+	let P = ( max( Ph, hollow * wk.hollowK ) + entry * wk.dyn ) * wk.source + skiW.x + ferW.x;
 
 	// on a (re)start the water under the hull is already displaced: no transient
 	let h = select( s.x, - P, wk.reset > 0.5 );
@@ -504,7 +572,7 @@ fn wakeCell( col: u32, row: u32 ) -> vec4f {
 	let along = p.x * sn + p.y * cs; let across = p.x * cs - p.y * sn;
 	let streaks = wakeNoise( vec2f( along * 0.12, across * 0.9 ) ) * 0.7 + wakeNoise( vec2f( along * 0.3, across * 1.9 ) + 5.3 ) * 0.3;
 	let mottle = clamp( ( streaks - 0.5 ) * 3.2, - 0.85, 0.85 ) + 1.0;
-	let washGen = inWash * wk.wash * ( wk.speed + 1.5 ) * ( streak * patchN * 0.6 + race + 0.08 ) * mix( mottle, 1.0, smoothstep( 3.0, 0.0, behind ) * 0.7 );
+	let washGen = inWash * wk.wash * ( wk.speed + 1.5 ) * ( streak * patchN * 0.6 + race + 0.08 ) * mix( mottle, 1.0, smoothstep( 3.0, 0.0, behind ) * 0.7 ) + skiW.y * ( wakeNoise( p * 0.9 + time * 0.7 ) * 0.8 + 0.35 ) * ( smoothstep( 0.3, 0.6, wakeNoise( p * 0.5 + 3.3 ) * 0.6 + wakeNoise( p * 1.7 ) * 0.4 ) * 0.85 + 0.15 ) + ferW.y * ( wakeNoise( p * 0.35 + time * 0.4 ) * 0.9 + 0.3 );
 
 	// bow: the spray thrown off the forward hull falls back in a band just outside the
 	// waterline (up to ~1.3 m out), where the bow wave rolls away from the hull
@@ -832,9 +900,27 @@ struct WakeFrag { slopes: vec2f, foam: f32, aeration: f32 };
 fn wakeFragment( xz: vec2f ) -> WakeFrag {
 	let s = wakeSample( xz );
 	var o: WakeFrag;
-	o.slopes = s.yz * wakeParams.amplitude;
-	o.foam = s.w;
-	o.aeration = wakeAeration( xz );
+	// the relief of the wave field, shown steeper than it is where it is a real wave (display only: the
+	// height, and so what the ski rides and jumps, is untouched), so the divergent crests of a Kelvin wedge
+	// and the troughs between them read from above instead of melting into the sea's own chop
+	let g = s.yz * wakeParams.amplitude;
+	let gl = length( g );
+	o.slopes = g * mix( 1.0, 2.2, smoothstep( 0.015, 0.06, gl ) ) * min( 1.0, 0.55 / max( gl * 1.8, 1e-4 ) );
+	// noise fixed in the water: where a patch frays, and where the crest foam breaks
+	let n1 = wakeNoise( xz * 0.45 + vec2f( 5.1, 2.7 ) );
+	let n2 = wakeNoise( xz * 1.3 + vec2f( 1.7, 9.2 ) );
+	let n3 = wakeNoise( xz * 0.62 + vec2f( 3.3, 8.1 ) ) * 0.6 + wakeNoise( xz * 2.1 + vec2f( 7.7, 1.3 ) ) * 0.4;
+	// the simulated foam, softened: compressed so a thick patch no longer saturates the surface's foam coverage
+	// (a flat white cut-out with a crisp rim: the surface thresholds its bubble pattern by coverage), and
+	// eroded by the noise where it is thin, so a patch frays into lace and streaks at its edge
+	let fs = ( 1.0 - exp( - s.w * 1.1 ) ) * 0.95;
+	let foam = fs * smoothstep( 0.12, 0.62, fs + ( n3 - 0.5 ) * 0.75 );
+	// whitecaps on the wave crests (a Kelvin wedge's divergent waves break along their tops): where the
+	// wave stands high and steep, broken into lengths along the crest line
+	let h = s.x * wakeParams.amplitude;
+	let crest = smoothstep( 0.08 + n1 * 0.1, 0.3 + n1 * 0.1, h ) * smoothstep( 0.02, 0.07, gl ) * smoothstep( 0.2, 0.62, n2 * 0.7 + n1 * 0.3 );
+	o.foam = foam + crest * 1.3;
+	o.aeration = wakeAeration( xz ) + crest * 0.25 * wakeParams.aerOut;
 	return o;
 }
 `,
@@ -860,7 +946,14 @@ fn wakeFragment( xz: vec2f ) -> WakeFrag {
 
 		const b = this.boat;
 		const speed = Math.hypot( b.velocity.x, b.velocity.z );
-		const moving = speed > 0.5 || ( b.driven && Math.abs( b.throttle ) > 0.04 );
+		const sk = this.ski && this.ski.ctl, skiOn = !! sk && ( sk.driven || sk.speed > 0.8 );
+		const skiSpeed = skiOn ? Math.hypot( sk.velocity.x, sk.velocity.z ) : 0;
+		// the ferry is a source while she is under way within reach of the window (not from across the bay)
+		const fs = this.ski?.app?.ferry?.ship, fp0 = skiOn && ! b.driven ? sk.position : b.position;
+		const fSpeed = fs ? Math.hypot( fs.velocity.x, fs.velocity.z ) : 0;
+		const ferryNear = !! fs && fSpeed > 0.3 && Math.hypot( fs.position.x - fp0.x, fs.position.z - fp0.z ) < 230;
+		this.ferryState.speed = fSpeed; this.ferryState.near = ferryNear;
+		const moving = speed > 0.5 || ( b.driven && Math.abs( b.throttle ) > 0.04 ) || skiSpeed > 0.5 || ( skiOn && sk.driven && sk.throttle > 0.04 ) || ferryNear;
 		this.idleTime = moving ? 0 : this.idleTime + dt;
 
 		if ( this.idleTime > this.settleTime ) {
@@ -888,7 +981,8 @@ fn wakeFragment( xz: vec2f ) -> WakeFrag {
 		this.uDt.value = h;
 
 		// ---- window: keep the boat inside a box around the centre (moves by whole cells)
-		const bx = b.position.x / CELL, bz = b.position.z / CELL;
+		const fp = skiOn && ! b.driven ? sk.position : b.position; // the window follows the craft the player is on
+		const bx = fp.x / CELL, bz = fp.z / CELL;
 		const box = 170; // the boat runs up to 68 m off centre: ~170 m of track behind it, ~25 m ahead
 		const c = this.center;
 		if ( ! this.hasWindow || Math.abs( bx - c.x ) > N || Math.abs( bz - c.y ) > N ) {
@@ -924,6 +1018,37 @@ fn wakeFragment( xz: vec2f ) -> WakeFrag {
 		this.uWash.value = prop * 1.0 + MathUtils.smoothstep( speed, 1.5, 7 ) * 0.5;
 		this.uWashW.value = 0.7 + 0.6 * MathUtils.smoothstep( speed, 2, 9 );
 		this.uBow.value = MathUtils.smoothstep( speed, 3.5, 9 );
+		// ---- the jetski: a second, small pressure source (src/jetski/JetskiController.js skiWakeHead)
+		if ( skiOn ) {
+
+			const sf = sk.forward( _fwd );
+			const sy = Math.atan2( sf.x, sf.z );
+			this.uSkiPos.value.set( sk.position.x, sk.position.z );
+			this.uSkiRot.value.set( Math.cos( sy ), Math.sin( sy ) );
+			const wet = MathUtils.clamp( sk.wetFraction * 3, 0, 1 );
+			this.uSki.value.set( skiWakeHead( skiSpeed ) * wet, - 0.25 - 0.45 * MathUtils.smoothstep( skiSpeed, 3, 12 ), ( 0.4 + 1.2 * sk.rpm * sk.prime ) * wet, skiSpeed );
+
+		} else {
+
+			this.uSki.value.set( 0, 0, 0, 0 );
+			this.uSkiPos.value.set( 1e6, 1e6 );
+
+		}
+		// ---- the ferry: both demi-hulls, the head growing with speed (a berthed ferry leaves the water alone)
+		if ( ferryNear ) {
+
+			this.uFerryPos.value.set( fs.position.x, fs.position.z );
+			this.uFerryRot.value.set( Math.cos( fs.yaw ), Math.sin( fs.yaw ) );
+			const run = MathUtils.smoothstep( fSpeed, 0.3, 3 );
+			this.uFerry.value.set( this.ferryHead * run, 22.5, 2.2, this.ferryWash * run * ( fSpeed + 1.5 ) );
+
+		} else {
+
+			this.uFerry.value.set( 0, 0, 0, 0 );
+			this.uFerryPos.value.set( 1e6, 1e6 );
+
+		}
+
 
 		this.uNearRate.value = this.uReset.value > 0.5 ? 1 : 1 - Math.exp( - h / 0.25 );
 		// (the kernel block uploads when the first kernel binds and nothing else reads it this frame:

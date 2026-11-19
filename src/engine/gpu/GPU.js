@@ -61,7 +61,15 @@ export const GPU = {
 		this.device = device;
 		this.queue = device.queue;
 		this.limits = device.limits;
-		device.lost.then( ( info ) => console.error( 'WebGPU device lost:', info.message ) );
+		// A lost device never comes back: every buffer, texture and pipeline died with it. Tell the page
+		// (main.js shows the Reload dialog and stops the loader). Logged only, the loader spun forever
+		// when both pages of the two-player run lost their devices while loading (device-lost.spec).
+		device.lost.then( ( info ) => {
+
+			console.error( 'WebGPU device lost:', info.message );
+			globalThis.window?.dispatchEvent( new CustomEvent( 'tw-device-lost', { detail: { reason: info.reason, message: info.message } } ) );
+
+		} );
 		device.addEventListener && device.addEventListener( 'uncapturederror', ( e ) => console.error( 'WebGPU:', e.error.message.split( '\n' ).slice( 0, 6 ).join( '\n' ) ) );
 
 		if ( canvas && ! headless ) {

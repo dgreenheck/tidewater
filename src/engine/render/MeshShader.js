@@ -199,7 +199,12 @@ ${ fetch }#if !HAS_POSITION
 		let lp = vec4f( v.position, 1.0 );
 		wp = ( v.model * lp ).xyz + v.worldOffset;
 		wn = cofactor3( v.model ) * v.normal;
-		pwp = ( v.prevModel * lp ).xyz + select( v.prevWorldOffset, v.worldOffset, v.prevWorldOffset.x > 1e29 );
+		var previousLocal = v.position;
+#if HAS_PREVIOUS_POSITION
+		// Retain the material's local displacement while undoing the CPU batch motion.
+		previousLocal += i.previousPosition - i.position;
+#endif
+		pwp = ( v.prevModel * vec4f( previousLocal, 1.0 ) ).xyz + select( v.prevWorldOffset, v.worldOffset, v.prevWorldOffset.x > 1e29 );
 	}
 	o.worldPos = wp;
 	o.normal = wn;
@@ -322,6 +327,7 @@ struct FragOut {
 	s.clearcoatNormal = normalize( s.clearcoatNormal );
 	var r: FragResult;
 #if LIT
+	s.roughness = specularAntiAlias( s.normal, s.roughness );
 	r.color = vec4f( shadeSurface( s, in.P, in.V, in.pixel ), s.alpha );
 #else
 	r.color = vec4f( s.albedo + s.emissive, s.alpha );
@@ -344,9 +350,17 @@ struct FragOut {
 	// the fragment owns the motion of its pixel even when its colour is blended (AirMotes specks)
 	let a = VELOCITY_WEIGHT;
 #else
+#if VELOCITY_COVERAGE
+	// thin particles (spray, the rooster tail, the rocket flame): most of a pixel's colour under a
+	// faint one is what is behind it (the hull, the rider), so it keeps that motion; a particle claims
+	// the pixel's motion only as it becomes opaque (a coverage-weighted blend let faint, fast spray drag
+	// the hull's reprojection onto the water: a speckled, see-through hull under TAA)
+	let a = smoothstep( 0.4, 0.9, r.color.a ) * VELOCITY_WEIGHT;
+#else
 	let a = select( 1.0, r.color.a, TRANSPARENT_F ) * VELOCITY_WEIGHT;
 #endif
-	out.velocity = vec4f( r.velocity.xy * a, 0.0, a );
+#endif
+	out.velocity = vec4f( r.velocity.xy * a, r.velocity.z * a, a );
 #else
 	out.velocity = r.velocity;
 #endif
@@ -361,6 +375,7 @@ struct FragOut {
 	defs.HAS_SHADOW_HOOK = material.shadow ? 1 : 0;
 	defs.NEEDS_DEPTH_FRAGMENT = kind === 'depth' && ( material.alphaTest > 0 || material.shadow ) ? 1 : 0;
 	defs.HAS_POSITION = has.has( 'position' ) ? 1 : 0;
+	defs.HAS_PREVIOUS_POSITION = has.has( 'previousPosition' ) ? 1 : 0;
 
 	const code = main
 		.replace( 'fn fragInput(', shadowHook + 'fn fragInput(' )

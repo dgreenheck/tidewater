@@ -1,3 +1,4 @@
+import { ResolutionGovernor } from './ResolutionGovernor.js';
 import { GPU } from './gpu/GPU.js';
 import { PerspectiveCamera } from './scene/Camera.js';
 import { Scene } from './scene/Scene.js';
@@ -11,7 +12,8 @@ export class Engine {
 	constructor( container ) {
 
 		this.container = container;
-		this.renderScale = 1;
+		this.resolution = new ResolutionGovernor( this ); // Retina (DPR, capped at 2) + the adaptive governor
+		this.renderScale = this.resolution.dpr; // canvas pixels per CSS pixel
 		this.clock = new Timer();
 		this.frame = 0;
 		this.onResize = [];
@@ -79,14 +81,23 @@ export class Engine {
 
 	start( update ) {
 
-		const loop = ( t ) => {
+		this.running = true;
+		const generation = this.generation = (this.generation ?? 0) + 1;
+		const loop = async ( t ) => {
+			if ( ! this.running || this.generation !== generation ) return;
 
 			this.clock.update( t );
 			let dt = this.clock.getDelta();
+			this.resolution.update( dt );
 			if ( dt > 0.1 ) dt = 0.1;
 			this.frame ++;
-			update( dt, this.clock.getElapsed() );
-			this._raf = requestAnimationFrame( loop );
+			// One accepted simulation interval in flight. Awaiting independent
+			// worker jobs gives the browser input time without overlapping frames.
+			const pending = update( dt, this.clock.getElapsed() );
+			this.pendingUpdate = pending?.then ? pending : null;
+			if ( this.pendingUpdate ) await this.pendingUpdate;
+			this.pendingUpdate = null;
+			if ( this.running && this.generation === generation ) this._raf = requestAnimationFrame( loop );
 
 		};
 
@@ -96,7 +107,10 @@ export class Engine {
 
 	stop() {
 
+		this.running = false;
+		this.generation = (this.generation ?? 0) + 1;
 		cancelAnimationFrame( this._raf );
+		return this.pendingUpdate;
 
 	}
 

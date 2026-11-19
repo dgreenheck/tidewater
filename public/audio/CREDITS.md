@@ -62,3 +62,7 @@ Note: `splash.ogg` slice 1 is qubodup's cleaned edit of blaukreuz's "130723_Brel
 Note: `big_splash.ogg` slice 1 is qubodup's mix of CC0 sounds (wormer2's 415669 / 415670, roboroo's 436792 and others, all CC0).
 
 The fishing sounds are rebuilt with `tools/audio/` (see its README).
+| `cockatoo.ogg` | the pet cockatoo's squawks (7 slices, `tools/audio/build-cockatoo.mjs`) | [Sulphur Crested Cockatoo](https://freesound.org/s/783046/) | jacques.devosmalan@gmail.com | CC0 1.0 |
+| `whistle.ogg` | the player's two-note whistle that calls the cockatoo back (4 slices, `tools/audio/build-whistle.mjs`) | [come_here_whistle.wav](https://freesound.org/s/551960/) | mael46 | CC0 1.0 |
+| `jetski_idle.ogg`, `jetski_run.ogg` | the jetski engine, low throttle and wide open (loops, `tools/audio/build-jetski.mjs`) | [jetski.wav](https://freesound.org/s/36169/) | moxobna | CC0 1.0 |
+| `rocket_roar.ogg` | the jetski rocket pod's burn, layered on the engine while X is held (loop, `tools/audio/build-rocket.mjs`) | [Rocket Thrust 01](https://freesound.org/s/515123/) | LilMati | CC0 1.0 |

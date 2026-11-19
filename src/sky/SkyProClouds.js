@@ -750,9 +750,13 @@ fn main( @builtin( global_invocation_id ) id: vec3u, @builtin( local_invocation_
 		for ( var x = 0; x < 2; x++ ) {
 			let pos = scSourceClamp( base + vec2i( x, y ) );
 			let index = scTileIndex( pos, tileOrigin, tileWidth );
-			let tap = scTileColor[ index ]; let depth = scTileMeta[ index ].x;
+			let tap = scTileColor[ index ];
 			let bilinear = select( 1.0 - fraction.x, fraction.x, x == 1 ) * select( 1.0 - fraction.y, fraction.y, y == 1 );
-			let weight = bilinear * exp( -abs( depth - metadata.x ) / max( 0.1, metadata.x * 0.1 ) - abs( tap.a - central.a ) * 4.0 );
+			// plain bilinear: this upsample is all there is right after a camera cut (and it stays in the
+			// history until every lattice slot is traced again). Any stop relative to the central tap (the
+			// old one: 10 % of depth, alpha x4) switches at half-texel lines and draws the quarter-rate
+			// trace as blocks; soft cloud edges for a few frames are the lesser evil.
+			let weight = bilinear;
 			color += tap * weight; weightSum += weight;
 		}
 	}

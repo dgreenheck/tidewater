@@ -1,9 +1,10 @@
+import { tempOutput } from './output-path.mjs';
 // TAA stability test on the pier deck (headless): the village and pier with sun shadows, the main pass
 // (colour, velocity, water mask) jittered as PostFX does, the temporal upscaler, a simple tone map.
 // Renders a still sequence and a walking sequence (1.4 m/s along the deck) and writes raw frames
 // (BGRA-free RGBA8 with an 8-byte width / height header) for inspection, plus a flicker number: the
 // mean absolute difference between consecutive frames over the deck, in 8-bit units.
-//   node test/taa-pier.mjs [outDir=/tmp/taa-pier] [mode=taa|smaataa|smaa|none|ref]   (ref: 16x supersampled ground truth;
+//   node test/taa-pier.mjs [outDir] [mode=taa|smaataa|smaa|none|ref]   (ref: 16x supersampled ground truth;
 //   smaataa: SMAA on each jittered frame, then the TAA)
 import './headless.mjs';
 import './smaa-shim.mjs';
@@ -21,7 +22,7 @@ import { TemporalUpscale } from '../src/post/TemporalUpscale.js';
 import { AntiAlias } from '../src/post/AntiAlias.js';
 import { WORLD } from '../src/world/WorldLayout.js';
 
-const OUT = process.argv[ 2 ] || '/tmp/taa-pier';
+const OUT = process.argv[ 2 ] || tempOutput( 'taa-pier' );
 const MODE = process.argv[ 3 ] || 'taa';
 fs.mkdirSync( OUT, { recursive: true } );
 const W = Number( process.env.W || 1280 ), H = Number( process.env.H || 634 );

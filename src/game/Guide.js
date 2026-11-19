@@ -43,7 +43,7 @@ const CSS = /* css */`
 .gm-guide-dots span.is-on { width: 18px; border-radius: 3px; background: var(--tw-sun); }
 .gm-guide-btns { display: flex; align-items: center; gap: var(--tw-2); }
 .gm-guide-hint { color: var(--tw-ink-3); font-size: var(--tw-fs-xs); margin-right: var(--tw-2); }
-.gm-coach { position: absolute; right: var(--tw-edge); bottom: calc(var(--tw-edge) + 184 * var(--tw-u) + var(--tw-3)); width: min(calc(290 * var(--tw-u)), calc(100vw - 2 * var(--tw-edge)));
+.gm-coach { position: absolute; right: calc(2 * var(--tw-3) + 48 * var(--tw-u)); bottom: calc(var(--tw-edge) + 184 * var(--tw-u) + var(--tw-3)); width: min(calc(290 * var(--tw-u)), calc(100vw - 2 * var(--tw-edge)));
 	padding: var(--tw-3) var(--tw-4); border-radius: var(--tw-r-lg); color: var(--tw-ink); font: 500 var(--tw-fs-sm) var(--tw-font); line-height: 1.5;
 	pointer-events: none; opacity: 0; transform: translateY(calc(8 * var(--tw-u))); visibility: hidden;
 	transition: opacity 360ms var(--tw-ease), transform 480ms var(--tw-ease), visibility 0s linear 480ms, right var(--tw-slow) var(--tw-ease); }
@@ -109,6 +109,8 @@ const TIPS = {
 	boat: 'Your boat. <kbd>E</kbd> to board, <kbd>E</kbd> again at the wheel to drive (<kbd>W</kbd><kbd>S</kbd> throttle, <kbd>A</kbd><kbd>D</kbd> steer). Diesel is sold by Marta.',
 	joe: '<b>Joe</b> buys your fish. <kbd>E</kbd> to see what he will pay.',
 	marta: '<b>Marta</b> sells upgrades and diesel. <kbd>E</kbd> to see her stock.',
+	dazza: '<b>Dazza</b> at Joey Island Tackle & Bait sells the same gear as Marta. <kbd>E</kbd> to see his stock.',
+	bev: '<b>Bev</b> sells souvenirs from the island. <kbd>E</kbd> to browse.',
 };
 
 const h = ( tag, cls, html ) => {
@@ -347,7 +349,7 @@ export class Guide {
 
 			const bt = app.boatCtl;
 			if ( bt && Math.hypot( bt.position.x - p.position.x, bt.position.z - p.position.z ) < 9 ) this.tip( 'boat' );
-			for ( const v of g.vendors ) if ( v.inRange( p.position ) ) this.tip( v.kind === 'buyer' ? 'joe' : 'marta' );
+			for ( const v of g.vendors ) if ( v.inRange( p.position ) ) this.tip( v.kind === 'buyer' ? 'joe' : v.kind === 'gifts' ? 'bev' : v.name.startsWith( 'Marta' ) ? 'marta' : 'dazza' );
 
 		}
 

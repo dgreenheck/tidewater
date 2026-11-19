@@ -17,7 +17,7 @@ import { Vector2, Vector3, MathUtils } from '../engine/math/index.js';
 //   - panorama: a cheaper low resolution version of the whole sky dome for water reflections,
 //     the environment cube and Snell's window, refreshed progressively (1/32 per frame).
 //   - shadow: transmittance of the cloud layer along the sun around the camera (1/4 per frame).
-// Detail (after the user's sky-pro-webgpu renderer): a 3 octave worley erosion volume filtered by the pixel
+// Cloud detail: a 3 octave worley erosion volume filtered by the pixel
 // footprint (plus a finer fetch at close range), erosion growing with height in the cloud (flat bases,
 // cauliflower tops, wispy undersides) and a short detailed light tap that shades the billows. Lighting also
 // follows sky-pro: three scattering orders from one exponential with a droplet phase, skylight occlusion

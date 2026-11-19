@@ -1,0 +1,73 @@
+{
+  "asset": "fighter",
+  "metres": true,
+  "axes": "+Y up, +Z forward, +X right",
+  "triangles": 30240,
+  "vertices": 41660,
+  "meshes": 41,
+  "pivots": {
+    "AileronL": [
+      -5.1,
+      -0.025,
+      -3.5
+    ],
+    "FlapL": [
+      -2.5,
+      -0.04,
+      -2.9
+    ],
+    "ElevatorL": [
+      -2.3,
+      0.2,
+      -6.5
+    ],
+    "RudderL": [
+      -1.65,
+      2,
+      -7.5
+    ],
+    "AileronR": [
+      5.1,
+      -0.025,
+      -3.5
+    ],
+    "FlapR": [
+      2.5,
+      -0.04,
+      -2.9
+    ],
+    "ElevatorR": [
+      2.3,
+      0.2,
+      -6.5
+    ],
+    "RudderR": [
+      1.65,
+      2,
+      -7.5
+    ],
+    "GearNose": [
+      0,
+      -0.55,
+      4.9
+    ],
+    "GearLeft": [
+      -1.7,
+      -0.5,
+      -1.7
+    ],
+    "GearRight": [
+      1.7,
+      -0.5,
+      -1.7
+    ],
+    "ArrestorHook": [
+      0,
+      -0.4,
+      -5.8
+    ]
+  },
+  "glbBytes": 1196824,
+  "generator": "tools/aviation/build.py",
+  "blender": "5.0.1"
+}

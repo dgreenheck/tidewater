@@ -15,6 +15,14 @@ const SURFACE_AT = 0.25; // route fraction where the surfacing sequence starts (
 const CRUISE_SPEED = 2.6; // m/s underwater
 const SURFACE_SPEED = 1.5;
 const TAU = Math.PI * 2;
+// the player's jetski: under way inside AVOID it dives early (fluke up, now and then a tail slap
+// first) or turns away and goes deep; idling at a respectful distance it may come up and blow nearby
+const AVOID = 60;               // m
+const CURIOUS = 170;            // m, the far edge of "nearby" for an idling ski
+const BERTH = 45;               // m sideways off its route, away from a ski under way close by
+const CRUISE_KEY = { depth: 9.5, pitch: 0, arch: 0, follow: 0.85, speed: CRUISE_SPEED, stroke: 0.13 };
+const AVOID_KEY = { depth: 14, pitch: 0, arch: 0, follow: 0.85, speed: 3.3, stroke: 0.14 };
+const clampW = ( x, a, b ) => Math.min( b, Math.max( a, x ) );
 
 const _e = new THREE.Euler();
 const _q = new THREE.Quaternion();
@@ -74,6 +82,11 @@ export class WhaleBrain {
 		this.seq = null;
 		this.state = 'cruise';
 		this.lastWrap = false;
+		// jetski: sideways offset off the route (m, + = the (cos yaw, -sin yaw) side) and its rate,
+		// the avoidance and curiosity timers, and a record of reactions for tests and tools
+		this.off = 0; this.offV = 0; this.offT = 0;
+		this.avoidT = 0; this.avoidCD = 0; this.curiousCD = 30; this.idleT = 0;
+		this.skiDist = Infinity; this.skiMin = Infinity; this.reactions = []; this.tailSlaps = 0;
 		if ( query ) this.slot = query.allocate( 'whale', 1 );
 		this._place( 0 );
 		// seed the history with a straight run-in
@@ -291,8 +304,10 @@ export class WhaleBrain {
 	_place( dt ) {
 
 		const p = this.routeAt( this.u, _p );
-		const yaw0 = this.yaw;
-		this.yaw = this.routeYaw( this.u );
+		const yaw0 = this.yaw, yR = this.routeYaw( this.u );
+		// steering clear of a jetski: slid sideways off the route, the heading bent by the slide
+		p.x += Math.cos( yR ) * this.off; p.z -= Math.sin( yR ) * this.off;
+		this.yaw = yR + Math.atan2( this.offV, Math.max( this.speed, 0.5 ) );
 		if ( dt > 0 ) this.yawRate += ( Math.atan2( Math.sin( this.yaw - yaw0 ), Math.cos( this.yaw - yaw0 ) ) / dt - this.yawRate ) * Math.min( 1, dt * 1.2 );
 		// bank into turns: curvature (rad / m) x speed = yaw rate; eased, gentle
 		const curv = ( this.routeYaw( this.u + 3 ) - this.routeYaw( this.u - 3 ) ) / 6;
@@ -308,9 +323,9 @@ export class WhaleBrain {
 
 	// Surfacing sequence: keyframes of (duration, target depth of the root below the water,
 	// pitch offset, arch, follow, speed, blow)
-	_startSequence() {
+	_startSequence( { breaths = 0, breach = true } = {} ) {
 
-		const n = 3 + Math.floor( this.rand() * 4 ); // 3-6 breaths
+		const n = breaths || 3 + Math.floor( this.rand() * 4 ); // 3-6 breaths
 		const k = [];
 		k.push( { t: 9, depth: 1.3, pitch: 0.08, arch: 0, follow: 0.85, speed: SURFACE_SPEED, stroke: 0.07 } ); // rise
 		for ( let i = 0; i < n; i ++ ) {
@@ -329,7 +344,7 @@ export class WhaleBrain {
 
 		// now and then (about every other surfacing, i.e. every few minutes) a breach: sound, then
 		// drive up and launch two thirds of the body out of the water, twist, fall back on the side
-		if ( this.rand() < ( this.forceBreach ? 1 : 0.5 ) ) {
+		if ( breach && this.rand() < ( this.forceBreach ? 1 : 0.5 ) ) {
 
 			k.push( { t: 7, depth: 9, pitch: - 0.2, arch: 0, follow: 0.6, speed: 2.4, stroke: 0.1 } );
 			k.push( { t: 6, depth: 9, pitch: 0.45, arch: 0, follow: 0.3, speed: 3.5, stroke: 0.14, breach: 'launch' } );
@@ -359,10 +374,12 @@ export class WhaleBrain {
 
 	}
 
-	update( dt ) {
+	update( dt, ski = null ) {
 
 		dt = Math.min( dt, 0.1 );
+		if ( dt <= 0 ) return;
 		this.time += dt;
+		this._skiReact( dt, ski );
 		// water level at the head (read back from the GPU water query, 1-3 frames old)
 		const q = this.query;
 		if ( q ) {
@@ -391,7 +408,7 @@ export class WhaleBrain {
 		}
 
 		if ( frac < SURFACE_AT - 0.1 || frac > SURFACE_AT + 0.3 ) this.lastWrap = false;
-		let target = { depth: 9.5, pitch: 0, arch: 0, follow: 0.85, speed: CRUISE_SPEED, stroke: 0.13 };
+		let target = this.avoidT > 0 ? AVOID_KEY : CRUISE_KEY;
 		this.blow = 0;
 		this.flukeUp = 0;
 		if ( this.seq ) {
@@ -474,7 +491,9 @@ export class WhaleBrain {
 		const k = Math.min( 1, dt * 1.2 );
 		this.speed += ( target.speed - this.speed ) * Math.min( 1, dt * 0.5 );
 		const pitchT = Math.atan2( this.vy, Math.max( this.speed, 0.5 ) ) * 0.8 + ( target.pitch || 0 );
-		this.pitch += ( pitchT - this.pitch ) * Math.min( 1, dt * ( target.breach ? 2.5 : target.fluke ? 1.1 : 0.9 ) );
+		this.pitch += ( pitchT - this.pitch ) * Math.min( 1, dt * ( target.rate || ( target.breach ? 2.5 : target.fluke ? 1.1 : 0.9 ) ) );
+		// a tail slap: the raised flukes come down hard on the water
+		if ( target.lobtail && this.seq && ! this.seq.slapped && this.pitch > - 0.3 ) { this.seq.slapped = true; this.tailSlaps ++; }
 		this.arch += ( ( target.arch || 0 ) - this.arch ) * k;
 		this.follow += ( ( target.follow ?? 0.85 ) - this.follow ) * Math.min( 1, dt * ( target.fluke ? 1.5 : 0.8 ) );
 		this.strokeAmp += ( ( target.stroke ?? 0.1 ) - this.strokeAmp ) * Math.min( 1, dt * 0.6 );
@@ -487,10 +506,97 @@ export class WhaleBrain {
 		// ---- advance along the route (horizontal speed shrinks when steeply pitched)
 		const du = this.speed * Math.cos( this.pitch ) * dt;
 		this.u += du;
+		const aOff = ( this.offT - this.off ) * 0.05 - this.offV * 0.45;
+		this.offV = clampW( this.offV + aOff * dt, - 1.5, 1.5 );
+		this.off += this.offV * dt;
 		this._place( dt );
 		// path history (orientation at this travelled distance)
-		this.arc += du;
+		this.arc += Math.hypot( du, this.offV * dt );
 		this._record( this.arc );
+
+	}
+
+	// ---------------------------------------------------------------- the player's jetski
+	// Under way within AVOID (or anything within 25 m): at the surface it dives early, fluke up, now
+	// and then with a tail slap first; deeper it turns away and goes deep. Either way it swings wide
+	// off its route, away from the ski, and swims on briskly. A ski idling quietly at a respectful
+	// distance: now and then it comes up for a few breaths nearby, passing no closer than AVOID.
+	_skiReact( dt, ski ) {
+
+		this.avoidT -= dt; this.avoidCD -= dt; this.curiousCD -= dt;
+		if ( ! ski ) { this.idleT = 0; this.skiDist = Infinity; if ( this.avoidT <= 0 ) this.offT = 0; return; }
+		const dx = this.position.x - ski.position.x, dz = this.position.z - ski.position.z;
+		const d = Math.hypot( dx, dz ), sp = Math.hypot( ski.velocity.x, ski.velocity.z );
+		this.skiDist = d; this.skiMin = Math.min( this.skiMin, d );
+		const idle = sp < 1 && ( ski.throttle || 0 ) < 0.1;
+		this.idleT = idle ? this.idleT + dt : 0;
+		if ( ( ( sp > 1.5 && d < AVOID ) || d < 25 ) && this.avoidCD <= 0 ) {
+
+			const key = this.seq && this.seq.keys[ this.seq.i ];
+			const surf = this.state === 'surface' && this.water - this.y < 4 && ! ( key && key.breach ) && ! ( this.seq && this.seq.evade );
+			const slap = surf && ( this.forceSlap || this.rand() < 0.4 ); // forceSlap: test and debug hook
+			if ( surf ) this._evade( slap );
+			this.avoidT = 30; this.avoidCD = 45;
+			this._log( surf ? ( slap ? 'tail slap, dive' : 'early dive' ) : 'turn away, deep', d, sp );
+
+		}
+
+		// the ski's place across the route; the whale keeps to its own side of it, a berth away
+		const lx = Math.cos( this.yaw ), lz = - Math.sin( this.yaw );
+		const sl = this.off - ( dx * lx + dz * lz );
+		const W = this.avoidT > 0 ? BERTH : idle ? AVOID + 10 : 0;
+		if ( W && d < CURIOUS ) {
+
+			const side = this.off - sl >= 0 ? 1 : - 1;
+			let o = clampW( sl + side * W, - 95, 95 );
+			if ( side * o < 0 ) o = 0;
+			// only into deep water (a look ahead along the route)
+			const rp = this.routeAt( this.u + 15, _p ), ry = this.routeYaw( this.u + 15 );
+			for ( let f = 1; f > 0.1; f -= 0.25 ) {
+
+				if ( this.water - this.floorAt( rp.x + Math.cos( ry ) * o * f, rp.z - Math.sin( ry ) * o * f ) > 14 ) { o *= f; break; }
+				if ( f < 0.3 ) o = 0;
+
+			}
+
+			this.offT = o;
+
+		} else if ( this.avoidT <= 0 ) this.offT = 0;
+
+		if ( idle && this.idleT > 6 && d > AVOID && d < CURIOUS && this.state === 'cruise' && ! this.seq && this.curiousCD <= 0 && this.avoidT <= 0 ) {
+
+			this.curiousCD = 120;
+			if ( this.rand() < 0.7 ) { this._startSequence( { breaths: 2 + Math.floor( this.rand() * 2 ), breach: false } ); this._log( 'surface and blow nearby', d, sp ); }
+
+		}
+
+	}
+
+	// the dive away from a jetski, from the surface: a tail slap (the flukes lifted clear and brought
+	// down hard) now and then, then the fluke-up dive and a brisk swim on, deep
+	_evade( slap ) {
+
+		const k = [];
+		if ( slap ) {
+
+			k.push( { t: 2.6, depth: 3.2, pitch: - 0.8, arch: - 0.1, follow: 0.12, speed: 1.2, stroke: 0, fluke: true, rate: 1.5 } );
+			k.push( { t: 1.8, depth: 2.4, pitch: 0.2, arch: 0, follow: 0.12, speed: 1.2, stroke: 0, lobtail: true, rate: 3.5 } );
+
+		}
+
+		k.push( { t: 2, depth: 1.25, pitch: - 0.12, arch: - 0.14, follow: 0.85, speed: 1.8, stroke: 0.02 } );
+		k.push( { t: 4.5, depth: 5.5, pitch: - 0.95, arch: - 0.12, follow: 0.12, speed: 1.9, stroke: 0.0, fluke: true } );
+		k.push( { t: 6, depth: 13, pitch: - 0.45, arch: 0, follow: 0.6, speed: 2.6, stroke: 0.1 } );
+		k.push( { t: 12, depth: 14, pitch: 0, arch: 0, follow: 0.85, speed: 3.3, stroke: 0.14 } );
+		this.seq = { keys: k, i: 0, t: 0, blown: false, evade: true };
+		this.state = 'surface';
+
+	}
+
+	_log( kind, d, sp ) {
+
+		this.reactions.push( { t: + this.time.toFixed( 1 ), kind, d: + d.toFixed( 1 ), kmh: + ( sp * 3.6 ).toFixed( 1 ) } );
+		if ( this.reactions.length > 12 ) this.reactions.shift();
 
 	}
 

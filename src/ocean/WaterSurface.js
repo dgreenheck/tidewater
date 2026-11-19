@@ -28,6 +28,7 @@ export class WaterSurface {
 		this.fft = fft;
 		this.cdlod = cdlod;
 		this.foamTexture = foamTexture;
+		this.disaster = null;
 		this.shore = null; // ShoreWaves (optional)
 		this.wake = null; // WakeSim (optional)
 		this.terrain = null; // TerrainGPU (optional)
@@ -194,6 +195,7 @@ ${ SH ? /* wgsl */`
 	}` : '' }
 ${ WK ? '	extra += wakeDisplacement( worldXZ );' : '' }
 
+	${ this.disaster ? 'extra.y += disasterHeight( worldXZ ); shoreFoam += disasterFoam( worldXZ );' : '' }
 	var total = disp + extra;
 	var y = frame.seaLevel + total.y;
 ${ SH ? /* wgsl */`
@@ -228,7 +230,7 @@ ${ T ? /* wgsl */`
 	o.height = total.y;
 	o.depth = depth;
 	o.foam = foam;
-	o.shoreN = shoreN;
+	o.shoreN = ${ this.disaster ? 'normalize( vec3f( shoreN.x - disasterSlope( worldXZ ).x, shoreN.y, shoreN.z - disasterSlope( worldXZ ).y ) )' : 'shoreN' };
 	o.shoreFoam = shoreFoam;
 	o.swash = swash;
 	o.surfMask = surfMask;
@@ -280,6 +282,16 @@ fn waterSurfaceFragment( lagXZ: vec2f, footprint: f32, depth: f32, vertexFoam: f
 	// (some of it stays: the lace of the previous wave is drawn up the face)
 	let simFoam = ${ SIM ? 'extraFoam * ( 1.0 - face * 0.72 )' : '0.0' };
 	foamSum += simFoam;
+${ SH ? /* wgsl */`
+	// breaking-wave foam per pixel at the rest position: the per-vertex value, interpolated over
+	// the far water mesh (several metres between vertices), drew the narrow foam bands as white
+	// triangles. Same function of the same inputs, so the near field is unchanged. Waves only
+	// break (and foam) in the last few metres of depth: deeper water skips the evaluation.
+	var shoreFoamPx = 0.0;
+	{
+		let dPx = waterSurfaceSeaDepth( lagXZ );
+		if ( dPx > -0.25 && dPx < 5.0 ) { shoreFoamPx = shoreFoamAt( lagXZ, dPx ) * smoothstep( 5.0, 4.0, dPx ); }
+	}` : '' }
 	// bubbles mixed into the water (milky, turquoise, hides the bottom): surf and wake
 	var aeration = 0.0;
 
@@ -331,10 +343,10 @@ ${ SH ? /* wgsl */`
 		let tq = Ns + vec3f( 0.0, 1.0, 0.0 );
 		let uq = vec3f( slopes.x, 1.0, slopes.y ) * nd.y;
 		normal = normalize( tq * ( dot( tq, uq ) / tq.y ) - uq );
-		foamSum += shoreFoam * ${ SIM ? '0.55' : '1.0' };
+		foamSum += shoreFoamPx * ${ SIM ? '0.55' : '1.0' };
 		// the roller and the water behind the plunge point are full of bubbles, decaying behind the
 		// bore with the foam it sheds; the clear face of a plunging wave is not
-		aeration += sat( shoreFoam * 1.2 + simFoam * 0.7 ) * ( 1.0 - face ) * smoothstep( -0.1, 0.3, depth );
+		aeration += sat( shoreFoamPx * 1.2 + simFoam * 0.7 ) * ( 1.0 - face ) * smoothstep( -0.1, 0.3, depth );
 	}` : /* wgsl */`
 	normal = normalize( vec3f( - slopes.x, 1.0, - slopes.y ) );` }
 
@@ -366,7 +378,7 @@ ${ SF ? /* wgsl */`
 	var fa: SurfFoamArgs;
 	fa.coverage = coverage; fa.foam = foam; fa.footprint = footprint; fa.depth = depth; fa.bubbles = p1.y;
 	fa.lagXZ = lagXZ; fa.normal = normal; fa.baseNormal = baseNormal;
-	fa.fresh = ${ SH ? 'shoreFoam' : '0.0' }; fa.sim = simFoam; fa.simState = simState; fa.roller = ${ SH ? 'surfMask.y' : '0.0' }; fa.P = P;
+	fa.fresh = ${ SH ? 'shoreFoamPx' : '0.0' }; fa.sim = simFoam; fa.simState = simState; fa.roller = ${ SH ? 'surfMask.y' : '0.0' }; fa.P = P;
 	o.foamInfo = surfFoamShading( fa );
 	foam = o.foamInfo.foam;` : '' }
 
@@ -386,7 +398,7 @@ ${ SF ? /* wgsl */`
 		return new ShaderModule( {
 			name: 'waterSurface',
 			deps: [ commonModule, fft.module, this.cdlod.module, this.attenuationModule, T && this.terrain.module, SH && this.shore.module,
-				WK && this.wake.module, DT && this.detail.module, SF && SF.module ],
+				WK && this.wake.module, DT && this.detail.module, SF && SF.module, this.disaster && this.disaster.module ],
 			uniforms: this.params,
 			uniformName: 'waterSurface',
 			bindings: { waterFoamTex: { texture: this.foamTexture } },

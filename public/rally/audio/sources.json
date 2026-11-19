@@ -1,0 +1,66 @@
+[
+  {
+    "car": 4,
+    "directory": "Pole Position - BMW M4 2014",
+    "page": "https://gamesounds.xyz/?dir=Sonniss.com%20-%20GDC%202020%20-%20Game%20Audio%20Bundle/Pole%20Position%20-%20BMW%20M4%202014",
+    "files": [
+      {
+        "url": "https://gamesounds.xyz/Sonniss.com%20-%20GDC%202020%20-%20Game%20Audio%20Bundle/Pole%20Position%20-%20BMW%20M4%202014/BMW_M4_t10_Var_SFX_Parking_Brake_Interior_ORTF_MKH%208040.wav",
+        "name": "BMW_M4_t10_Var_SFX_Parking_Brake_Interior_ORTF_MKH 8040.wav"
+      },
+      {
+        "url": "https://gamesounds.xyz/Sonniss.com%20-%20GDC%202020%20-%20Game%20Audio%20Bundle/Pole%20Position%20-%20BMW%20M4%202014/BMW_M4_t4_Onbrd_Drive_Gearshifts_Engine_Center_DPA4061.wav",
+        "name": "BMW_M4_t4_Onbrd_Drive_Gearshifts_Engine_Center_DPA4061.wav"
+      },
+      {
+        "url": "https://gamesounds.xyz/Sonniss.com%20-%20GDC%202020%20-%20Game%20Audio%20Bundle/Pole%20Position%20-%20BMW%20M4%202014/BMW_M4_t7_Ext_Start_Idle_Blips_Steady_in_Netural_Off_XY_RSM191.wav",
+        "name": "BMW_M4_t7_Ext_Start_Idle_Blips_Steady_in_Netural_Off_XY_RSM191.wav"
+      }
+    ],
+    "selected": {
+      "url": "https://gamesounds.xyz/Sonniss.com%20-%20GDC%202020%20-%20Game%20Audio%20Bundle/Pole%20Position%20-%20BMW%20M4%202014/BMW_M4_t7_Ext_Start_Idle_Blips_Steady_in_Netural_Off_XY_RSM191.wav",
+      "name": "BMW_M4_t7_Ext_Start_Idle_Blips_Steady_in_Netural_Off_XY_RSM191.wav"
+    },
+    "file": "engine-4.wav",
+    "excerptStart": 8,
+    "excerptSeconds": 8,
+    "license": "Sonniss GDC Bundle License 2.0",
+    "licenseUrl": "https://sonniss.com/gdc-bundle-license/",
+    "loopOffsetInExcerpt": 0.4,
+    "loopDuration": 1.92,
+    "sha256": "99afe8e2e2410316cb0778092ae7b653d78505e9c62d69f19594916176f35b81",
+    "gameVehicle": "Midnight GT"
+  },
+  {
+    "car": 11,
+    "directory": "Pole Position - Dodge Ram 1500 HEMI SUV 2014",
+    "page": "https://gamesounds.xyz/?dir=Sonniss.com%20-%20GDC%202020%20-%20Game%20Audio%20Bundle/Pole%20Position%20-%20Dodge%20Ram%201500%20HEMI%20SUV%202014",
+    "files": [
+      {
+        "url": "https://gamesounds.xyz/Sonniss.com%20-%20GDC%202020%20-%20Game%20Audio%20Bundle/Pole%20Position%20-%20Dodge%20Ram%201500%20HEMI%20SUV%202014/Dodge_Ram_t11_Var_SFX_Horn_Honk_Various_Exhaust_Right_RE50.wav",
+        "name": "Dodge_Ram_t11_Var_SFX_Horn_Honk_Various_Exhaust_Right_RE50.wav"
+      },
+      {
+        "url": "https://gamesounds.xyz/Sonniss.com%20-%20GDC%202020%20-%20Game%20Audio%20Bundle/Pole%20Position%20-%20Dodge%20Ram%201500%20HEMI%20SUV%202014/Dodge_Ram_t2_Onbrd_Start_Medium_Drive_Stop_Reverse_Stop_Drive_Stop_Off_Engine_MKH8020.wav",
+        "name": "Dodge_Ram_t2_Onbrd_Start_Medium_Drive_Stop_Reverse_Stop_Drive_Stop_Off_Engine_MKH8020.wav"
+      },
+      {
+        "url": "https://gamesounds.xyz/Sonniss.com%20-%20GDC%202020%20-%20Game%20Audio%20Bundle/Pole%20Position%20-%20Dodge%20Ram%201500%20HEMI%20SUV%202014/Dodge_Ram_t6_Onbrd_Start_Drive_Steady_RPMs_Engine_PZM.wav",
+        "name": "Dodge_Ram_t6_Onbrd_Start_Drive_Steady_RPMs_Engine_PZM.wav"
+      }
+    ],
+    "selected": {
+      "url": "https://gamesounds.xyz/Sonniss.com%20-%20GDC%202020%20-%20Game%20Audio%20Bundle/Pole%20Position%20-%20Dodge%20Ram%201500%20HEMI%20SUV%202014/Dodge_Ram_t6_Onbrd_Start_Drive_Steady_RPMs_Engine_PZM.wav",
+      "name": "Dodge_Ram_t6_Onbrd_Start_Drive_Steady_RPMs_Engine_PZM.wav"
+    },
+    "file": "engine-11.wav",
+    "excerptStart": 8,
+    "excerptSeconds": 8,
+    "license": "Sonniss GDC Bundle License 2.0",
+    "licenseUrl": "https://sonniss.com/gdc-bundle-license/",
+    "loopOffsetInExcerpt": 1.0,
+    "loopDuration": 1.92,
+    "sha256": "17ebaa558e3a81b9e594fce117fa2f6e6847e4fa9ba3efb8cee696dec748d4cf",
+    "gameVehicle": "Monster truck"
+  }
+]

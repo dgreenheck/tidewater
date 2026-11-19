@@ -1,3 +1,4 @@
+import { tempOutput } from './output-path.mjs';
 // Headless test of WakeSim: a boat runs a curve over deep water toward a sloping beach, then the
 // wake height / foam / aeration are rendered top-down through the WGSL readers (wake.module).
 // usage: node test/ocean-wake-sim.mjs [out-prefix]
@@ -12,7 +13,7 @@ import { Vector3 } from '../src/engine/index.js';
 import { WakeSim } from '../src/ocean/WakeSim.js';
 
 await GPU.init( { headless: true } );
-const out = process.argv[ 2 ] || '/tmp/ocean-wake';
+const out = process.argv[ 2 ] || tempOutput( 'ocean-wake' );
 
 // stub terrain: deep sea, a beach rising toward +x beyond x = 60
 const terrainGPU = { module: new ShaderModule( { name: 'terrainStub', code: /* wgsl */`

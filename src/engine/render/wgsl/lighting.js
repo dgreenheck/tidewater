@@ -313,6 +313,17 @@ fn D_GGX( alpha: f32, dotNH: f32 ) -> f32 {
 	let d = dotNH * dotNH * ( a2 - 1.0 ) + 1.0;
 	return INV_PI * a2 / ( d * d );
 }
+// Specular anti-aliasing (Tokuyoshi & Kaplanyan 2019, "Improved Geometric Specular Antialiasing"):
+// widens the GGX lobe by the screen-space variance of the shading normal, so normal detail smaller
+// than a pixel (window glazing edges, roof ridges, tin sheeting, fence wire) cannot throw one-pixel
+// highlights that sparkle as white speckles under the TAA jitter. Call in uniform control flow.
+fn specularAntiAlias( N: vec3f, roughness: f32 ) -> f32 {
+	let dx = dpdx( N ); let dy = dpdy( N );
+	let kernel = min( 2.0 * 0.25 * ( dot( dx, dx ) + dot( dy, dy ) ), 0.18 );
+	let a = roughness * roughness;
+	return sqrt( sqrt( sat( a * a + kernel ) ) );
+}
+
 fn BRDF_GGX( L: vec3f, V: vec3f, N: vec3f, f0: vec3f, f90: f32, roughness: f32 ) -> vec3f {
 	let alpha = roughness * roughness;
 	let H = normalize( L + V );

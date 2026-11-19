@@ -289,7 +289,9 @@ export class Whale {
 
 		if ( ! this.ready ) return;
 		const b = this.brain;
-		b.update( dt );
+		// the player's jetski while he rides it: the whale keeps clear of it (WhaleBrain._skiReact)
+		const js = typeof window !== 'undefined' && window.__app && window.__app.jetskis;
+		b.update( dt, js && js.ctl && js.riding ? js.ctl : null );
 		this._pose();
 		this.uWater.value = b.water;
 		this.uWet.value = Math.exp( - b.wetAge / 12 );
@@ -333,6 +335,27 @@ export class Whale {
 
 		const b = this.brain, spray = this.spray;
 		if ( ! spray ) return;
+		// tail slap: the flukes come down flat on the water, a burst of white water across their span
+		if ( b.tailSlaps !== this._tailSlaps ) {
+
+			const first = this._tailSlaps === undefined;
+			this._tailSlaps = b.tailSlaps;
+			if ( ! first ) for ( const x of [ - 1.8, 0, 1.8 ] ) {
+
+				const p = this.toWorld( _v.set( x, this.rest[ K - 1 ].y, this.manifest.notchZ ), _v2 );
+				p.y = b.water + 0.1;
+				for ( let k = 0; k < 3; k ++ ) {
+
+					const vel = new THREE.Vector3( ( Math.random() - 0.5 ) * 4, 5 + Math.random() * 4, ( Math.random() - 0.5 ) * 4 );
+					spray.emit( p, vel, 22, 0.3, SPRAY.SPRAY, { spread: 2.8, jitter: 0.6, life: 2.4, sizeJitter: 0.8 } );
+					spray.emit( p, vel, 30, 0.022, SPRAY.DROPLET, { spread: 3.2, jitter: 0.5, life: 2.2 } );
+
+				}
+
+			}
+
+		}
+
 		// flipper slap: a sheet of spray where the flipper comes down on the water
 		if ( b.slaps !== this._slaps ) {
 

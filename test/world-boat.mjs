@@ -1,3 +1,5 @@
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 // Boat stream test: builds the procedural lobster boat (BoatModel) over a plain ground plane and
 // renders it from a few angles at 2560x1267 with engine sun shadows.
 //   node test/world-boat.mjs [outPrefix]     -> <outPrefix>-{side,deck,helm,stern,bow}.png
@@ -6,7 +8,7 @@ import { worldHarness, done } from './world-harness.mjs';
 import { Material } from '../src/engine/render/Material.js';
 import { BoatModel } from '../src/world/BoatModel.js';
 
-const out = process.argv[ 2 ] || '/tmp/claude-boat';
+const out = process.argv[ 2 ] || join( tmpdir(), 'tidewater-boat' );
 const H = await worldHarness( { width: 2560, height: 1267 } );
 const { E, G, scene } = H;
 

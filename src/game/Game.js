@@ -12,17 +12,24 @@ import { UPGRADES, fuelBurn } from './Gear.js';
 import { GameHUD } from './GameHUD.js';
 import { Minimap } from './Minimap.js';
 import { Guide } from './Guide.js';
+import { AtmNetwork } from './Atm.js';
+import { rodHint, cameraHeading } from './CastReach.js';
+import { G } from '../core/Globals.js';
 
 // how long the catch card stays up unless dismissed (ms)
 const CATCH_CARD_MS = 9000;
 
 // The fishing game on top of the world:
-//   R          take out / put away the rod (on foot, on the pier, on the boat's deck)
+//   R          take out / put away the rod (on foot, on the pier, on the boat's deck, on the ferry's open decks)
 //   hold LMB   wind up, release to cast (hold longer = farther)
 //   LMB        strike when a fish takes the bobber ("!"); then hold LMB to reel, let go to ease off
 //   RMB        reel an empty line back in
 //   I / Tab    cooler / hold contents and the fish log
-//   E          at the fish stand: sell your catch
+//   E          at the fish stand: sell your catch; at an ATM: use it (Atm.js)
+// prompt() runs every frame: one frozen hint object, no allocation
+const ROD_HINT = Object.freeze( { key: 'R', text: 'Take out the rod' } );
+const _view = new Vector3(); // prompt(): the camera's world direction, the way the cast will go
+
 export class Game {
 
 	constructor( app ) {
@@ -30,7 +37,15 @@ export class Game {
 		this.app = app;
 		this.state = new GameState();
 		this.state.load();
-		this.rod = new FishingRod( { scene: app.scene, camera: app.camera, query: app.query, terrain: app.terrainData, audio: app.audio } );
+		const hand = new Vector3();
+		const holder = () => {
+
+			const p = app.player;
+			if ( ! p?.thirdPerson || ! p.avatar ) return null;
+			return { eye: p.eye, hand: p.avatar.handWorld( hand ), avatar: p.avatar };
+
+		};
+		this.rod = new FishingRod( { scene: app.scene, camera: app.camera, query: app.query, terrain: app.terrainData, audio: app.audio, holder } );
 		this.rod.onLand = ( where ) => this.onBobberLanded( where );
 		this.stand = new FishStand( { scene: app.scene, terrain: app.terrainData, colliders: app.colliders } );
 		this.display = new CatchDisplay( { scene: app.scene, stall: this.stand.iceFish() } );
@@ -110,6 +125,14 @@ export class Game {
 
 	}
 
+	buySouvenir( id ) {
+
+		const r = this.state.buySouvenir( id );
+		if ( r ) this.toast( `Bought: ${ r.name }` );
+		return r;
+
+	}
+
 	refuel() {
 
 		const l = this.state.refuel();
@@ -134,7 +157,7 @@ export class Game {
 	get canFish() {
 
 		const app = this.app, p = app.player;
-		return ! app.freeCam && ( p.mode === 'walk' || p.mode === 'deck' ) && ! ( app.ui && app.ui.ui && app.ui.ui._photo );
+		return ! app.freeCam && ( p.mode === 'walk' || p.mode === 'deck' || p.mode === 'ferry' ) && ! ( app.ui && app.ui.ui && app.ui.ui._photo );
 
 	}
 
@@ -154,8 +177,11 @@ export class Game {
 
 		}
 
+		// the ATMs (made on the first frame, once the Joey village is placed)
+		if ( ! this.atm ) this.atm = new AtmNetwork( this );
 		const can = this.canFish;
-		if ( inp.hit( 'KeyR' ) && can && ! this.fight ) {
+		// aboard the ferry the rod comes out only on an open deck
+		if ( inp.hit( 'KeyR' ) && can && ! this.fight && ( rod.equipped || p.mode !== 'ferry' || p.vessel?.fishable?.( p ) ) ) {
 
 			rod.equip( ! rod.equipped );
 			if ( ! rod.equipped ) this.cancelLine();
@@ -171,7 +197,7 @@ export class Game {
 
 		}
 
-		if ( this.hud && ( inp.hit( 'KeyI' ) || inp.hit( 'Tab' ) ) ) this.hud.toggleInventory();
+		if ( ! app.rally?.active && this.hud && ( inp.hit( 'KeyI' ) || inp.hit( 'Tab' ) ) ) this.hud.toggleInventory();
 		if ( this.hud && inp.hit( 'Escape' ) ) {
 
 			this.hud.toggleInventory( false );
@@ -184,7 +210,7 @@ export class Game {
 		const lDown = lmb && ! this._lmb, lUp = ! lmb && this._lmb, rDown = rmb && ! this._rmb;
 		this._lmb = lmb;
 		this._rmb = rmb;
-		const panelOpen = this.hud && ( this.hud.invOpen || this.hud.standOpen );
+		const panelOpen = ( this.hud && ( this.hud.invOpen || this.hud.standOpen ) ) || !! this.atm?.open;
 
 		if ( rod.equipped && ! panelOpen ) {
 
@@ -260,8 +286,21 @@ export class Game {
 		this.updateBoat( dt );
 
 		// the traders
-		for ( const v of this.vendors ) v.update( dt, p.mode === 'walk' ? p.position : null );
+		// (Joe turns to the birdcage while he tends the cockatoo: BirdCage sets lookOverride)
+		for ( const v of this.vendors ) v.update( dt, v.lookOverride || ( p.mode === 'walk' ? p.position : null ) );
 		this.updateVendors( inp, p );
+		this.atm.update( dt, inp, p );
+
+		// your parked car: walk up to it and get in (not on the E that just got you out)
+		const rally = app.rally, car = rally?.model?.root.position;
+		if ( car && ! rally.active && ! rally.bailout?.active && ! app.freeCam && ( p.mode === 'walk' || p.mode === 'ferry' ) &&
+			Math.hypot( p.position.x - car.x, p.position.z - car.z ) < 2.4 && Math.abs( p.position.y - car.y ) < 1.5 &&
+			performance.now() - ( rally.leftAt || 0 ) > 400 && ! p.prompt && ! rod.equipped ) {
+
+			p.prompt = { key: 'E', text: 'Get in' };
+			if ( inp.hit( 'KeyE' ) ) rally.enter();
+
+		}
 
 		// prompts when the player has nothing to say
 		if ( ! p.prompt && can ) p.prompt = this.prompt();
@@ -288,9 +327,11 @@ export class Game {
 		const rod = this.rod, p = this.app.player;
 		if ( ! rod.equipped ) {
 
-			// by the water (boat deck, pier, the wet beach, wading): suggest the rod
-			const byWater = p.mode === 'deck' || ( p.mode === 'walk' && [ 'wood', 'wetsand', 'water' ].includes( p.surface ) );
-			return byWater ? { key: 'R', text: 'Take out the rod' } : null;
+			// open water within casting reach where the view faces (the cast aims along the camera, not
+			// the body), no disaster live (CastReach.js; R works everywhere)
+			const app = this.app;
+			const heading = cameraHeading( app.camera.getWorldDirection( _view ) );
+			return rodHint( p, app.terrainData, G.seaLevel.value, app.disasters, heading ) ? ROD_HINT : null;
 
 		}
 
@@ -359,8 +400,11 @@ export class Game {
 		if ( p.mode === 'walk' ) for ( const v of this.vendors ) if ( v.inRange( p.position ) ) near = v;
 		for ( const v of this.vendors ) v.talking = !! ( hud && hud.standOpen && hud.vendor === v );
 		if ( hud && hud.standOpen && ( ! near || near !== hud.vendor ) ) hud.closeStand();
+		// the birdcage on Joe's counter: nearer the cage than Joe's spot, E puts the cockatoo in or gets him out
+		if ( ! this.fight && ! this._cardDismissed && ! ( hud && ( hud.standOpen || hud.catchOpen ) ) && this.stand.cage?.prompt( p, inp, this.app.cockatoo ) ) return;
 		if ( ! near || this.fight || this._cardDismissed || ( hud && hud.catchOpen ) ) return;
-		if ( ! p.prompt ) p.prompt = { key: 'E', text: hud && hud.standOpen ? 'Leave' : `Talk to ${ near.name.split( ' ·' )[ 0 ] }` };
+		// (while the shop panel is open it carries its own Leave (E) button)
+		if ( ! p.prompt && ! ( hud && hud.standOpen ) ) p.prompt = { key: 'E', text: `Talk to ${ near.name.split( ' ·' )[ 0 ] }` };
 		if ( inp.hit( 'KeyE' ) ) {
 
 			if ( ! hud ) {

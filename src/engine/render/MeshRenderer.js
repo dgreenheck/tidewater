@@ -1,9 +1,13 @@
 import { GPU } from '../gpu/GPU.js';
+import { inheritGeometryMotion } from './GeometryMotion.js';
+import { recordAttributeChanges } from './AttributeChanges.js';
 import { composeShader, createShaderModule, getBindGroupLayout, group0ForBlock } from '../gpu/Shader.js';
 import { buildMeshShader } from './MeshShader.js';
 import { blendState } from './Material.js';
 import { SceneLighting } from './wgsl/lighting.js';
 import { FrameUniforms } from './Frame.js';
+import { posed } from './ScenePose.js';
+import { flatWalk } from './SceneWalk.js';
 import { Frustum, Matrix4, Sphere, Vector3 } from '../math/index.js';
 
 // Draws scene meshes: geometry upload, pipeline cache, per-draw uniforms, culling and sorting.
@@ -31,6 +35,8 @@ let _listToken = 0; // one per drawItems call (see BindingSet.getBindGroup)
 
 const DRAW_STRIDE = 256; // minUniformBufferOffsetAlignment
 const DRAW_FLOATS = 40;
+const sortOpaque = ( a, b ) => a.renderOrder - b.renderOrder || a.pipeKey - b.pipeKey || a.z - b.z;
+const sortTransparent = ( a, b ) => a.renderOrder - b.renderOrder || b.z - a.z;
 
 export class MeshRenderer {
 
@@ -38,6 +44,7 @@ export class MeshRenderer {
 
 		this.pipelines = new Map();
 		this.geometries = new WeakMap();
+		this.attributeBuffers = new WeakMap();
 		this.capacity = 8192;
 		this.drawBuffer = null;
 		this.drawData = null;
@@ -46,6 +53,8 @@ export class MeshRenderer {
 		this.stats = { draws: 0, triangles: 0, pipelines: 0 };
 		this.drawLayout = null;
 		this.drawBindGroup = null;
+		this._listPool = [];
+		this._dynamicOffset = [ 0 ]; // sequence overload also supported by native Dawn
 		// true: a draw compiles its pipeline on the spot (one-off bakes, portraits, tests); the engine's
 		// scene renderer sets false: pipelines compile in the background and a draw is skipped until
 		// its pipeline is ready (no first-use stalls)
@@ -128,7 +137,14 @@ export class MeshRenderer {
 			this.geometries.set( geometry, g );
 			if ( geometry.addEventListener ) geometry.addEventListener( 'dispose', () => {
 
-				for ( const b of g.buffers.values() ) b.buffer.destroy();
+				if ( g.disposed ) return;
+				g.disposed = true;
+				for ( const [ src, b ] of g.buffers ) {
+					if ( --b.owners === 0 ) {
+						b.buffer.destroy();
+						if ( this.attributeBuffers.get( src ) === b ) this.attributeBuffers.delete( src );
+					}
+				}
 				if ( g.index ) g.index.buffer.destroy();
 				this.geometries.delete( geometry );
 
@@ -147,34 +163,54 @@ export class MeshRenderer {
 		const src = attr.isInterleavedBufferAttribute ? attr.data : attr;
 		if ( src.gpuBuffer ) return src.gpuBuffer.getGPU ? src.gpuBuffer.getGPU() : src.gpuBuffer; // storage-backed attribute
 		let b = g.buffers.get( src );
+		if ( ! b ) {
+			b = this.attributeBuffers.get( src );
+			if ( b ) { b.owners ++; g.buffers.set( src, b ); }
+		}
 		const version = src.version ?? 0;
 		// unchanged since the last upload (same array, same version)
 		if ( b && b.version === version && b.array === src.array ) return b.buffer;
 		const conv = convertArray( attr );
-		if ( ! b || b.size < conv.byteLength ) {
+		if ( ! b ) {
 
-			if ( b ) b.buffer.destroy();
-			b = { buffer: GPU.device.createBuffer( { label: attr.name || 'attribute', size: Math.max( 16, align4( conv.byteLength ) ), usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST } ), size: conv.byteLength, version: - 1 };
+			b = { buffer: null, size: 0, version: - 1, owners: 1 };
 			g.buffers.set( src, b );
+			// Raw attributes are identical across material views of one batch. Widened
+			// attributes retain their per-geometry conversion ownership.
+			if ( conv === src.array ) this.attributeBuffers.set( src, b );
+
+		}
+		if ( ! b.buffer || b.size < conv.byteLength ) {
+
+			if ( b.buffer ) b.buffer.destroy();
+			b.buffer = GPU.device.createBuffer( { label: attr.name || 'attribute', size: Math.max( 16, align4( conv.byteLength ) ), usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST } );
+			b.size = conv.byteLength;
+			b.version = - 1;
 
 		}
 
 		if ( b.version !== version ) {
 
 			const range = src.updateRanges && src.updateRanges.length && b.version >= 0 ? src.updateRanges : null;
-			if ( range && conv.array === src.array ) {
+			recordAttributeChanges( src, b.version, range );
+			// Packed tails need the padded full-copy path: an aligned range may exceed the source.
+			if ( range && conv === src.array && conv.byteLength % 4 === 0 ) {
 
 				const bpe = src.array.BYTES_PER_ELEMENT;
-				for ( const r of range ) GPU.queue.writeBuffer( b.buffer, r.start * bpe, src.array.buffer, src.array.byteOffset + r.start * bpe, align4( r.count * bpe ) );
-				if ( src.clearUpdateRanges ) src.clearUpdateRanges();
-				else src.updateRanges.length = 0;
+				// Adjacent primitive ranges are one upload; overlapping substeps must not
+				// resend the same bytes. The source view's byteOffset remains significant.
+				const merged = mergeUploadRanges( range, bpe );
+				for ( const r of merged ) GPU.queue.writeBuffer( b.buffer, r.start, src.array.buffer, src.array.byteOffset + r.start, r.end - r.start );
 
 			} else {
 
 				writePadded( b.buffer, conv );
 
 			}
-
+			// Full/initial/widened uploads consume ranges too; otherwise they grow
+			// without bound for continuously moving fragments.
+			if ( src.clearUpdateRanges ) src.clearUpdateRanges();
+			else if ( src.updateRanges ) src.updateRanges.length = 0;
 			b.version = version;
 
 		}
@@ -215,6 +251,7 @@ export class MeshRenderer {
 	// cached _layout(): per geometry and material, checked against the attribute objects it used
 	_cachedLayout( object, geometry, material ) {
 
+		inheritGeometryMotion( geometry );
 		let byMat = _layouts.get( geometry );
 		if ( ! byMat ) _layouts.set( geometry, byMat = new Map() );
 		const inst = object.isInstancedMesh ? ( object.instanceColor ? 2 : 1 ) : 0;
@@ -248,7 +285,7 @@ export class MeshRenderer {
 	_layout( object, geometry, material ) {
 
 		const attrs = [];
-		const want = [ 'position', 'normal', 'uv', 'color', ...Object.keys( material.attributes ) ];
+		const want = [ 'position', 'normal', 'uv', 'color', 'previousPosition', ...Object.keys( material.attributes ) ];
 		for ( const name of want ) {
 
 			const a = geometry.attributes[ name ];
@@ -295,7 +332,7 @@ export class MeshRenderer {
 
 			buffers[ slot ].layout.attributes.push( { shaderLocation: loc, offset, format } );
 			// standard attributes have fixed shader types
-			if ( e.name === 'position' || e.name === 'normal' ) wgsl = 'vec3f';
+			if ( e.name === 'position' || e.name === 'normal' || e.name === 'previousPosition' ) wgsl = 'vec3f';
 			if ( e.name === 'uv' ) wgsl = 'vec2f';
 			if ( e.name === 'color' ) wgsl = a.itemSize === 4 ? 'vec4f' : 'vec3f';
 			if ( e.name === 'instanceColor' ) wgsl = 'vec3f';
@@ -345,10 +382,13 @@ export class MeshRenderer {
 		let targets = [];
 		if ( pass.kind === 'main' ) {
 
+			// Reactive clouds own only blue; max coverage preserves the existing
+			// water/underwater channels and does not erase overlapping clouds.
+			const reactive = pass.late && material.defines.TAA_REACTIVE;
 			targets = [
 				{ format: pass.colorFormats[ 0 ], blend: material.transparent || pass.late ? blend : undefined, writeMask: material.colorWrite ? GPUColorWrite.ALL : 0 },
 				{ format: pass.colorFormats[ 1 ], blend: pass.late ? blendState( 'premultiplied' ) : undefined, writeMask: material.colorWrite ? GPUColorWrite.ALL : 0 },
-				{ format: pass.colorFormats[ 2 ], blend: blendState( 'normal' ), writeMask: material.colorWrite ? GPUColorWrite.ALL : 0 },
+				{ format: pass.colorFormats[ 2 ], blend: blendState( reactive ? 'max' : 'normal' ), writeMask: material.colorWrite ? ( reactive ? GPUColorWrite.BLUE : GPUColorWrite.ALL ) : 0 },
 			];
 
 		} else if ( pass.kind === 'color' ) {
@@ -384,10 +424,13 @@ export class MeshRenderer {
 
 	// ------------------------------------------------------------------------------ draw lists
 
-	collect( scene, { camera, layerMask = 0xffffffff, filter = null, kind = 'main', cull = true } ) {
+	collect( scene, { camera, layerMask = 0xffffffff, filter = null, kind = 'main', cull = true }, target = null ) {
 
-		const opaque = [];
-		const transparent = [];
+		// Public collections retain independent lifetimes. render() owns a reusable
+		// list until its pass ends, including callbacks that render another scene.
+		const lists = target || { opaque: [], transparent: [] };
+		const { opaque, transparent } = lists;
+		if ( target ) target.opaqueUsed = target.transparentUsed = 0;
 		if ( camera ) {
 
 			camera.updateMatrixWorld();
@@ -399,30 +442,61 @@ export class MeshRenderer {
 
 		// precompile: every mesh of the pass, hidden or not (builds all pipelines behind the loading screen)
 		const all = this.precompiling;
-		const visit = ( o ) => {
+		const consider = ( o ) => {
 
-			if ( ! o.visible && ! all ) return;
 			if ( o.isMesh && o.material && o.geometry && ( o.layers.mask & layerMask ) !== 0 && ( ! filter || filter( o ) ) && ( kind !== 'depth' || o.castShadow ) ) {
 
 				if ( all || ! cull || ! camera || o.frustumCulled === false || this._inFrustum( o ) ) {
 
 					// ported systems use this for their own LOD / culling (called per pass, as three does)
 					if ( o.onBeforeRender ) o.onBeforeRender( null, null, camera, o.geometry, o.material, null );
-					if ( o.visible || all ) this._addItems( o, opaque, transparent );
+					if ( o.visible || all ) this._addItems( o, opaque, transparent, target );
 
 				}
 
 			}
 
+		};
+		const visit = ( o ) => {
+
+			if ( ! o.visible && ! all ) return;
+			consider( o );
 			for ( const c of o.children ) visit( c );
 
 		};
 
-		scene.updateMatrixWorld();
-		visit( scene );
-		opaque.sort( ( a, b ) => a.renderOrder - b.renderOrder || a.pipeKey - b.pipeKey || a.z - b.z );
-		transparent.sort( ( a, b ) => a.renderOrder - b.renderOrder || b.z - a.z );
-		return { opaque, transparent };
+		// the main scene is posed once per frame (ScenePose.js) and drawn from its flat walk
+		// (SceneWalk.js: same nodes, same order, rebuilt only when the hierarchy changes);
+		// precompiling walks hidden meshes too, and any other scene updates and walks per pass
+		if ( this.precompiling || ! posed( scene ) ) {
+
+			scene.updateMatrixWorld();
+			visit( scene );
+
+		} else {
+
+			const walk = flatWalk( scene ), nodes = walk.nodes, end = walk.end, count = walk.count;
+			for ( let i = 0; i < count; ) {
+
+				const o = nodes[ i ];
+				if ( ! o.visible ) {
+
+					i = end[ i ];
+					continue;
+
+				}
+
+				consider( o );
+				i ++;
+
+			}
+
+		}
+
+		if ( target ) { opaque.length = target.opaqueUsed; transparent.length = target.transparentUsed; }
+		opaque.sort( sortOpaque );
+		transparent.sort( sortTransparent );
+		return lists;
 
 	}
 
@@ -447,19 +521,11 @@ export class MeshRenderer {
 
 	}
 
-	_addItems( o, opaque, transparent ) {
+	_addItems( o, opaque, transparent, target ) {
 
 		const geo = o.geometry;
 		const mats = Array.isArray( o.material ) ? o.material : null;
 		const z = _v.setFromMatrixPosition( o.matrixWorld ).distanceToSquared( _camPos );
-		const push = ( material, start, count ) => {
-
-			if ( ! material || ( ! material.visible && ! this.precompiling ) ) return;
-			const item = { object: o, geometry: geo, material, start, count, z, renderOrder: o.renderOrder || 0, pipeKey: material.id };
-			( material.transparent ? transparent : opaque ).push( item );
-
-		};
-
 		const range = geo.drawRange || { start: 0, count: Infinity };
 		if ( mats && geo.groups && geo.groups.length ) {
 
@@ -467,15 +533,37 @@ export class MeshRenderer {
 
 				const start = Math.max( g.start, range.start );
 				const end = Math.min( g.start + g.count, range.start + range.count );
-				if ( end > start ) push( mats[ g.materialIndex ], start, end - start );
+				if ( end > start ) this._addItem( o, geo, mats[ g.materialIndex ], start, end - start, z, opaque, transparent, target );
 
 			}
 
 		} else {
 
-			push( mats ? mats[ 0 ] : o.material, range.start, range.count );
+			this._addItem( o, geo, mats ? mats[ 0 ] : o.material, range.start, range.count, z, opaque, transparent, target );
 
 		}
+
+	}
+
+	_addItem( object, geometry, material, start, count, z, opaque, transparent, target ) {
+
+		if ( ! material || ( ! material.visible && ! this.precompiling ) ) return;
+		let item;
+		if ( target ) {
+
+			const i = target.used ++;
+			item = target.items[ i ] || ( target.items[ i ] = {} );
+
+		} else item = {};
+		item.object = object; item.geometry = geometry; item.material = material;
+		item.start = start; item.count = count; item.z = z;
+		item.renderOrder = object.renderOrder || 0; item.pipeKey = material.id;
+		if ( target ) {
+
+			if ( material.transparent ) transparent[ target.transparentUsed ++ ] = item;
+			else opaque[ target.opaqueUsed ++ ] = item;
+
+		} else ( material.transparent ? transparent : opaque ).push( item );
 
 	}
 
@@ -489,36 +577,60 @@ export class MeshRenderer {
 			frameBlock: FrameUniforms, layerMask: 0xffffffff, ...pass,
 		};
 		pass.passKey = `${ pass.kind }.${ pass.late ? 1 : 0 }.${ pass.colorFormats.join( ',' ) }.${ pass.depthFormat }.${ pass.depthCompare }.${ pass.cullOverride || '' }.${ pass.defines ? JSON.stringify( pass.defines ) : '' }`;
-		const lists = pass.items || this.collect( scene, pass );
-		const enc = GPU.getEncoder();
-		const colorAttachments = ( pass.colorViews || [] ).map( ( view, i ) => {
+		const owned = ! pass.items;
+		const lists = pass.items || this._listPool.pop() || { opaque: [], transparent: [], items: [], used: 0 };
+		try {
+			if ( owned ) this.collect( scene, pass, lists );
+			const enc = GPU.getEncoder();
+			const colorAttachments = ( pass.colorViews || [] ).map( ( view, i ) => {
 
-			const clear = pass.clearColors ? pass.clearColors[ i ] : null;
-			return { view, loadOp: clear ? 'clear' : 'load', storeOp: 'store', clearValue: clear || [ 0, 0, 0, 0 ] };
+				const clear = pass.clearColors ? pass.clearColors[ i ] : null;
+				return { view, loadOp: clear ? 'clear' : 'load', storeOp: 'store', clearValue: clear || [ 0, 0, 0, 0 ] };
 
-		} );
-		const desc = { label: pass.label || pass.kind, colorAttachments };
-		if ( pass.depthView ) desc.depthStencilAttachment = {
-			view: pass.depthView,
-			depthLoadOp: pass.clearDepth === null || pass.clearDepth === undefined ? 'load' : 'clear',
-			depthStoreOp: 'store',
-			depthClearValue: pass.clearDepth ?? 0,
-		};
-		if ( pass.timestampWrites ) desc.timestampWrites = pass.timestampWrites;
-		const rp = enc.beginRenderPass( desc );
-		if ( pass.viewport ) rp.setViewport( ...pass.viewport );
-		rp.setBindGroup( 0, group0ForBlock( pass.frameBlock, 'render' ).getBindGroup() );
-		this.drawItems( rp, lists.opaque, pass );
-		if ( pass.betweenLists ) pass.betweenLists( rp );
-		this.drawItems( rp, lists.transparent, pass );
-		if ( pass.after ) pass.after( rp );
-		rp.end();
+			} );
+			const desc = { label: pass.label || pass.kind, colorAttachments };
+			if ( pass.depthView ) desc.depthStencilAttachment = {
+				view: pass.depthView,
+				depthLoadOp: pass.clearDepth === null || pass.clearDepth === undefined ? 'load' : 'clear',
+				depthStoreOp: 'store',
+				depthClearValue: pass.clearDepth ?? 0,
+			};
+			if ( pass.timestampWrites ) desc.timestampWrites = pass.timestampWrites;
+			const rp = enc.beginRenderPass( desc );
+			if ( pass.viewport ) rp.setViewport( ...pass.viewport );
+			rp.setBindGroup( 0, group0ForBlock( pass.frameBlock, 'render' ).getBindGroup() );
+			this.drawItems( rp, lists.opaque, pass );
+			if ( pass.betweenLists ) pass.betweenLists( rp );
+			this.drawItems( rp, lists.transparent, pass );
+			if ( pass.after ) pass.after( rp );
+			rp.end();
+		} finally {
+
+			if ( owned ) {
+
+				// Pooled records must not retain removed scene graphs/materials.
+				for ( let i = 0; i < lists.used; i ++ ) {
+
+					const item = lists.items[ i ];
+					item.object = item.geometry = item.material = null;
+
+				}
+				// Keep the arrays' backing storage; every retained record is cleared.
+				lists.used = 0;
+				this._listPool.push( lists );
+
+			}
+
+		}
 
 	}
 
 	drawItems( rp, items, pass ) {
 
 		let lastPipeline = null, lastGroup = null;
+		let lastIndex = null, lastIndexFormat = null;
+		const vertexBuffers = [];
+		const offset = this._dynamicOffset;
 		const token = ++ _listToken;
 		for ( const it of items ) {
 
@@ -562,18 +674,34 @@ export class MeshRenderer {
 
 			}
 
-			rp.setBindGroup( 2, this.drawBindGroup, [ this._slot( o ) * DRAW_STRIDE ] );
-			for ( let i = 0; i < vl.buffers.length; i ++ ) rp.setVertexBuffer( i, this._attributeBuffer( geo, vl.buffers[ i ].attr ) );
+			offset[ 0 ] = this._slot( o ) * DRAW_STRIDE;
+			rp.setBindGroup( 2, this.drawBindGroup, offset );
+			for ( let i = 0; i < vl.buffers.length; i ++ ) {
+
+				const buffer = this._attributeBuffer( geo, vl.buffers[ i ].attr );
+				if ( vertexBuffers[ i ] !== buffer ) {
+
+					rp.setVertexBuffer( i, buffer );
+					vertexBuffers[ i ] = buffer;
+
+				}
+
+			}
 			const instances = o.isInstancedMesh ? o.count : geo.instanceCount ?? 1;
 			if ( instances === 0 ) continue;
 			const index = this._indexBuffer( geo );
+			if ( index && ( lastIndex !== index.buffer || lastIndexFormat !== index.format ) ) {
+
+				rp.setIndexBuffer( index.buffer, index.format );
+				lastIndex = index.buffer; lastIndexFormat = index.format;
+
+			}
 			if ( geo.indirect ) {
 
 				const ib = geo.indirect.buffer.getGPU ? geo.indirect.buffer.getGPU() : geo.indirect.buffer;
 				// `offsets`: several indirect commands (byte offsets) in one buffer, drawn in turn
 				// (three's geometry.setIndirect( attr, offsets ) multi-draw)
 				const offs = geo.indirect.offsets || [ geo.indirect.offset || 0 ];
-				if ( index ) rp.setIndexBuffer( index.buffer, index.format );
 				for ( const off of offs ) {
 
 					if ( index ) rp.drawIndexedIndirect( ib, off );
@@ -590,7 +718,6 @@ export class MeshRenderer {
 
 				const count = Math.min( it.count, geo.index.count - it.start );
 				if ( count <= 0 ) continue;
-				rp.setIndexBuffer( index.buffer, index.format );
 				rp.drawIndexed( count, instances === Infinity ? 1 : instances, it.start, 0, 0 );
 				this.stats.triangles += count / 3 * instances;
 
@@ -617,6 +744,22 @@ export class MeshRenderer {
 function align4( n ) {
 
 	return Math.ceil( n / 4 ) * 4;
+
+}
+
+function mergeUploadRanges( ranges, bytesPerElement ) {
+
+	const sorted = ranges.filter( r => r.count > 0 ).map( r => ( {
+		start: Math.floor( r.start * bytesPerElement / 4 ) * 4,
+		end: align4( ( r.start + r.count ) * bytesPerElement ),
+	} ) ).sort( ( a, b ) => a.start - b.start );
+	const merged = [];
+	for ( const r of sorted ) {
+		const last = merged[ merged.length - 1 ];
+		if ( last && r.start <= last.end ) last.end = Math.max( last.end, r.end );
+		else merged.push( r );
+	}
+	return merged;
 
 }
 

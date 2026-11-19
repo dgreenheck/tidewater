@@ -1,0 +1,132 @@
+{
+  "generator": "tools/rally/import_cars.py",
+  "blender": "5.0.1",
+  "contract": "glTF Y up, +Z nose, X width, metres; root on the ground centred between the axles; wheel pivots WheelFrontL/R, WheelRearL/R (L on -X) with identity rotation, spin about local X",
+  "plate_note": "[x, y, z, yaw] in car space, for the PLATES table in src/rally/VehicleModel.js",
+  "cars": {
+    "concept_gt": {
+      "name": "Concept GT",
+      "file": "public/rally/concept_gt.glb",
+      "root_node": "ConceptGT",
+      "source": "car_concept.glb",
+      "scale_applied": 1.0,
+      "dimensions_m": {
+        "length": 4.357,
+        "width_with_mirrors": 2.338,
+        "width_body_below_mirrors": 2.236,
+        "height": 1.149,
+        "min_gltf": [
+          -1.169,
+          0.0,
+          -2.0256
+        ],
+        "max_gltf": [
+          1.169,
+          1.1489,
+          2.3318
+        ]
+      },
+      "wheel_radius_m": 0.384,
+      "tyre_width_m": 0.2841,
+      "wheelbase_m": 2.798,
+      "track_m": {
+        "front": 1.9522,
+        "rear": 1.9642
+      },
+      "wheel_pivots_gltf": {
+        "WheelFrontR": [
+          0.9755,
+          0.384,
+          1.4003
+        ],
+        "WheelFrontL": [
+          -0.9767,
+          0.384,
+          1.3986
+        ],
+        "WheelRearR": [
+          0.9825,
+          0.384,
+          -1.3994
+        ],
+        "WheelRearL": [
+          -0.9817,
+          0.384,
+          -1.3994
+        ]
+      },
+      "wheel_spin_check": {
+        "WheelFrontR": {
+          "geometry_centre_offset_from_axis_m": 0.0
+        },
+        "WheelFrontL": {
+          "geometry_centre_offset_from_axis_m": 0.0
+        },
+        "WheelRearR": {
+          "geometry_centre_offset_from_axis_m": 0.0
+        },
+        "WheelRearL": {
+          "geometry_centre_offset_from_axis_m": 0.0
+        }
+      },
+      "triangles": {
+        "total": 134405,
+        "BodyStatic": 84097,
+        "GlassPanels": 9888,
+        "InteriorAssembly": 12132,
+        "WheelFrontLGeometry": 7072,
+        "WheelFrontRGeometry": 7072,
+        "WheelRearLGeometry": 7072,
+        "WheelRearRGeometry": 7072
+      },
+      "materials": [
+        "Graphite",
+        "LicensePlate",
+        "BodyPaint",
+        "Indicator",
+        "TailLamp",
+        "Headlamp",
+        "BrightMetal",
+        "Caliper",
+        "Glass",
+        "Interior",
+        "SeatFabric",
+        "Alloy",
+        "AlloyDark",
+        "BrakeRotor",
+        "Rubber",
+        "Tread"
+      ],
+      "blanked_geometry": [
+        "InteriorSteeringEmblem"
+      ],
+      "file_bytes": 3464352,
+      "plates_gltf_xyz_yaw": {
+        "rear": [
+          0.0,
+          0.31520358100533485,
+          -2.007040088176727,
+          3.141592653589793
+        ],
+        "front": [
+          0.0,
+          0.41000000000000003,
+          2.3366965103149413,
+          0.0
+        ],
+        "front_face_spread_m": 0.0149
+      },
+      "specs": {
+        "basis": "invented (fictional concept car, sports coupe class)",
+        "mass_kg": 1350,
+        "power_kw": 300,
+        "torque_nm": 480,
+        "drive": "RWD",
+        "top_speed_kmh": 290,
+        "zero_to_100_s": 4.2,
+        "tyre_width_mm": 285,
+        "wheel_radius_m": 0.384
+      }
+    }
+  }
+}

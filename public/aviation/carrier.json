@@ -1,0 +1,18 @@
+{
+  "asset": "carrier",
+  "metres": true,
+  "axes": "+Y up, +Z forward, +X right",
+  "triangles": 142288,
+  "vertices": 202486,
+  "meshes": 19,
+  "pivots": {
+    "CarrierRadar": [
+      27.5,
+      56,
+      6
+    ]
+  },
+  "glbBytes": 6003260,
+  "generator": "tools/aviation/build.py",
+  "blender": "5.0.1"
+}

@@ -176,10 +176,10 @@ const TERRAIN_SURFACE = /* wgsl */`
 	var albedoOut = vec3f( 0.0 );
 
 	// ---- data maps
-	let nr = terrainNormalRock( xz );
-	let N0 = normalize( vec3f( nr.x, sqrt( max( 1.0 - nr.x * nr.x - nr.y * nr.y, 0.0025 ) ), nr.y ) );
-	let sp = terrainSplat( xz );
-	let slope = 1.0 - N0.y;
+	// B-spline filtered (C2): the 1 m normal / AO grid does not show as facets or stair steps in the light
+	let nrS = terrainSampleSmooth( terrainNormalTex, xz );
+	let nr0 = vec4f( nrS.xy * 2.0 - 1.0, nrS.zw );
+	let N0 = normalize( vec3f( nr0.x, sqrt( max( 1.0 - nr0.x * nr0.x - nr0.y * nr0.y, 0.0025 ) ), nr0.y ) );
 	let camDist = length( frame.cameraPos - p );
 	let dpx = dpdx( p ); let dpy = dpdy( p );
 	let fwY = fwidth( h );
@@ -196,6 +196,18 @@ const TERRAIN_SURFACE = /* wgsl */`
 	let dF = terDetail( ${ rot2( 'xz', 2.4 ) } / 0.63 + 0.53 );
 	let grain = min( dN.z, 0.62 );
 	let grainF = min( dF.z, 0.62 );
+	// material masks (rock mask, slope, splat) read through a B-spline filter at a position warped
+	// by ~1-2 m of noise: the rock / grass / sand edges become smooth, irregular natural outlines
+	// instead of tracing the 1 m texel grid; the shading keeps the unwarped normal N0
+	let xzM = xz + ( vec2f( dM.x, dM.y ) - 0.5 ) * 2.4 + ( vec2f( dN.w, dN.x ) - 0.5 ) * 1.0;
+	// (footprint of the unwarped position: see terrainSampleSmoothG)
+	let uvU = terrainUvOf( xz );
+	let gUx = dpdx( uvU ); let gUy = dpdy( uvU );
+	let nrM = terrainSampleSmoothG( terrainNormalTex, xzM, gUx, gUy );
+	let nMx = nrM.x * 2.0 - 1.0; let nMz = nrM.y * 2.0 - 1.0;
+	let nr = vec4f( nr0.xy, nrM.z, nr0.w );
+	let sp = terrainSampleSmoothG( terrainSplatTex, xzM, gUx, gUy );
+	let slope = 1.0 - sqrt( max( 1.0 - nMx * nMx - nMz * nMz, 0.0025 ) );
 #if REFRACTION_CLIP
 	// the refraction source (half resolution, seen blurred through the water): every non-rock
 	// fragment under the water takes the cheap seabed path
@@ -216,6 +228,8 @@ const TERRAIN_SURFACE = /* wgsl */`
 	// bump height of either path: the surface-gradient bump runs after the branch (its screen-space
 	// derivatives would be undefined in quads that straddle the two paths)
 	var hdOut = 0.0;
+	// forest canopy relief, kept apart from its mask: the mask edge must not become a 2.5 m step
+	var canopyRelOut = 0.0; var canopyWOut = 0.0;
 	if ( seabedPath ) {
 
 		let underW = 1.0;
@@ -292,22 +306,25 @@ const TERRAIN_SURFACE = /* wgsl */`
 		let gully = sp.z * smoothstep( -0.5, 0.5, h );
 		var rockAlbedo = vec3f( 0.2 ); var rockRough = 0.8; var rockHd = 0.0;
 		var rockW = 0.0; var screeW = 0.0;
+		// cut banks and faces steeper than ~37 deg: grass cannot hold there and the planar grass / sand
+		// mapping stretches, so they go to scree, bare earth and triplanar rock
+		let bankK = smoothstep( 0.2, 0.42, slope );
 		let cliffK = smoothstep( 0.28, 0.55, slope );
 		let convex = smoothstep( 0.5, 0.85, nr.w );
 		// rv below, without the rock's own relief term, which adds at most 0.1925 (R.height <= 1): where
 		// even that can't reach the scree band (0.28), rock and scree weigh 0 and the rock isn't shaded
-		let rvBound = nr.z * 0.7 + smoothstep( 0.3, 0.62, slope ) * 0.5 + convex * 0.14 - gully * 0.4
+		let rvBound = nr.z * 0.7 + smoothstep( 0.3, 0.62, slope ) * 0.5 + bankK * 0.42 + smoothstep( 0.2, 0.34, slope ) * 0.4 + convex * 0.14 - gully * 0.4 * ( 1.0 - bankK * 0.6 )
 			+ ( dM.w - 0.5 ) * 0.34 + ( dN.w - 0.5 ) * 0.22 + ( streak - 0.5 ) * 1.0 * cliffK + 0.2;
-		if ( ( nr.z > 0.06 || slope > 0.3 ) && rvBound > 0.28 ) {
+		if ( ( nr.z > 0.06 || slope > 0.2 ) && rvBound > 0.28 ) {
 
 			var g: RockGrad;
 			g.dpdx = dpx; g.dpdy = dpy; g.fwY = fwY; g.useGrad = true;
 			let R = terrainRockSurface( p, N0, h, mcr, 0.5, 1.0, g );
-			let rv = nr.z * 0.7 + smoothstep( 0.3, 0.62, slope ) * 0.5 + convex * 0.14 - gully * 0.4
+			let rv = nr.z * 0.7 + smoothstep( 0.3, 0.62, slope ) * 0.5 + bankK * 0.42 + smoothstep( 0.2, 0.34, slope ) * 0.4 + convex * 0.14 - gully * 0.4 * ( 1.0 - bankK * 0.6 )
 				+ ( R.height - 0.45 ) * 0.35 + ( dM.w - 0.5 ) * 0.34 + ( dN.w - 0.5 ) * 0.22
 				+ ( streak - 0.5 ) * 1.0 * cliffK;
 			// fades to 0 at the branch boundary: no step along the slope / mask iso-lines
-			let branchK = max( smoothstep( 0.06, 0.18, nr.z ), smoothstep( 0.3, 0.42, slope ) );
+			let branchK = max( smoothstep( 0.06, 0.18, nr.z ), smoothstep( 0.2, 0.3, slope ) );
 			rockW = smoothstep( 0.5, 0.68, rv ) * branchK;
 			screeW = smoothstep( 0.28, 0.52, rv ) * branchK * ( 1.0 - rockW );
 			// weathered basalt: darker and browner than the sea-cliff palette, streaked; moss and
@@ -336,15 +353,15 @@ const TERRAIN_SURFACE = /* wgsl */`
 		let notRock = 1.0 - rockW;
 		let underW = smoothstep( 0.12, -0.6, h );
 		let landW = 1.0 - underW;
-		let sandW = smoothstep( 0.3, 0.72, sp.x + ( dM.z - 0.5 ) * 0.5 + ( mcr - 0.5 ) * 0.35 ) * notRock;
+		let sandW = smoothstep( 0.3, 0.72, sp.x + ( dM.z - 0.5 ) * 0.5 + ( mcr - 0.5 ) * 0.35 ) * notRock * ( 1.0 - smoothstep( 0.22, 0.36, slope ) );
 		let pathW = smoothstep( 0.28, 0.62, sp.y + ( dN.y - 0.45 ) * 0.4 + ( dM.w - 0.5 ) * 0.25 ) * notRock * landW
-			* ( 1.0 - smoothstep( 50.0, 220.0, camDist ) * 0.85 );
+			* ( 1.0 - smoothstep( 50.0, 220.0, camDist ) * 0.85 ) * ( 1.0 - bankK * 0.85 );
 		// forest on the higher / steeper ground and in the gullies, tall-grass meadow on the valley
 		// floor and around the village (same classification as the vegetation's land cover)
 		let jungleW = sat( smoothstep( 9.0, 24.0, h + ( mcr - 0.5 ) * 18.0 ) + smoothstep( 0.18, 0.36, slope ) + gully * 0.6 );
 		// landslide scars: raw red-brown laterite in streaks down steep slopes, rare
 		let lateriteW = smoothstep( 0.62, 0.74, scar + ( macroB - 0.5 ) * 0.3 ) * smoothstep( 0.3, 0.42, slope )
-			* smoothstep( 0.52, 0.66, mcr ) * notRock * 0.85;
+			* smoothstep( 0.52, 0.66, mcr ) * notRock * 0.85 * ( 1.0 - bankK * 0.8 );
 
 		// ---- beach sand: pale coral sand, drifts of warmer / coarser sand, grain
 		let dryK = smoothstep( 0.8, 3.0, h );
@@ -475,9 +492,11 @@ const TERRAIN_SURFACE = /* wgsl */`
 		// a carpet of lumpy crowns with dark gaps
 		let canopyW = jungleW * max( smoothstep( 0.2, 0.4, slope ), smoothstep( 90.0, 260.0, camDist ) ) * smoothstep( 25.0, 70.0, camDist ) * notRock * ( 1.0 - screeW * 0.7 );
 		var canopyH = 0.0;
+		// (implicit-derivative samples in uniform control flow: inside the branch a quad straddling its
+		// edge picks a wrong mip)
+		let crowns = terDetail( ${ rot2( 'xz', 0.9 ) } / 61.0 ).w;
+		let crownsB = terDetail( ${ rot2( 'xz', 2.3 ) } / 13.0 + 0.37 ).w;
 		if ( canopyW > 0.0 ) {
-			let crowns = terDetail( ${ rot2( 'xz', 0.9 ) } / 61.0 ).w;
-			let crownsB = terDetail( ${ rot2( 'xz', 2.3 ) } / 13.0 + 0.37 ).w;
 			canopyH = smoothstep( 0.32, 0.7, crowns * 0.45 + crownsB * 0.4 + dM.w * 0.15 );
 			var canopy = mix( ${ S( 0.05, 0.08, 0.025 ) }, mix( ${ S( 0.14, 0.21, 0.06 ) }, ${ S( 0.22, 0.27, 0.09 ) }, macroB ), canopyH );
 			// steep faces: the canopy hangs in streaks down the fall line
@@ -597,7 +616,8 @@ const TERRAIN_SURFACE = /* wgsl */`
 			+ rill * 0.006 * rillK;
 		// seagrass canopy stands proud of the sand with a ragged scarp; rubble is knobbly
 		let seabedH = seagrassW * ( blades * 0.05 + 0.08 ) + rubbleW * ( dN.x * 0.07 + dF.x * 0.015 );
-		let groundH = dN.y * mix( 0.05, 0.035, jungleW ) + dF.y * 0.012 + dM.y * 0.045 + canopyH * canopyW * 2.5
+		// (the canopy crowns' relief is added after the derivatives, see canopyRelOut)
+		let groundH = dN.y * mix( 0.05, 0.035, jungleW ) + dF.y * 0.012 + dM.y * 0.045
 			+ clump * 0.12 * ( 1.0 - jungleW ) + comb * 0.03 * ( 1.0 - jungleW );
 		let screeH = dN.z * 0.04 + dM.x * 0.06;
 		let dirtH = dN.z * 0.012 + dN.y * 0.01;
@@ -606,6 +626,8 @@ const TERRAIN_SURFACE = /* wgsl */`
 		hd = mix( hd, rockHd, rockW );
 		hd = mix( hd, scarpH, scarpW );
 		hdOut = hd;
+		canopyRelOut = canopyH * 2.5;
+		canopyWOut = canopyW * ( 1.0 - screeW ) * ( 1.0 - pathW ) * ( 1.0 - max( sandW, underW * notRock ) ) * notRock * ( 1.0 - scarpW );
 
 		// ---- ambient occlusion: baked horizon + cavity, plus litter / crevices / seagrass canopy
 		let aoDetail = mix( 1.0, dN.y * 0.5 + 0.7, jungleW * ( 1.0 - sandW ) * notRock * landW )
@@ -617,7 +639,12 @@ const TERRAIN_SURFACE = /* wgsl */`
 
 	}
 
-	outN = terrainPerturbNormal( p, N0, hdOut, 1.0 );
+	// fine derivatives: per pixel, not per 2x2 quad (the forest's metre-scale relief shaded in
+	// quad blocks, a dotted dark rim along its edge). The canopy term takes the derivative of the
+	// crowns only, weighted by the mask, so the mask's edge adds no step.
+	let dCx = dpdxFine( hdOut ) + dpdxFine( canopyRelOut ) * canopyWOut;
+	let dCy = dpdyFine( hdOut ) + dpdyFine( canopyRelOut ) * canopyWOut;
+	outN = terrainPerturbNormalD( p, N0, dCx, dCy );
 
 	s.albedo = albedoOut;
 	s.roughness = outRough;

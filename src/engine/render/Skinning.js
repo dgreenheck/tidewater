@@ -6,6 +6,7 @@ import { Texture, StorageBuffer } from '../gpu/Texture.js';
 import { generateMipmaps } from '../gpu/Mipmaps.js';
 import { Material } from './Material.js';
 import { decodeImage } from '../loaders/GLTF.js';
+import { GPU } from '../gpu/GPU.js';
 
 // Skinned, animated models (glTF skins) on the GPU.
 //
@@ -14,11 +15,13 @@ import { decodeImage } from '../loaders/GLTF.js';
 //   scene.add( model.group );                                // meshes are children of model.group
 //   model.play( 'idle_neutral_01', { fade: 0.5, loop: true, speed: 1 } );
 //   model.update( dt );                                      // before rendering: animation + joint upload
-//   model.hold();                                            // when it stops updating (keeps motion vectors at 0)
+//   model.hold();                                            // optional: drawn frames without an update() hold on their own
 //
 // Pose: every node's local TRS starts from the glTF rest pose; each playing clip samples its
 // channels (linear / step, quaternions nlerped) and the layers are blended by weight (crossfades:
-// the incoming layer's weight rises while the others fall, their sum stays 1). World matrices of
+// the incoming layer's weight rises while the others fall, their sum stays 1). A layer with a
+// `mask` (Float32Array, a weight per node) is an overlay: kept out of that sum and laid over the
+// blended pose afterwards at weight x mask[ node ] (an upper-body clip over walking legs). World matrices of
 // the node hierarchy -> joint matrices = jointWorld * inverseBind (glTF: the skinned mesh node's
 // own transform is ignored), so skinned vertices come out in the model's space and the mesh
 // objects' model matrix (model.group's world matrix) places them in the world.
@@ -27,6 +30,13 @@ import { decodeImage } from '../loaders/GLTF.js';
 // The material vertex hook skins position and normal with 4 weights and writes the world position,
 // the normal and last frame's world position (useWorld), so motion vectors (TAA, motion blur)
 // include the animation, and the shadow / depth passes skin the same way (same hook).
+// Frames without an update: owners skip frames for animation LOD (a third of the frames far off,
+// every other one for still people) or stop updating altogether. The buffer would still hold the
+// last step (previous = pose k-1, this frame = pose k), so the unchanged pose would read as moving
+// by a whole step every skipped frame (a doubled silhouette / smear under TAA and motion blur).
+// So each mesh settles its model as it is drawn (Mesh.onBeforeRender, once per GPU frame): no
+// update() since the last drawn frame = hold(). The next update then covers the whole jump from
+// the drawn pose in one frame, which is what the screen shows.
 //
 // Geometry attributes: skinIndex (vec4u, Uint32Array) and skinWeight (vec4f).
 // Materials: materials( { gltfMaterial, name, textures: { albedo, normal, orm }, alphaMode } )
@@ -286,9 +296,20 @@ export class SkinnedModel {
 			}
 
 			const mesh = new Mesh( geo, mat );
+			mesh.onBeforeRender = () => this.settle();
 			mesh.name = 'skinned:' + ( g.materials[ p.material ]?.name || '' );
-			// skinned: the bind-pose bounds don't follow the animation
-			mesh.frustumCulled = false;
+			// skinned: the bind-pose bounds don't follow the animation, so they are culled against a
+			// sphere twice the bind pose's (sitting, waving or flying stays inside it): off-screen people
+			// and shadow cascades they miss no longer draw them
+			if ( ! geo._skinBounds ) {
+
+				geo.computeBoundingSphere();
+				if ( geo.boundingSphere ) geo.boundingSphere.radius = Math.max( 2 * geo.boundingSphere.radius, 0.5 );
+				geo._skinBounds = true;
+
+			}
+
+			mesh.frustumCulled = !! geo.boundingSphere;
 			mesh.castShadow = true;
 			mesh.receiveShadow = true;
 			this.group.add( mesh );
@@ -351,11 +372,23 @@ export class SkinnedModel {
 
 	}
 
+	// As one of its meshes is drawn (any pass), once per GPU frame: not updated since the last
+	// drawn frame -> hold (the previous joints = these), so skipped / frozen frames read as still.
+	settle() {
+
+		if ( this._drawn === GPU.frame ) return;
+		this._drawn = GPU.frame;
+		if ( ! this._fresh ) this.hold();
+		this._fresh = false;
+
+	}
+
 	// dt = 0: evaluate without motion (a new clip / teleport: no motion vectors)
 	update( dt ) {
 
 		if ( dt === 0 ) this._first = true;
 		this._held = false;
+		this._fresh = true;
 
 		// advance and fade layers
 		for ( const l of this.layers ) {
@@ -385,10 +418,10 @@ export class SkinnedModel {
 		}
 
 		this.layers = this.layers.filter( ( l ) => l.target > 0 || l.weight > 1e-4 );
-		// renormalise (fades in and out at the same rate keep the sum ~1)
+		// renormalise (fades in and out at the same rate keep the sum ~1); masked overlays keep their own weight
 		let W = 0;
-		for ( const l of this.layers ) W += l.weight;
-		if ( W > 1e-4 ) for ( const l of this.layers ) l.weight /= W;
+		for ( const l of this.layers ) if ( ! l.mask ) W += l.weight;
+		if ( W > 1e-4 ) for ( const l of this.layers ) if ( ! l.mask ) l.weight /= W;
 		this._pose();
 
 	}
@@ -407,7 +440,7 @@ export class SkinnedModel {
 
 		for ( const l of this.layers ) {
 
-			if ( l.weight <= 0 ) continue;
+			if ( l.weight <= 0 || l.mask ) continue;
 			for ( const ch of l.clip.channels ) {
 
 				const a = acc[ ch.node ];
@@ -456,6 +489,36 @@ export class SkinnedModel {
 				L.r[ 0 ] = x * l; L.r[ 1 ] = y * l; L.r[ 2 ] = z * l; L.r[ 3 ] = w * l;
 
 			} else L.r.set( R.r );
+
+		}
+
+		// masked overlays (layer.mask: a weight per node, e.g. an upper-body clip over the legs), laid in order
+		// over the blended pose at weight x mask
+		for ( const l of this.layers ) {
+
+			if ( ! l.mask || l.weight <= 0 ) continue;
+			for ( const ch of l.clip.channels ) {
+
+				const k = l.weight * ( l.mask[ ch.node ] || 0 );
+				if ( k <= 1e-4 ) continue;
+				sampleChannel( ch, l.time, tmp );
+				const L = this.local[ ch.node ];
+				if ( ch.path === 'rotation' ) {
+
+					const r = L.r, d = r[ 0 ] * tmp[ 0 ] + r[ 1 ] * tmp[ 1 ] + r[ 2 ] * tmp[ 2 ] + r[ 3 ] * tmp[ 3 ];
+					const kk = d < 0 ? - k : k;
+					for ( let c = 0; c < 4; c ++ ) r[ c ] = r[ c ] * ( 1 - k ) + tmp[ c ] * kk;
+					const n = 1 / Math.hypot( r[ 0 ], r[ 1 ], r[ 2 ], r[ 3 ] );
+					for ( let c = 0; c < 4; c ++ ) r[ c ] *= n;
+
+				} else {
+
+					const v = ch.path === 'translation' ? L.t : L.s;
+					for ( let c = 0; c < 3; c ++ ) v[ c ] += ( tmp[ c ] - v[ c ] ) * k;
+
+				}
+
+			}
 
 		}
 

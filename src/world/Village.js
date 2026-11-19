@@ -1,3 +1,4 @@
+import { structure } from '../disasters/Structures.js';
 import { BufferGeometry, Color, Euler, Group, Mesh, Vector3 } from '../engine/index.js';
 import { mulberry32 } from '../util/Noise.js';
 import { Builder, Batch } from './village/GeoBuilder.js';
@@ -91,19 +92,19 @@ export class Village {
 
 		// the fish sign at the pier entrance is its own small mesh: it swings in the wind (update())
 		this.signB = new Builder();
-		this.pierInfo = buildPier( { B: this.harbor, terrain, colliders, rand, lights: this.lights, inst: this.inst, signB: this.signB, hang: () => new Builder() } );
+		this.pierInfo = structure('Harbour pier',colliders,()=>buildPier( { B: this.harbor, terrain, colliders, rand, lights: this.lights, inst: this.inst, signB: this.signB, hang: () => new Builder() } ));
 
 		// boardwalk from the foot of the pier steps up to the plaza
 		const foot = this.pierInfo.stepFoot;
-		this.path = buildBoardwalk( ctx( this.harbor ), [
+		this.path = structure('Main boardwalk',colliders,()=>buildBoardwalk( ctx( this.harbor ), [
 			[ foot.x, foot.z + 0.05 ], [ 54.6, - 72 ], [ 52.4, - 82 ], [ 48.4, - 92 ], [ 44.8, - 100.5 ], [ 42.6, - 107.2 ],
-		], { width: 1.8, startY: foot.y + 0.24, lightEvery: 70 } );
+		], { width: 1.8, startY: foot.y + 0.24, lightEvery: 70 } ),'light');
 		this._plaza( ctx( this.town ) );
 
 		for ( const s of specs.houses ) {
 
 			const B = s.harbor ? this.harbor : this.town;
-			const res = buildHouse( ctx( B ), s );
+			const res = structure(s.name,colliders,()=>buildHouse( ctx( B ), s ),'timber',{ progressive: true });
 			this.buildings.push( { name: s.name, x: s.x, z: s.z, floorY: res.floorY, roofTop: res.roofTop, stilts: s.foundation === 'stilts', footprint: res.footprint } );
 			this.footprints.push( res.footprint );
 
@@ -111,7 +112,7 @@ export class Village {
 
 		for ( const s of specs.sheds ) {
 
-			const res = buildShed( ctx( this.town ), s );
+			const res = structure(s.name,colliders,()=>buildShed( ctx( this.town ), s ),'light',{ progressive: true });
 			this.buildings.push( { name: s.name, x: s.x, z: s.z, floorY: res.floorY, roofTop: res.roofTop, stilts: false, footprint: res.footprint } );
 			this.footprints.push( res.footprint );
 
@@ -123,8 +124,8 @@ export class Village {
 			buildBoardwalk( ctx( this.town ), [ [ 46.8, - 97.8 ], [ 53.5, - 98.5 ], [ 61.7, - 99.1 ] ], { width: 1.1, lift: 0.2, lightEvery: 1e9 } ),
 		];
 
-		this.footprints.push( buildBoathouse( ctx( this.harbor ), specs.boathouse ).footprint );
-		this.footprints.push( buildMarketStall( ctx( this.town ), specs.stall ).footprint );
+		this.footprints.push( structure('Boathouse',colliders,()=>buildBoathouse( ctx( this.harbor ), specs.boathouse ),'timber',{ progressive: true }).footprint );
+		this.footprints.push( structure('Market stall',colliders,()=>buildMarketStall( ctx( this.town ), specs.stall ),'light',{ progressive: true }).footprint );
 
 		this._beachProps( ctx( this.harbor ) );
 		this._villageProps( ctx( this.town ) );
@@ -445,7 +446,8 @@ export class Village {
 			[ 'trap', 69.2, - 110.8, 0.2 ], [ 'trap', 69.3, - 111.4, 0.1 ], [ 'trap', 69.25, - 111.1, 0.3, 0.31 ],
 			[ 'barrel', 86.6, - 118.8, 0.2 ], [ 'crate', 85.9, - 119.6, 0.4 ],
 			[ 'crate', 64.6, - 134.2, 0.3 ], [ 'barrel', 63.9, - 133.4, 1.0 ],
-			[ 'trap', 47.9, - 150.2, 0.6 ], [ 'trap', 48.2, - 150.8, 0.4 ],
+			// Keep these yard traps beside the evacuation stairs, clear of the solid treads.
+			[ 'trap', 50.2, - 150.2, 0.6 ], [ 'trap', 50.2, - 151.35, 0.4 ],
 			[ 'barrel', 25.4, - 157.4, 0.5 ], [ 'barrel', 26.1, - 157.8, 1.5 ],
 			[ 'crate', 9.8, - 145.4, 0.2 ], [ 'crate', 91.6, - 128.5, 0.9 ],
 		];

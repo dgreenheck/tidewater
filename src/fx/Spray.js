@@ -106,7 +106,7 @@ fn sprayPhaseHG( cosT: f32, g: f32 ) -> f32 {
 
 export class Spray {
 
-	constructor( renderer, { query, terrain, sceneCopy, clouds = null, gpuCapacity = 32768, cpuCapacity = 8192 } ) {
+	constructor( renderer, { query, terrain, sceneCopy, clouds = null, gpuCapacity = 32768, cpuCapacity = 16384 } ) {
 
 		this.renderer = renderer;
 		this.query = query;
@@ -216,9 +216,19 @@ fn sprayRand( a: u32, b: u32 ) -> f32 {
 	// ------------------------------------------------------------------ CPU API
 
 	// Emit `count` particles at `position` (Vector3) with base `velocity` (Vector3, m/s). size: radius (m),
-	// kind: SPRAY.DROPLET | SPRAY.LIGAMENT | SPRAY.SPRAY | SPRAY.MIST. Up to 32 calls and 8192 particles per
-	// frame; nothing is allocated. opts: spread (velocity jitter, m/s), jitter (position jitter, m),
+	// kind: SPRAY.DROPLET | SPRAY.LIGAMENT | SPRAY.SPRAY | SPRAY.MIST. Up to 32 calls and cpuCapacity particles
+	// per frame (the CPU ring: a particle is overwritten after cpuCapacity more are emitted, so the long-lived
+	// ones, a rocket rooster tail, need the ring to hold a few seconds of everything emitted); nothing is allocated. opts: spread (velocity jitter, m/s), jitter (position jitter, m),
 	// life (s), to (Vector3: emit along the segment position -> to), sizeJitter (0..1)
+	// the rider the camera follows (a Vector3, or null: none) and her half-width at her distance (m): spray
+	// between the eye and her thins to a veil (the render's focus fade). Set every frame by whoever drives the camera.
+	setFocus( p, radius = 1.4 ) {
+
+		const u = this.params && this.params.focus;
+		if ( u ) u.value = p ? [ p.x, p.y, p.z, radius ] : [ 0, - 1e5, 0, 0 ];
+
+	}
+
 	emit( position, velocity, count, size = 0.04, kind = SPRAY.DROPLET, opts = {} ) {
 
 		if ( this.nReq >= MAX_REQUESTS || count <= 0 ) return;
@@ -513,10 +523,15 @@ ${ deposit ? /* wgsl */`				// fell into the water (not onto the sand): its bubb
 			side: 'double',
 			// premultiplied: color one / one-minus-src-alpha (alpha likewise)
 			blending: 'premultiplied',
+			// faint drops keep the motion of what is behind them (MeshShader VELOCITY_COVERAGE)
+			defines: { VELOCITY_COVERAGE: 1 },
 			modules: [ sprayCommon ],
 			uniforms: {
 				intensity: [ 'f32', 1 ],
 				maxDistance: [ 'f32', 320 ],
+				// the rider the camera follows (xyz) and how wide she is at her distance (w, m; 0: none): spray
+				// between the eye and her thins to a veil (setFocus)
+				focus: [ 'vec4f', [ 0, - 1e5, 0, 0 ] ],
 			},
 			storage: {
 				sprayPosR: this.pos,
@@ -565,7 +580,8 @@ ${ deposit ? /* wgsl */`				// fell into the water (not onto the sand): its bubb
 	// motion blur along the velocity projected on the view plane; ligaments are elongated anyway
 	let vPerp = vel - Vd * dot( vel, Vd );
 	let speed = length( vPerp );
-	let stretchLen = speed * ${ byKind( 'kind', KIND.stretch ) };
+	// (capped for clouds and sheets: a long streak of dense white reads as a brush stroke, not water)
+	let stretchLen = select( speed * ${ byKind( 'kind', KIND.stretch ) }, min( speed * ${ byKind( 'kind', KIND.stretch ) }, size * 2.0 ), kind > 2.5 );
 	let elong = select( 0.0, r * 2.0, isLig );
 	let up = select( vec3f( 0.0, 1.0, 0.0 ), vPerp / max( speed, 1e-3 ), speed > 1e-3 );
 	// clouds: random rotation that slowly turns
@@ -579,7 +595,8 @@ ${ deposit ? /* wgsl */`				// fell into the water (not onto the sand): its bubb
 	let isSheet = kind > 2.5;
 	let isClear = kind > 3.5; // clear sheet (bow sheet)
 	let side = normalize( cross( Vd, up ) );
-	let tilt = ( fract( info.w * 7.31 ) - 0.5 ) * 0.7;
+	// (a cloud of drops tumbles: up to ~45 deg off its motion, so a burst never lines up in parallel strokes)
+	let tilt = ( fract( info.w * 7.31 ) - 0.5 ) * select( 1.0, 1.5, kind < 3.5 );
 	let sUp = up * cos( tilt ) + side * sin( tilt );
 	let sSide = side * cos( tilt ) - up * sin( tilt );
 	// mist streams with the air: drawn along its motion, stretched by its speed (wisps, not discs)
@@ -626,12 +643,31 @@ ${ deposit ? /* wgsl */`				// fell into the water (not onto the sand): its bubb
 
 	// opacity over the particle's life
 	let t = age / max( life, 1e-3 );
-	let fadeIn = smoothstep( 0.0, ${ byKind( 'kind', KIND.fadeIn ) }, t );
+	// (dense spray: at most 0.06 s however long it lives: a rooster tail's 2.4 s plume took 0.3 s to show,
+	// by when the parcels had already flown past the chase camera)
+	let fadeIn = smoothstep( 0.0, select( ${ byKind( 'kind', KIND.fadeIn ) }, min( ${ fl( KIND.fadeIn[ 3 ] ) }, 0.06 / max( life, 1e-3 ) ), kind > 2.5 && kind < 3.5 ), t );
 	let fadeOut = 1.0 - smoothstep( ${ byKind( 'kind', KIND.fadeOut ) }, 1.0, t );
 	let baseA = ${ byKind( 'kind', KIND.alpha ) };
-	// far: fade out; very near the eye: sheets and mist would fill the screen (and cost a lot of overdraw)
-	let distFade = smoothstep( mat.maxDistance, mat.maxDistance * 0.55, dist ) * select( smoothstep( 0.6, 3.0, dist ), 1.0, water );
-	let a = baseA * fadeIn * fadeOut * cover * distFade * mat.intensity;
+	// far: fade out; near the eye: a soft fade over the last few metres (sheets, clouds and mist would wall
+	// off the screen, and cost a lot of overdraw); clear drops only right at the lens
+	let distFade = smoothstep( mat.maxDistance, mat.maxDistance * 0.55, dist ) * select( smoothstep( 1.2, 6.0, dist - r * 0.5 ), smoothstep( 0.3, 1.2, dist ), water );
+	// the rider the camera follows: spray between the eye and her, in a cone closing on the eye, thins to a veil,
+	// so she always reads through her own plume in the chase view. Side-on and wide views have nothing of the
+	// plume on that line: they keep all of it.
+	var focusFade = 1.0;
+	if ( mat.focus.w > 0.0 ) {
+		let fo = mat.focus.xyz - frame.cameraPos;
+		let fd = max( length( fo ), 0.5 );
+		let fdir = fo / fd;
+		let rel = p - frame.cameraPos;
+		let along = dot( rel, fdir );
+		let perp = length( rel - fdir * along );
+		let cone = mat.focus.w * clamp( along / fd, 0.2, 1.0 ) + r * 0.6;
+		let inCone = 1.0 - smoothstep( cone, cone * 1.8 + 0.5, perp );
+		let before = smoothstep( fd + 1.2, fd - 0.4, along );
+		focusFade = 1.0 - inCone * before * select( 0.88, 0.6, water );
+	}
+	let a = baseA * fadeIn * fadeOut * cover * distFade * focusFade * mat.intensity;
 
 	o.vUV = corner;
 	o.vCol = vec4f( col, a );
@@ -663,26 +699,37 @@ ${ deposit ? /* wgsl */`				// fell into the water (not onto the sand): its bubb
 	// more as it ages, so it tears into strands and fragments instead of shrinking. Thick parts are
 	// dense white water, the torn edges thin and translucent.
 	let env = sat( 1.0 - r2 );
-	let fib = textureSample( sprayPuff, smpLinearRepeat, vec2f( uv.x * 0.5, uv.y * 0.26 ) + sd ).x;
+	let fib = textureSample( sprayPuff, smpLinearRepeat, vec2f( uv.x * 0.5, uv.y * 0.36 ) + sd ).x;
 	let fine = textureSample( sprayPuff, smpLinearRepeat, vec2f( uv.x * 1.2, uv.y * 0.6 ) + sd * 2.3 ).x;
-	let field = fib * 0.6 + fine * 0.4 + ( env - 0.55 ) * 0.75 - smoothstep( 0.8, 1.0, r2 );
+	// dense spray (a cloud of drops, kind 3): streaked finer, and the envelope counts for less, so its
+	// outline is torn water and never a round puff (clusters of them read as cotton wool or cumulus)
+	let isCloud = isSheet && ! isClear;
+	let rip = textureSample( sprayPuff, smpLinearRepeat, vec2f( uv.x * 2.1, uv.y * 0.5 ) + sd * 4.1 ).x;
+	let field = select( fib * 0.6 + fine * 0.4 + ( env - 0.55 ) * 0.75, fib * 0.45 + fine * 0.25 + rip * 0.3 + ( env - 0.55 ) * 0.45, isCloud ) - smoothstep( 0.8, 1.0, r2 );
 	// a torn sheet only a few pixels across can't show its tears: a solid white dot, and a cluster of
 	// them reads as cauliflower puffs. Small on screen, it is drawn thinner and more torn: a far
 	// splash-up is a ragged, see-through burst
 	let farK = smoothstep( 14.0, 3.0, in.vs.vFwd.w ) * select( 0.0, 1.0, isSheet && ! isClear );
-	let erode = mix( 0.26, 0.7, t ) + farK * 0.16;
+	let erode = select( mix( 0.26, 0.7, t ), mix( 0.4, 0.78, t ) + ( vMisc.w - 0.5 ) * 0.12, isCloud ) + farK * 0.16;
 	let dens = sat( ( field - erode ) * 3.0 );
 	// torn edges are thin, translucent water: soft and see-through, the core dense white
-	let torn = smoothstep( erode - 0.04, erode + 0.2, field ) * ( dens * 0.45 + 0.55 );
+	let torn = smoothstep( erode - 0.1, erode + 0.3, field ) * ( dens * select( 0.45, 0.3, isCloud ) + select( 0.55, 0.45, isCloud ) ) * smoothstep( 1.0, 0.45, r2 );
 	// ... which breaks up into a cluster of drops: many small dots in a ragged envelope that thins
 	// out as it ages (sub-pixel drops average out through the mipmaps: never a solid blob)
-	let dots = textureSample( sprayDots, smpLinearRepeat, uv * vec2f( 0.5, 0.32 ) + sd * 3.7 ).x;
-	let swarm = dots * smoothstep( 0.25, 0.55, fib + env * 0.45 - t * 0.2 ) * ( 1.0 - t * 0.5 );
-	let sheet = max( torn * ( 1.0 - smoothstep( 0.15, 0.6, t ) ), swarm );
+	// (a small particle can't resolve its drops: they alias into stair-stepped edges at half resolution, so under
+	// ~40 px across it takes the smooth fibre noise in their place)
+	let dots = mix( fib * 0.85, textureSample( sprayDots, smpLinearRepeat, uv * vec2f( 0.5, 0.32 ) + sd * 3.7 ).x, smoothstep( 20.0, 60.0, in.vs.vFwd.w ) );
+	// (a round envelope: the noise alone ran out to the quad's square edge, a blocky outline at half resolution)
+	let swarm = dots * smoothstep( 0.25, 0.55, fib + env * 0.45 - t * 0.2 ) * ( 1.0 - t * 0.5 ) * smoothstep( 1.0, 0.55, r2 );
+	// (the sheet is gone into drops by half its life: a cloud of spray, not a painted stroke)
+	// (a cloud of drops is mostly drops by a third of its life)
+	let sheet = max( torn * ( 1.0 - smoothstep( select( 0.08, 0.04, isCloud ), select( 0.5, 0.34, isCloud ), t ) ), swarm );
 	// mist: a soft veil of low-frequency noise that drifts and thins, never a disc
 	let m1 = textureSample( sprayPuff, smpLinearRepeat, uv * 0.2 + sd ).x;
 	let m2 = textureSample( sprayPuff, smpLinearRepeat, uv * 0.55 + sd * 3.1 ).x;
-	let veil = smoothstep( 0.28, 0.8, m1 * 0.7 + m2 * 0.3 + env * 0.3 - 0.12 ) * sqrt( env ) * ( 1.0 - t * 0.4 );
+	// (grainy and thin at its edges: fine drops in the air, where a smooth lumpy outline read as cumulus)
+	let m3 = textureSample( sprayPuff, smpLinearRepeat, uv * vec2f( 1.6, 0.9 ) + sd * 5.3 ).x;
+	let veil = smoothstep( 0.22, 0.95, m1 * 0.62 + m2 * 0.38 + env * 0.18 - 0.08 ) * mix( 0.35, 1.0, m3 ) * env * ( 1.0 - t * 0.4 );
 	let shape = select( select( select( veil, sheet, isSheet ), lig, isLig ), drop, isDrop );
 	// self-shadowing inside thick sheets; the forward-scattered sun lights up the thin parts
 	let shade = select( 1.0, 1.0 - dens * 0.15, isSheet && ! isClear );
@@ -694,9 +741,11 @@ ${ deposit ? /* wgsl */`				// fell into the water (not onto the sand): its bubb
 	let q = vec2i( clamp( in.pixel * frame.invResolution, vec2f( 0.0 ), vec2f( 0.9999 ) ) * dsz );
 	let sceneZ = - viewDepth( textureLoad( spraySceneDepth, q, 0 ) );
 	let posViewZ = ( frame.view * vec4f( in.P, 1.0 ) ).z;
-	let soft = vMisc.z * 1.5 + 0.03;
+	// (never sharper than ~4 pixels: a drop's 4 cm fade cut a stair-stepped line along the water at half resolution)
+	let pixM = vMisc.z / max( in.vs.vFwd.w, 0.5 ); // one pixel at the particle, in metres
+	let soft = max( vMisc.z * 1.5 + 0.03, pixM * 4.0 );
 	let fadeScene = sat( ( posViewZ - sceneZ ) / soft );
-	let fadeWater = sat( ( in.P.y - vMisc.y ) / ( soft * 0.6 ) + 0.15 );
+	let fadeWater = smoothstep( 0.0, 1.0, sat( ( in.P.y - vMisc.y ) / max( soft * 0.6, pixM * 4.0 ) + 0.15 ) );
 	let aOut = in.vs.vCol.w * shape * fadeScene * fadeWater * ( 1.0 - farK * 0.4 );
 	if ( aOut < 0.002 ) { discard; }
 	r.color = vec4f( ( in.vs.vCol.rgb * shade + in.vs.vFwd.xyz * glow ) * aOut, aOut );
@@ -722,6 +771,7 @@ ${ deposit ? /* wgsl */`				// fell into the water (not onto the sand): its bubb
 		this.params = {
 			intensity: mat.uniforms.intensity,
 			maxDistance: mat.uniforms.maxDistance,
+			focus: mat.uniforms.focus,
 		};
 
 		const mesh = this.mesh = new Mesh( geo, mat );

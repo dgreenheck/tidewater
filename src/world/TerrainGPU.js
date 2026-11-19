@@ -199,6 +199,7 @@ fn main( @builtin( global_invocation_id ) gid: vec3u ) {
 
 	setShoreField( f ) {
 
+		this.shoreField = f; // CPU data for ShoreWaves.buildDirTexture
 		this.shoreRes = f.res;
 		if ( this.shoreTexture.width !== f.res ) {
 
@@ -262,6 +263,39 @@ fn terrainSplat( xz: vec2f ) -> vec4f {
 }
 fn terrainSplatLevel( xz: vec2f, level: f32 ) -> vec4f {
 	return textureSampleLevel( terrainSplatTex, smpLinearClamp, terrainUvOf( xz ), level );
+}
+
+// Cubic B-spline filtered sample of a terrain-domain map (normal / rock or splat) from 4 bilinear
+// taps. Bilinear filtering is only C0 across texel edges: a mask thresholded by smoothstep then
+// draws its iso-lines as 1 m stair steps. The B-spline is C2, so rock / grass / sand edges come
+// out as smooth curves. Fragment stage, uniform control flow (gradients of the continuous uv).
+fn terrainSampleSmooth( tex: texture_2d<f32>, xz: vec2f ) -> vec4f {
+	let uv = terrainUvOf( xz );
+	return terrainSampleSmoothG( tex, xz, dpdx( uv ), dpdy( uv ) );
+}
+
+// the same with the caller's footprint (uv gradients). A position warped by noise must pass the unwarped
+// position's gradients: the warp's own derivative picked a coarse mip in patches, bilinear 2-4 m texels
+// that drew every mask edge (forest, meadow, scree) as a dotted stair-step rim on the hillsides.
+fn terrainSampleSmoothG( tex: texture_2d<f32>, xz: vec2f, gx: vec2f, gy: vec2f ) -> vec4f {
+	let res = terrainParams.res;
+	let uv = terrainUvOf( xz );
+	let st = uv * res - 0.5;
+	let i = floor( st );
+	let f = st - i;
+	let f2 = f * f; let f3 = f2 * f;
+	let w0 = ( 1.0 - 3.0 * f + 3.0 * f2 - f3 ) / 6.0;
+	let w1 = ( 4.0 - 6.0 * f2 + 3.0 * f3 ) / 6.0;
+	let w2 = ( 1.0 + 3.0 * f + 3.0 * f2 - 3.0 * f3 ) / 6.0;
+	let w3 = f3 / 6.0;
+	let g0 = w0 + w1; let g1 = w2 + w3;
+	let p0 = ( i + vec2f( -0.5 ) + w1 / g0 ) / res;
+	let p1 = ( i + vec2f( 1.5 ) + w3 / g1 ) / res;
+	let a = textureSampleGrad( tex, smpLinearClamp, p0, gx, gy );
+	let b = textureSampleGrad( tex, smpLinearClamp, vec2f( p1.x, p0.y ), gx, gy );
+	let c = textureSampleGrad( tex, smpLinearClamp, vec2f( p0.x, p1.y ), gx, gy );
+	let d = textureSampleGrad( tex, smpLinearClamp, p1, gx, gy );
+	return ( a * g0.x + b * g1.x ) * g0.y + ( c * g0.x + d * g1.x ) * g1.y;
 }
 
 // shore field: (T, dirX, dirZ, exposure), bilinear via loads (float32 data)

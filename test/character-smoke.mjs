@@ -1,3 +1,4 @@
+import { tempOutput } from './output-path.mjs';
 // Skinned character smoke test: loads a GLB (skin + clips), plays a clip and renders a few
 // frames of a studio view with the engine alone.
 //   node test/character-smoke.mjs [model.glb] [out.png] [clip] [yawDeg]
@@ -19,7 +20,7 @@ import { parseGLB } from '../src/engine/loaders/GLTF.js';
 import * as E from '../src/engine/index.js';
 
 const file = process.argv[ 2 ] || new URL( '../public/models/characters/joe.glb', import.meta.url ).pathname;
-const OUT = process.argv[ 3 ] || '/tmp/character-smoke.png';
+const OUT = process.argv[ 3 ] || tempOutput( 'character-smoke.png' );
 const CLIP = process.argv[ 4 ] || null;
 const YAW = Number( process.argv[ 5 ] || 0 ) * Math.PI / 180;
 

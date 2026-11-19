@@ -1,7 +1,16 @@
 import * as THREE from '../engine/index.js';
 import { UI } from './UI.js';
+import { icon } from './icons.js';
+import { ON_FOOT } from '../player/Player.js';
+import { hudChips } from '../game/HudContext.js';
+
+// scratch for the per-frame chip rule; CHIP_WORDS is indexed by the purse|pin|guidance bitmask
+const CHIP_CTX = { mode: 'walk', freeCam: false, driving: false };
+const CHIPS = { purse: true, pin: true, guidance: true };
+const CHIP_WORDS = [ '', 'purse', 'pin', 'purse pin', 'guidance', 'purse guidance', 'pin guidance', 'purse pin guidance' ];
 import { G } from '../core/Globals.js';
 import { GroundBounce } from '../materials/GroundBounce.js';
+import { DAY_RATE, NIGHT_X } from '../sky/DayClock.js';
 
 // Binds the Tidewater UI (panel + HUD) to the running app.
 const SEA = {
@@ -17,6 +26,7 @@ export class AppUI {
 
 		this.app = app;
 		this.ui = ui;
+		ui.isGameKeyClaimed = code => !!app.aviation?.pilot && code === 'KeyH';
 		const fft = app.fft;
 		const shore = app.shore;
 
@@ -36,7 +46,7 @@ export class AppUI {
 			caustics: app.caustics ? app.caustics.strength.value : 1,
 			time: app.settings.timeOfDay,
 			advance: app.settings.timeSpeed !== 0,
-			timeSpeed: app.settings.timeSpeed || 0.05,
+			timeSpeed: app.settings.timeSpeed || DAY_RATE,
 			clouds: app.clouds ? app.clouds.coverage.value : 0.45,
 			cirrus: app.clouds && app.clouds.cirrus ? app.clouds.cirrus.value : 0.5,
 			exposure: 0,
@@ -55,14 +65,9 @@ export class AppUI {
 
 		const spectrum = () => {
 
-			fft.local.windSpeed = s.wind;
-			fft.local.windDirection = s.windDir;
 			fft.local.fetch = s.fetch;
 			fft.swell.scale = s.swell;
-			fft.updateSpectrumUniforms();
-			const a = THREE.MathUtils.degToRad( s.windDir );
-			G.windDir.value.set( Math.cos( a ), Math.sin( a ) );
-			G.windSpeed.value = s.wind;
+			app.setAmbientWind( s.wind, s.windDir );
 
 		};
 
@@ -163,7 +168,7 @@ export class AppUI {
 			speed.setVisible( v );
 
 		} } );
-		speed = sun.addSlider( { label: 'Time speed', object: s, key: 'timeSpeed', min: 0.002, max: 1, log: true, unit: 'h/s', onChange: ( v ) => { if ( s.advance ) app.settings.timeSpeed = v; } } ).setVisible( s.advance );
+		speed = sun.addSlider( { label: 'Time speed', object: s, key: 'timeSpeed', min: 0.002, max: 1, log: true, unit: 'h/s', tooltip: `Game hours per real second in daylight. Deep night runs ${ NIGHT_X } times faster.`, onChange: ( v ) => { if ( s.advance ) app.settings.timeSpeed = v; } } ).setVisible( s.advance );
 		const atmo = sky.addFolder( 'Atmosphere', { icon: 'cloud' } );
 		if ( app.clouds ) atmo.addSlider( { label: 'Cloud cover', object: s, key: 'clouds', min: 0, max: 1, step: 0.01, format: ( v ) => `${ Math.round( v * 100 ) }%`, onChange: ( v ) => { app.clouds.coverage.value = v; } } );
 		if ( app.clouds && app.clouds.cirrus ) atmo.addSlider( { label: 'Cirrus', object: s, key: 'cirrus', min: 0, max: 1, step: 0.01, format: ( v ) => `${ Math.round( v * 100 ) }%`, onChange: ( v ) => { app.clouds.cirrus.value = v; } } );
@@ -224,10 +229,29 @@ export class AppUI {
 		const perf = ui.addTab( 'performance', 'Performance', 'performance' );
 		const live = perf.addFolder( 'Live', { icon: 'gauge' } );
 		live.addInfo( { label: 'Frame rate', get: () => `${ ( app.fps || 0 ).toFixed( 0 ) } fps` } );
+		// the frame-rate panel (top left) is a developer readout: off unless asked for here or with ?stats
+		s.showStats = new URLSearchParams( location.search ).has( 'stats' );
+		ui.statsEl.hidden = ! s.showStats;
+		live.addToggle( { label: 'Frame-rate overlay', object: s, key: 'showStats', tooltip: 'Frame rate and frame time in the top-left corner.', onChange: ( v ) => { ui.statsEl.hidden = ! v; } } );
 		live.addInfo( { label: 'CPU per frame', get: () => `${ ( app.cpuMs || 0 ).toFixed( 2 ) } ms` } );
 		live.addInfo( { label: 'Render size', get: () => `${ app.sceneRenderer.width } × ${ app.sceneRenderer.height }` } );
 		const quality = perf.addFolder( 'Quality', { icon: 'layers' } );
-		quality.addSlider( { label: 'Render scale', object: s, key: 'renderScale', min: 0.5, max: 1, step: 0.05, format: ( v ) => `${ Math.round( v * 100 ) }%`, tooltip: 'Internal resolution; the temporal upscaler reconstructs the full output resolution.', onChange: ( v ) => app.setRenderScale( v ) } );
+		// output resolution: Retina (DPR, capped at 2) with the adaptive governor (src/engine/ResolutionGovernor.js);
+		// its lowest steps lower the render scale (never above the slider). A scale step keeps the TAA history:
+		// the history is at output size and the camera did not move, so no cut (the cut here threw
+		// the history away on every step, a canopy shimmer each time the tsunami spike stepped the governor)
+		const gov = app.engine.resolution;
+		gov.onScale = ( v ) => {
+
+			app.post.setScale( v );
+			if ( app.clouds ) app.clouds.resolutionScale = v;
+
+		};
+		gov.setUserScale( app.settings.renderScale );
+		s.resolution = gov.mode;
+		quality.addSelect( { label: 'Resolution', object: s, key: 'resolution', options: [ { label: 'Auto (Retina)', value: 'auto' }, { label: 'Retina', value: 'retina' }, { label: 'Standard', value: 'standard' } ], tooltip: 'Auto renders at the Retina resolution and steps down when the frame rate drops.', onChange: ( v ) => gov.setMode( v ) } );
+		{ const kv = document.createElement( 'span' ); kv.className = 'tw-kv'; kv.innerHTML = '<span class="tw-k">res</span><span class="tw-v"></span>'; ui.statsEl.querySelector( '.tw-stats-sub' )?.append( kv ); this._resEl = kv.lastChild; }
+		quality.addSlider( { label: 'Render scale', object: s, key: 'renderScale', min: 0.5, max: 1, step: 0.05, format: ( v ) => `${ Math.round( v * 100 ) }%`, tooltip: 'Internal resolution; the temporal upscaler reconstructs the full output resolution.', onChange: ( v ) => { app.setRenderScale( v ); gov.setUserScale( app.settings.renderScale ); } } );
 		// anti-aliasing: the TAA with 2..16 jitter positions averaged per pixel, or none
 		s.aa = app.post.aaMode === 'none' ? 0 : app.post.taau.jitterPhaseOverride;
 		quality.addSelect( { label: 'Anti-aliasing', object: s, key: 'aa', tooltip: 'Temporal anti-aliasing: each pixel averages this many sub-pixel sample positions over successive frames (it also smooths dithered fades and shadow noise). More samples cost nothing per frame but take a few more frames to settle.', options: [ { label: 'Off', value: 0 }, { label: '2x', value: 2 }, { label: '4x', value: 4 }, { label: '8x', value: 8 }, { label: '16x', value: 16 } ], onChange: ( v ) => {
@@ -241,7 +265,63 @@ export class AppUI {
 		s.ssr = true;
 		quality.addToggle( { label: 'Water reflections', object: s, key: 'ssr', tooltip: 'Screen-space reflections of the pier, boats and hills on the water.', onChange: ( v ) => { app.waterMaterial.params.ssr.value = v ? 1 : 0; } } );
 
+		// ---------------------------------------------------------------- on-foot view (V)
+		// first / third person, at the foot of the rail; shown while on foot
+		const viewBtn = this.viewBtn = document.createElement( 'button' );
+		viewBtn.type = 'button';
+		viewBtn.className = 'tw-rail-btn tw-rail-view';
+		viewBtn.dataset.tipSide = 'left';
+		viewBtn.addEventListener( 'click', () => {
+
+			app.player.toggleView();
+			viewBtn.blur(); // Space (jump) must not press it again
+			this._syncView();
+
+		} );
+		this.viewSep = document.createElement( 'span' );
+		this.viewSep.className = 'tw-rail-sep';
+		ui.rail.append( this.viewSep, viewBtn );
+		this._syncView();
+
 		this._t = 0;
+
+	}
+
+	_syncView() {
+
+		const app = this.app, p = app.player, third = p.view === 'third';
+		const show = ON_FOOT.has( p.mode ) && ! app.freeCam && ! app.rally?.active;
+		// context-aware HUD chips: stamp the rule on the root; GameHUD's and
+		// WorldTools' CSS read it. Scratch objects, so the per-frame call allocates nothing.
+		CHIP_CTX.mode = p.mode;
+		CHIP_CTX.freeCam = !! app.freeCam;
+		CHIP_CTX.driving = !! app.rally?.active;
+		hudChips( CHIP_CTX, CHIPS );
+		const stamp = ( CHIPS.purse ? 1 : 0 ) | ( CHIPS.pin ? 2 : 0 ) | ( CHIPS.guidance ? 4 : 0 );
+		if ( this._chipStamp !== stamp ) {
+
+			this._chipStamp = stamp;
+			this.ui.root.dataset.hudChips = CHIP_WORDS[ stamp ];
+
+		}
+
+		if ( this._viewShown !== show || this._viewThird !== third ) this.ui.promptEl.classList.toggle( 'is-third', show && third );
+		if ( this._viewShown !== show ) {
+
+			this.viewBtn.hidden = this.viewSep.hidden = ! show;
+			this._viewShown = show;
+
+		}
+
+		if ( this._viewThird === third ) return;
+		this._viewThird = third;
+		// the root carries the view too: the evacuation hint's CSS reads it to stand clear of the
+		// third-person character (src/evacuation/Panel.js)
+		this.ui.root.classList.toggle( 'is-third', third );
+		const label = third ? 'First person' : 'Third person';
+		this.viewBtn.setAttribute( 'aria-label', label );
+		this.viewBtn.dataset.tip = `${ label } (V)`;
+		this.viewBtn.innerHTML = icon( third ? 'eye' : 'walking' );
 
 	}
 
@@ -251,21 +331,32 @@ export class AppUI {
 		const app = this.app;
 		const ui = this.ui;
 		ui.setStats( { fps: app.fps, frameMs: dt * 1000 } );
+		if ( this._resEl ) this._resEl.textContent = app.engine.resolution.label;
 		this.s.renderScale = app.post.scale;
 
 		const p = app.player;
+		this._syncView();
 		if ( app.freeCam ) {
 
 			ui.setMode( 'Free camera' );
-			ui.setPrompt( 'F', 'Walk' );
+			ui.setPrompt( 'F', app.rally?.active ? 'Return to car' : app.camera.position.y < ( app.cameraWaterHeight ?? 0 ) - 0.3 ? 'Dive' : 'Walk' );
 			ui.setBoatGauges( { visible: false } );
 			ui.setDepth( { visible: false } );
 			return;
 
 		}
 
-		const mode = p.mode === 'boat' ? `Boat · ${ p.camMode === 'first' ? '1st' : '3rd' } person`
+		const mode = p.mode === 'chairlift' ? 'Riding · Summit chairlift'
+			: p.mode === 'glider' ? ( app.glider?.pilot ? 'Flying · Hang glider' : 'Summit launch' )
+			: p.mode === 'aviation' ? ( app.aviation?.pilot ? 'Flying · Kestrel' : 'Carrier view' )
+			: p.mode === 'rally' ? `Driving · ${ app.rally.profile.name }`
+			: p.mode === 'boat' ? `Boat · ${ p.camMode === 'first' ? '1st' : '3rd' } person`
 			: p.mode === 'deck' ? 'On deck'
+			: p.mode === 'ferry' ? 'Aboard the Tidewater Spirit'
+			: p.mode === 'ferry-helm' ? 'At the helm'
+			: p.mode === 'jetski' ? `Jetski · ${ app.jetskis?.camMode === 'hood' ? 'hood' : 'chase' } cam`
+			: p.mode === 'jetski-thrown' ? 'Thrown off'
+			: p.mode === 'ragdoll' ? ( p.rag?.phase === 'getup' ? 'Getting up' : p.rag?.phase === 'swim' ? 'Swimming' : 'Tumbling' )
 			: p.mode === 'swim' ? ( app.camera.position.y < ( app.cameraWaterHeight ?? 0 ) - 0.3 ? 'Diving' : 'Swimming' ) : 'Walking';
 		ui.setMode( mode );
 		if ( p.prompt ) ui.setPrompt( p.prompt.key, p.prompt.text );

@@ -1,0 +1,43 @@
+/* Ferry helm readout: bottom centre while someone has her helm. */
+.fy-helm {
+	position: absolute; left: 50%; bottom: var(--tw-edge); transform: translateX(-50%);
+	display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: center; gap: calc(6 * var(--tw-u)) calc(22 * var(--tw-u));
+	/* as wide as its content (not half the screen, which is all left: 50% leaves it), capped by the screen */
+	width: max-content; max-width: calc(100vw - 2 * var(--tw-edge)); box-sizing: border-box;
+	padding: calc(12 * var(--tw-u)) calc(20 * var(--tw-u)); border-radius: var(--tw-r-lg);
+	color: var(--tw-ink); pointer-events: none;
+}
+.fy-helm[hidden] { display: none !important; }
+.fy-read { display: flex; flex-direction: column; align-items: center; min-width: calc(64 * var(--tw-u)); }
+.fy-read span { font-size: calc(26 * var(--tw-u)); font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.fy-read small { font-size: var(--tw-fs-xs); color: var(--tw-ink-2); text-transform: uppercase; letter-spacing: 0.08em; }
+.fy-hull-read[data-level='hurt'] span { color: #ffc98a; }
+.fy-hull-read[data-level='bad'] span { color: #ff8a7a; }
+.fy-keys { flex-basis: 100%; margin: calc(6 * var(--tw-u)) 0 0; text-align: center; font-size: var(--tw-fs-xs); color: var(--tw-ink-2); }
+.fy-keys kbd { margin: 0 calc(2 * var(--tw-u)); }
+/* the hint is two whole rows of key groups: steering and engines, then berth work and the view;
+   it takes the readouts' width rather than setting the box's (contain), so the box stays as
+   narrow as the readouts' row */
+.fy-keys { contain: inline-size; }
+.fy-keyrow { display: block; white-space: nowrap; }
+.fy-keyrow + .fy-keyrow { margin-top: calc(3 * var(--tw-u)); }
+@media (max-width: 560px) {
+	.fy-read span { font-size: calc(20 * var(--tw-u)); }
+	.fy-keys { display: none; }
+}
+
+/* Departures board: top centre while near a terminal or aboard her. */
+.fy-board {
+	position: absolute; left: 50%; top: var(--tw-edge); transform: translateX(-50%);
+	display: flex; align-items: baseline; gap: 10px;
+	padding: 7px 16px; border-radius: 999px; font-size: 13px;
+	white-space: nowrap; pointer-events: none;
+}
+.fy-board[hidden] { display: none !important; }
+/* While driving, the key hints hold the top centre: the board sits just below them. */
+.tw-root:has(.rh-keys:not([hidden]):not(.is-off)) .fy-board { top: calc(var(--tw-edge) + 56 * var(--tw-u, 1px)); }
+@media (max-width: 1240px) {
+	.tw-root:has(.rh-keys:not([hidden]):not(.is-off)) .fy-board { top: calc(var(--tw-edge) + 170 * var(--tw-u, 1px)); }
+}
+.fy-board small { opacity: 0.7; text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.72em; }
+.fy-board-line { font-variant-numeric: tabular-nums; }

@@ -1,3 +1,4 @@
+import { tempOutput } from './output-path.mjs';
 // Headless test of Spray: CPU-emitted drops, ligaments, dense spray, mist and a clear sheet over a
 // ground plane, simulated for a second and drawn through the SceneRenderer's late pass (soft
 // particles against the opaque depth copy). Stubs: water query, terrain, clouds.
@@ -20,7 +21,7 @@ import { StorageBuffer, readBuffer } from '../src/engine/webgpu.js';
 
 await GPU.init( { headless: true } );
 const W = Number( process.env.W || 1280 ), H = Number( process.env.H || 720 );
-const out = process.argv[ 2 ] || '/tmp/ocean-spray.png';
+const out = process.argv[ 2 ] || tempOutput( 'ocean-spray.png' );
 
 const query = { module: new ShaderModule( { name: 'queryStub', code: /* wgsl */`
 fn waterQueryHeightAtXZ( xz: vec2f ) -> f32 { return 0.15 * sin( xz.x * 0.4 + frame.time * 1.3 ); }

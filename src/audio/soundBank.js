@@ -47,5 +47,14 @@ export const BANK = {
 	line_snap: { file: 'line_snap.ogg', slices: [ [ 0.08, 0.554 ], [ 0.714, 0.504 ], [ 1.298, 0.504 ], [ 1.882, 0.504 ] ], lufs: [ -17.9, -23.4, -20.8, -23.2 ] },
 	fish_splash: { file: 'fish_splash.ogg', slices: [ [ 0.08, 0.464 ], [ 0.624, 0.324 ], [ 1.028, 0.504 ], [ 1.612, 1.204 ], [ 2.896, 1.304 ] ], lufs: [ -16, -14.2, -16.6, -17, -15.8 ] },
 	fish_flop: { file: 'fish_flop.ogg', slices: [ [ 0.08, 1.354 ], [ 1.514, 0.304 ], [ 1.898, 0.304 ], [ 2.282, 0.324 ] ], lufs: [ -24.6, -23.9, -23, -17 ] },
+	// the pet cockatoo (tools/audio/build-cockatoo.mjs, Freesound 783046, CC0)
+	cockatoo: { file: 'cockatoo.ogg', slices: [ [ 0.08, 1.304 ], [ 1.464, 1.304 ], [ 2.848, 0.754 ], [ 3.682, 0.624 ], [ 4.386, 1.104 ], [ 5.57, 1.304 ], [ 6.954, 0.424 ] ], lufs: [ -17.6, -12, -12.3, -13.7, -11.7, -10.3, -22.2 ] },
+	// the player's two-note whistle that calls the cockatoo back (tools/audio/build-whistle.mjs, Freesound 551960, CC0)
+	whistle: { file: 'whistle.ogg', slices: [ [ 0.08, 0.96 ], [ 1.12, 0.74 ], [ 1.94, 0.82 ], [ 2.84, 0.88 ] ], lufs: [ -11.2, -11.1, -9.2, -9.1 ] },
 	coins: { file: 'coins.ogg', slices: [ [ 0.08, 1.604 ] ], lufs: [ -16.5 ] },
+	// the jetski engine (tools/audio/build-jetski.mjs, Freesound 36169 by moxobna, CC0)
+	jetski_idle: { file: 'jetski_idle.ogg', loop: true, lufs: - 23 },
+	jetski_run: { file: 'jetski_run.ogg', loop: true, lufs: - 23.8 },
+	// the jetski's rocket pod (tools/audio/build-rocket.mjs, Freesound 515123 by LilMati, CC0)
+	rocket_roar: { file: 'rocket_roar.ogg', loop: true, lufs: - 23 },
 };

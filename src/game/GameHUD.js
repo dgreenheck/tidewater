@@ -1,5 +1,6 @@
 import { FISH, fishLengthCm } from './FishTable.js';
 import { UPGRADES, nextLevel, FUEL_PRICE } from './Gear.js';
+import { SOUVENIRS, souvenirCounts } from './Souvenirs.js';
 import { FishPortrait } from './FishPortrait.js';
 
 // DOM for the fishing game, in the look of the rest of the HUD (ui/ui.css tokens, .tw-glass):
@@ -15,6 +16,25 @@ const CSS = /* css */`
 	transition: transform var(--tw-med) var(--tw-ease), right var(--tw-slow) var(--tw-ease); }
 .tw-root[data-panel='open'] .gm-purse { right: calc(var(--tw-panel-w) + 2 * var(--tw-3)); }
 .tw-root.is-photo .gm-panel { display: none; }
+.gm-pin { position: absolute; right: calc(var(--tw-edge) + 184 * var(--tw-u) + var(--tw-3)); bottom: var(--tw-edge); display: flex; gap: var(--tw-2); align-items: baseline;
+	padding: var(--tw-2) var(--tw-4); border-radius: 999px; font: 500 calc(12 * var(--tw-u)) var(--tw-font); color: var(--tw-ink); pointer-events: none; white-space: nowrap; }
+/* on the jetski the key legend runs along the bottom row: the chip sits over it (--jh-keys-h: the legend's height, Jetski.js) */
+:root:has(.jh:not([hidden])) .gm-pin { bottom: calc(var(--tw-edge) + var(--jh-keys-h, 28px) + var(--tw-2)); }
+.gm-pin-label { letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.72; }
+.gm-pin-num { font: 600 calc(15 * var(--tw-u)) var(--tw-mono); color: var(--tw-sun); letter-spacing: 0.14em; }
+/* Context-aware chips: AppUI stamps data-hud-chips="purse pin guidance" on the root from
+   HudContext.hudChips. A chip not in the stamp fades out over --tw-fast and stops taking clicks; it
+   returns with no delay. A tsunami warning clears the PIN and the purse off the top so the banner
+   reads, except the purse stays while the boat's fuel gauge is on: a crew fleeing by sea needs it. */
+.gm-purse { transition: transform var(--tw-med) var(--tw-ease), right var(--tw-slow) var(--tw-ease), opacity var(--tw-fast) var(--tw-ease), visibility 0s; }
+.gm-pin { transition: opacity var(--tw-fast) var(--tw-ease), visibility 0s; }
+.tw-root:not([data-hud-chips~=purse]) .gm-purse,
+.tw-root:not([data-hud-chips~=pin]) .gm-pin,
+body:has(.disaster-warning:not([hidden])) .gm-pin,
+body:has(.disaster-warning:not([hidden])) .gm-purse:not(:has(.gm-fuel.is-on)) {
+	opacity: 0; visibility: hidden; pointer-events: none;
+	transition: opacity var(--tw-fast) var(--tw-ease), visibility 0s linear var(--tw-fast);
+}
 .gm-purse.is-bump { animation: gm-bump 420ms var(--tw-ease); }
 @keyframes gm-bump { 30% { transform: scale(1.08); } }
 .gm-money { font-family: var(--tw-mono); color: var(--tw-sun); font-weight: 600; }
@@ -43,10 +63,14 @@ const CSS = /* css */`
 	color: var(--tw-sun); text-shadow: 0 0 18px rgba(var(--tw-sun-rgb), 0.8), 0 2px 4px rgba(0,0,0,0.5); opacity: 0; pointer-events: none;
 	transition: opacity 120ms, transform 200ms var(--tw-ease); }
 .gm-bite.is-on { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-.gm-cast { position: absolute; left: 50%; top: 58%; transform: translateX(-50%); width: calc(140 * var(--tw-u)); height: calc(5 * var(--tw-u));
-	border-radius: 99px; background: var(--tw-fill-2); overflow: hidden; opacity: 0; transition: opacity var(--tw-fast); pointer-events: none; }
+.gm-cast { position: absolute; left: 50%; top: 58%; transform: translateX(-50%); display: flex; align-items: center; gap: var(--tw-2);
+	padding: calc(5 * var(--tw-u)) calc(12 * var(--tw-u)); border-radius: 99px; font: 600 var(--tw-fs-sm) var(--tw-font); color: var(--tw-ink);
+	opacity: 0; transition: opacity var(--tw-fast); pointer-events: none; }
 .gm-cast.is-on { opacity: 1; }
-.gm-cast > span { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--tw-aqua), var(--tw-sun)); }
+/* third person: he stands at screen centre, so the meter sits clear of him, where the prompt pill goes (bottom, right of centre) */
+.gm-cast.is-third { top: auto; left: calc(50% + 14vw); bottom: calc(max(calc(72 * var(--tw-u)), 13vh) + calc(52 * var(--tw-u))); }
+.gm-cast-bar { width: calc(140 * var(--tw-u)); height: calc(5 * var(--tw-u)); border-radius: 99px; background: var(--tw-fill-2); overflow: hidden; }
+.gm-cast-bar > span { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--tw-aqua), var(--tw-sun)); }
 .gm-dot { position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px; border-radius: 50%; background: rgba(255,255,255,0.7); box-shadow: 0 0 3px rgba(0,0,0,0.6); opacity: 0; pointer-events: none; }
 .gm-dot.is-on { opacity: 1; }
 .gm-panel { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -48%); width: calc(420 * var(--tw-u)); max-height: 70vh; display: flex; flex-direction: column;
@@ -75,6 +99,11 @@ const CSS = /* css */`
 .gm-shop-row { display: grid; grid-template-columns: 1fr auto; gap: var(--tw-3); align-items: center; padding: var(--tw-2) 0; border-bottom: 1px solid var(--tw-line); }
 .gm-shop-row small { display: block; color: var(--tw-ink-3); font-size: var(--tw-fs-sm); margin-top: 2px; }
 .gm-shop-row .gm-have { color: var(--tw-ink-3); font-size: var(--tw-fs-sm); }
+.gm-gifts { max-height: 45vh; }
+.gm-souvenirs { margin-top: var(--tw-3); padding-top: var(--tw-2); border-top: 1px solid var(--tw-line); font-size: var(--tw-fs-sm); }
+.gm-souvenirs ul { list-style: none; margin: 4px 0 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 2px var(--tw-3); }
+.gm-souvenirs li { display: flex; justify-content: space-between; gap: var(--tw-2); }
+.gm-souvenirs .gm-souv-n { color: var(--tw-ink-3); font-variant-numeric: tabular-nums; }
 .gm-log { margin-top: var(--tw-3); color: var(--tw-ink-3); font-size: var(--tw-fs-sm); line-height: 1.5; }
 .gm-row .gm-cm { font-family: var(--tw-mono); color: var(--tw-ink-3); }
 .gm-row.has-cm { grid-template-columns: 1fr auto auto auto auto; }
@@ -180,6 +209,9 @@ export class GameHUD {
 		this.sonarD = this.purse.querySelector( '.gm-sonar-d' );
 		this.sonarDots = this.purse.querySelector( '.gm-sonar-dots' );
 		this.moneyEl = this.purse.querySelector( '.gm-money' );
+		// the ATM card's PIN (GameState.pin), bottom right beside the minimap
+		this.pinChip = h( 'div', 'gm-pin tw-glass', '<span class="gm-pin-label">Card PIN</span><span class="gm-pin-num"></span>' );
+		this.pinNum = this.pinChip.querySelector( '.gm-pin-num' );
 		this.coolerEl = this.purse.querySelector( '.gm-cooler' );
 		this.coolerBar = this.purse.querySelector( '.gm-cooler-bar > span' );
 		this.coolerKg = this.purse.querySelector( '.gm-cooler-kg' );
@@ -196,14 +228,15 @@ export class GameHUD {
 		this.fStam = this.fight.querySelector( '.gm-stamina-bar > span' );
 
 		this.bite = h( 'div', 'gm-bite', '!' );
-		this.cast = h( 'div', 'gm-cast', '<span></span>' );
-		this.castBar = this.cast.firstChild;
+		this.cast = h( 'div', 'gm-cast tw-glass', '<span>Cast</span><span class="gm-cast-bar"><span></span></span>' );
+		this.castBar = this.cast.querySelector( '.gm-cast-bar > span' );
+		this._castThird = false;
 		this.dot = h( 'div', 'gm-dot' );
 		this.catchScrim = h( 'div', 'gm-catch-scrim' );
 		this.catchCard = h( 'div', 'gm-catch tw-glass' );
 		this.catchOpen = false;
 		const hud = ui.hud || ui.root;
-		hud.append( this.catchScrim, this.purse, this.fight, this.bite, this.cast, this.dot, this.catchCard );
+		hud.append( this.catchScrim, this.purse, this.pinChip, this.fight, this.bite, this.cast, this.dot, this.catchCard );
 
 		// panels (interactive)
 		this.inv = h( 'div', 'gm-panel tw-glass tw-interactive' );
@@ -225,6 +258,8 @@ export class GameHUD {
 
 	refresh() {
 
+		this.pinNum.textContent = this.game.state.pin;
+		this.pinChip.setAttribute( 'aria-label', `Card PIN ${ this.game.state.pin }` );
 		const s = this.game.state;
 		const st = s.stats;
 		this.moneyEl.textContent = `$${ s.money.toLocaleString() }`;
@@ -243,7 +278,7 @@ export class GameHUD {
 
 		this._last.money = s.money;
 		if ( this.invOpen ) this.renderInventory();
-		if ( this.standOpen ) this.vendor && this.vendor.kind === 'shop' ? this.renderShop() : this.renderStand();
+		if ( this.standOpen ) this.vendor && this.vendor.kind === 'shop' ? this.renderShop() : this.vendor && this.vendor.kind === 'gifts' ? this.renderGifts() : this.renderStand();
 
 	}
 
@@ -292,7 +327,13 @@ export class GameHUD {
 
 		this.bite.classList.toggle( 'is-on', !! bite );
 		this.cast.classList.toggle( 'is-on', !! casting );
-		if ( casting ) this.castBar.style.width = `${ power * 100 }%`;
+		if ( casting ) {
+
+			this.castBar.style.width = `${ power * 100 }%`;
+			const third = this.game?.app?.player?.view === 'third';
+			if ( third !== this._castThird ) { this.cast.classList.toggle( 'is-third', third ); this._castThird = third; }
+
+		}
 		this.dot.classList.toggle( 'is-on', !! aiming && ! this.invOpen && ! this.standOpen );
 
 	}
@@ -387,11 +428,13 @@ export class GameHUD {
 		const s = this.game.state;
 		const rows = s.inventory.map( ( f ) => `<div class="gm-row has-cm"><span>${ FISH[ f.species ].name }${ f.record ? '<small>record</small>' : '' }</span><span class="gm-cm">${ f.cm ?? Math.round( fishLengthCm( f.species, f.kg ) ) } cm</span><span class="gm-kg">${ f.kg.toFixed( 2 ) } kg</span><span class="gm-val">$${ f.value }</span><button class="gm-mini" data-release="${ f.id }">Release</button></div>` ).join( '' );
 		const logged = Object.entries( s.log ).filter( ( [ k ] ) => FISH[ k ] ).map( ( [ k, v ] ) => `${ FISH[ k ].name }: ${ v.count } caught, best ${ v.bestKg.toFixed( 2 ) } kg · ${ v.bestCm ?? Math.round( fishLengthCm( k, v.bestKg ) ) } cm` ).join( '<br>' );
+		const owned = souvenirCounts( s.souvenirs );
 		this.inv.innerHTML = `
 			<h2>${ s.upgrades.hold > 0 ? 'Fish hold' : 'Cooler' }</h2>
 			<p class="gm-sub">${ s.inventory.length } fish · ${ s.holdKg.toFixed( 1 ) } of ${ s.stats.holdKg } kg · worth $${ s.holdValue }</p>
 			<div class="gm-list">${ rows || '<div class="gm-empty">Nothing yet. Cast from the pier, the beach or the boat.</div>' }</div>
 			${ logged ? `<div class="gm-log"><b>Fish log</b><br>${ logged }</div>` : '' }
+			${ owned.length ? `<div class="gm-souvenirs"><b id="gm-souv-h">Souvenirs</b><ul aria-labelledby="gm-souv-h">${ owned.map( ( [ it, n ] ) => `<li><span>${ it.name }</span><span class="gm-souv-n">${ n > 1 ? `x ${ n }` : '' }</span></li>` ).join( '' ) }</ul></div>` : '' }
 			<div class="gm-foot"><span class="gm-sub">Sell at the fish stand by the pier</span><button class="gm-btn is-ghost" data-close>Close (I)</button></div>`;
 		this.inv.querySelector( '[data-close]' ).onclick = () => this.toggleInventory( false );
 		for ( const b of this.inv.querySelectorAll( '[data-release]' ) ) b.onclick = () => s.release( Number( b.dataset.release ) );
@@ -405,6 +448,7 @@ export class GameHUD {
 		this.vendor = vendor;
 		this.toggleInventory( false );
 		if ( vendor.kind === 'shop' ) this.renderShop();
+		else if ( vendor.kind === 'gifts' ) this.renderGifts();
 		else this.renderStand();
 		this.stand.classList.add( 'is-open' );
 		releaseMouse();
@@ -461,6 +505,23 @@ GameHUD.prototype.renderShop = function () {
 	for ( const b of this.stand.querySelectorAll( '[data-buy]' ) ) b.onclick = () => this.game.buy( b.dataset.buy );
 	const f = this.stand.querySelector( '[data-fuel]' );
 	if ( f ) f.onclick = () => this.game.refuel();
+
+};
+
+// Bev's gift shop at the Joey Island village: the souvenirs in Souvenirs.js, in the shop panel's style.
+GameHUD.prototype.renderGifts = function () {
+
+	const s = this.game.state;
+	const v = this.vendor;
+	const have = Object.fromEntries( souvenirCounts( s.souvenirs ).map( ( [ it, n ] ) => [ it.id, n ] ) );
+	const rows = SOUVENIRS.map( ( it ) => `<div class="gm-shop-row"><span>${ it.name }<small>${ it.blurb }${ have[ it.id ] ? ` You have ${ have[ it.id ] }.` : '' }</small></span><button class="gm-btn" data-souvenir="${ it.id }" ${ it.price > s.money ? 'disabled' : '' }>$${ it.price }</button></div>` ).join( '' );
+	this.stand.innerHTML = `
+		<h2>${ v.name }</h2>
+		<p class="gm-sub">${ v.greeting } · You have $${ s.money.toLocaleString() }</p>
+		<div class="gm-list gm-gifts">${ rows }</div>
+		<div class="gm-foot"><span class="gm-sub">Souvenirs go in your inventory (I)</span><button class="gm-btn is-ghost" data-close>Leave (E)</button></div>`;
+	this.stand.querySelector( '[data-close]' ).onclick = () => this.closeStand();
+	for ( const b of this.stand.querySelectorAll( '[data-souvenir]' ) ) b.onclick = () => this.game.buySouvenir( b.dataset.souvenir );
 
 };
 

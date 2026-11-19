@@ -89,6 +89,8 @@ export const MIX = {
 	bail: - 40, // the bail wire flipping open / snapping shut
 	lineOut: - 38, // line peeling off the spool as the cast flies out
 	plop: - 30, // the bobber landing, at 4 m (falls off with distance)
+	squawk: - 17, // the pet cockatoo screeching, at 6 m (they are loud)
+	whistle: - 20, // the player whistling the cockatoo back, at his head (2 m reference)
 	reelWind: - 36, // cranking steadily
 	reelDrag: - 29, // the drag screaming under a fast run
 	lineStrain: - 44, // line creaking at the breaking point
@@ -114,7 +116,7 @@ const STEP = {
 };
 
 // max simultaneous one-shot voices per category (oldest is faded out beyond this)
-const LIMITS = { step: 3, swim: 2, splash: 3, trans: 2, hull: 3, gull: 2, crash: 7, wash: 5, back: 5, bird: 4, tern: 2, whale: 4, rod: 4, fish: 3, coin: 1 };
+const LIMITS = { step: 3, swim: 2, splash: 3, trans: 2, hull: 3, gull: 2, crash: 7, wash: 5, back: 5, bird: 4, tern: 2, whale: 4, rod: 4, fish: 3, coin: 1, whistle: 1 };
 
 // loaded at resume(); everything else on first use
 const CORE = [ 'surf_crash', 'surf_wash', 'surf_backwash', 'surf_far', 'wind', 'palms', 'step_sand', 'step_wetsand', 'step_wood', 'step_water', 'step_grass', 'splash', 'swim' ];
@@ -259,6 +261,8 @@ export class SoundScape {
 	// Per frame: listener pose, mixer ramps and surf / life events at ~30 Hz. Cheap.
 	update( dt, state ) {
 
+		this._jetState = ( state && state.jetski ) || null;
+
 		if ( ! this.ctx || this._failed ) return;
 		try {
 
@@ -334,6 +338,16 @@ export class SoundScape {
 
 	}
 
+	// the jetski hull slapping a wave or landing (strength 0..1)
+	jetskiSlap( strength ) {
+
+		if ( ! this.skiSum ) return;
+		const s = clamp( num( strength, 0.5 ), 0, 1 );
+		this._want( 'hull_slap' );
+		this._shot( 'hull_slap', 'hull', this.skiSum, - 22 + 10 * s, 0.9 + Math.random() * 0.3 );
+
+	}
+
 	// the bow slamming into a sea (strength 0..1): slap on the hull + spray
 	hullSlap( strength ) {
 
@@ -380,6 +394,23 @@ export class SoundScape {
 
 		if ( ! p ) return;
 		this._shotAt( 'plop', 'fish', p.x, p.y, p.z, MIX.plop, 0.95 + Math.random() * 0.15, 0, 4, 1 );
+
+	}
+
+	// the pet cockatoo's squawk at p ({ x, y, z }): a random one of the recorded calls
+	squawk( p ) {
+
+		if ( ! p ) return;
+		this._shotAt( 'cockatoo', 'gull', p.x, p.y, p.z, MIX.squawk, 0.95 + Math.random() * 0.1, 0, 6, 1 );
+
+	}
+
+	// the player whistling his cockatoo back: a random one of the recorded two-note calls, at his head (p: his feet)
+	whistle( p ) {
+
+		const e = this.env;
+		const x = p ? p.x : e.lx, y = p ? p.y + 1.62 : e.ly, z = p ? p.z : e.lz;
+		this._shotAt( 'whistle', 'whistle', x, y, z, MIX.whistle, 0.97 + Math.random() * 0.06, 0, 2, 1 );
 
 	}
 
@@ -527,6 +558,10 @@ export class SoundScape {
 		this.boatSum.connect( this.boatIn );
 		this.engineLP = lowpass( 1200, 0.6, this.boatSum );
 		this.pierPan = panner( this.above, 3, 1.3 );
+		// the jetski (src/jetski): positional at the ski, opened up with rpm
+		this.skiPan = panner( this.above, 3, 1 );
+		this.skiSum = gain( 1, this.skiPan );
+		this.skiLP = lowpass( 2500, 0.6, this.skiSum );
 		this.windLP = lowpass( 1400, 0.5, this.above );
 
 		// the rod and reel: held in front of you, a little to the right (the reel hangs lower right)
@@ -549,6 +584,7 @@ export class SoundScape {
 			surf_far: this.surfFar, wind: this.windLP, palms: this.above, crickets: this.above, pier_lap: this.pierPan,
 			under_reef: this.under, birds_dawn: this.above, whale_song: this.songPan,
 			boat_engine: this.engineLP, boat_rush: this.boatSum, boat_lap: this.boatSum,
+			jetski_idle: this.skiLP, jetski_run: this.skiLP, rocket_roar: this.skiSum,
 			reel_wind: this.rod, reel_drag: this.rod, line_strain: this.rod,
 		};
 
@@ -1084,6 +1120,24 @@ export class SoundScape {
 		const sp = eb.speed;
 		this._bed( 'boat_rush', nearBoat ? dB( MIX.boatRush ) * smooth( 0.4, 9, sp ) / dB( BANK.boat_rush.lufs ) : 0, now, 0.3, 0.85 + 0.02 * Math.min( sp, 12 ) );
 		this._bed( 'boat_lap', nearBoat ? dB( MIX.boatLap ) * ( 1 - smooth( 1.5, 5, sp ) ) / dB( BANK.boat_lap.lufs ) : 0, now, 0.5 );
+		// jetski: two real loops (Freesound 36169, CC0) crossfaded and pitched with rpm; over-revs in the air
+		const js = this._jetState;
+		if ( js && js.on && ! this._jetWanted ) { this._jetWanted = true; this._want( 'jetski_idle' ); this._want( 'jetski_run' ); this._want( 'hull_slap' ); this._want( 'rocket_roar' ); }
+		this._jet = ( this._jet || 0 ) + ( ( js && js.on ? 1 : 0 ) - ( this._jet || 0 ) ) * ( 1 - Math.exp( - dt * ( js && js.on ? 4 : 1.5 ) ) );
+		if ( this._jetWanted ) {
+
+			const r = js ? js.rpm : 0, near = js ? Math.max( 0, 1 - Math.hypot( js.x - e.lx, js.z - e.lz ) / 150 ) : 0;
+			const run = smooth( 0.2, 0.7, r ), g = this._jet * near;
+			this._bed( 'jetski_idle', dB( - 29 ) * g * ( 1 - run * 0.85 ) / dB( BANK.jetski_idle.lufs ), now, 0.08, 0.85 + 0.9 * r );
+			this._bed( 'jetski_run', dB( - 20 ) * g * run / dB( BANK.jetski_run.lufs ), now, 0.08, 0.72 + 0.45 * r );
+			this._ramp( this.skiLP.frequency, 1400 + 9000 * Math.pow( r, 1.2 ), 0.08 );
+			// the rocket pod: a real rocket burn (Freesound 515123, CC0) layered over the engine, full range while lit
+			const bst = js ? js.boost || 0 : 0;
+			this._bed( 'rocket_roar', dB( - 13 ) * this._jet * near * bst / dB( BANK.rocket_roar.lufs ), now, 0.05, 0.94 + 0.1 * bst );
+			if ( js ) this._pos( this.skiPan, js.x, js.y + 0.5, js.z );
+
+		}
+
 		if ( nearBoat && sp > 1.2 && e.u < 0.5 ) {
 
 			this._slapT -= dt;

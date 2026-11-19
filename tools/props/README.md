@@ -5,7 +5,7 @@ from Poly Haven CC0 downloads.
 
 ```sh
 python3 tools/props/fetch.py                                             # downloads into tools/props/.raw (git-ignored)
-/Applications/Blender.app/Contents/MacOS/Blender -b -P tools/props/decimate.py   # decimated copies in .raw/dec
+blender -b -P tools/props/decimate.py   # decimated copies in .raw/dec
 node tools/props/build.mjs                                               # needs ImageMagick (magick)
 ```
 

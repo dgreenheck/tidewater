@@ -62,6 +62,7 @@ const _m = new Matrix4(), _q = new Quaternion(), _v = new Vector3(), _w = new Ve
 const _tipOld = new Vector3(); // last frame's tip: its own vector (the scratch vectors are reused during update)
 const _up = new Vector3( 0, 1, 0 );
 const _h = new Vector3();
+const _grip = { pos: new Vector3(), dir: new Vector3(), up: new Vector3() };
 
 export const POSES = {
 	stowed: { elev: - 0.9, side: 0.35, hand: [ 0.3, - 0.62, - 0.25 ] },
@@ -76,9 +77,14 @@ export const POSES = {
 
 export class FishingRod {
 
-	constructor( { scene, camera, query, terrain, audio = null } ) {
+	// holder: optional () => null | { eye, hand, avatar } (third person; with avatar.holdRod the rod rides
+	// his posed hand, else it is aimed from his eye line,
+	// an Object3D posed as the first-person camera, and its reel seat sits in his right hand, world)
+	constructor( { scene, camera, query, terrain, audio = null, holder = null } ) {
 
 		this.camera = camera;
+		this.holder = holder;
+		this.seatY = SEAT_Y;
 		this.query = query;
 		this.terrain = terrain;
 		this.audio = audio;
@@ -330,8 +336,40 @@ export class FishingRod {
 		_z.set( 0, 1, 0 ).addScaledVector( _y, - _y.y ).normalize();
 		_x.crossVectors( _y, _z ).normalize();
 		_m.makeBasis( _x, _y, _z ).setPosition( _h.copy( p.hand ).addScaledVector( _y, - SEAT_Y ) );
-		cam.updateMatrixWorld();
-		this.rodMesh.matrix.multiplyMatrices( cam.matrixWorld, _m );
+		const held = this.holder?.() || null, view = held ? held.eye : cam;
+		// third person: the rod rides his posed right hand (Avatar.holdRod: the reel seat and the rod's axes
+		// off the hand, and he takes the pose for the rod's state); the live sway and the fight at half on top
+		const grip = held?.avatar?.holdRod?.( this.state, this.crank, _grip ) || null;
+		if ( grip ) {
+
+			_y.copy( grip.dir );
+			_z.copy( grip.up );
+			_x.crossVectors( _y, _z ).normalize();
+			_q.setFromAxisAngle( _x, ( elev - p.elev ) * 0.5 );
+			_y.applyQuaternion( _q );
+			_z.applyQuaternion( _q );
+			_q.setFromAxisAngle( _up, ( side - p.side ) * 0.5 );
+			_y.applyQuaternion( _q );
+			_z.applyQuaternion( _q );
+			_x.crossVectors( _y, _z ).normalize();
+			_z.crossVectors( _x, _y ).normalize();
+			this.rodMesh.matrix.makeBasis( _x, _y, _z ).setPosition( _h.copy( grip.pos ).addScaledVector( _y, - SEAT_Y ) );
+
+		} else {
+
+			view.updateMatrixWorld();
+			this.rodMesh.matrix.multiplyMatrices( view.matrixWorld, _m );
+
+		}
+
+		if ( ! grip && held?.hand ) {
+
+			// the same aim, with the reel seat in his hand
+			const e = this.rodMesh.matrix.elements;
+			_h.set( e[ 4 ], e[ 5 ], e[ 6 ] ).normalize();
+			e[ 12 ] = held.hand.x - _h.x * SEAT_Y; e[ 13 ] = held.hand.y - _h.y * SEAT_Y; e[ 14 ] = held.hand.z - _h.z * SEAT_Y;
+
+		}
 		this.rodMesh.matrixWorldNeedsUpdate = true;
 		this.rodMesh.visible = visible && ( this.equipped || p.elev > POSES.stowed.elev + 0.1 );
 
@@ -466,6 +504,8 @@ export class FishingRod {
 				const onWater = this.waterY > ground + 0.05;
 				this.setState( onWater ? 'floating' : 'retrieving' );
 				this.bobberVel.set( 0, 0, 0 );
+				// the bail snaps shut: this much line is out now
+				this.lineLen = Math.max( 2.5, Math.hypot( this.bobber.x - this.tip.x, this.bobber.z - this.tip.z ) );
 				if ( onWater && this.audio && this.audio.plop ) this.audio.plop( this.bobber );
 				if ( this.onLand ) this.onLand( onWater ? 'water' : 'ground' );
 
@@ -477,6 +517,18 @@ export class FishingRod {
 			const bob = Math.sin( this.t * 2.1 ) * 0.008;
 			const yT = this.waterY + 0.012 + bob - this.dip * 0.09;
 			this.bobber.y += ( yT - this.bobber.y ) * ( 1 - Math.exp( - dt * 12 ) );
+			// fishing from something under way (the ferry): once the rod has walked off the line's
+			// length, the float is towed along behind it, skipping over the water (trolling)
+			_v.copy( this.bobber ).sub( this.tip ).setY( 0 );
+			const d = _v.length(), len = this.lineLen || this.castM;
+			this.trolling = d > len;
+			if ( this.trolling ) {
+
+				this.bobber.x = this.tip.x + _v.x * len / d;
+				this.bobber.z = this.tip.z + _v.z * len / d;
+				this.bobber.y += Math.abs( Math.sin( this.t * 9 ) ) * 0.02;
+
+			}
 
 		} else if ( this.state === 'fighting' && fight ) {
 
@@ -497,8 +549,8 @@ export class FishingRod {
 			// lifted out and swung in to hang in front of you, a little right of centre and below eye level
 			const k = Math.min( 1, this.t / 0.6 );
 			const e = k * k * ( 3 - 2 * k );
-			const fwd = cam.getWorldDirection( _x ).setY( 0 ).normalize();
-			_v.copy( cam.position ).addScaledVector( fwd, 1.25 ).add( _h.set( - fwd.z, 0, fwd.x ).multiplyScalar( 0.15 ) );
+			const fwd = _x.set( 0, 0, - 1 ).applyQuaternion( view.quaternion ).setY( 0 ).normalize();
+			_v.copy( view.position ).addScaledVector( fwd, 1.25 ).add( _h.set( - fwd.z, 0, fwd.x ).multiplyScalar( 0.15 ) );
 			_v.y += 0.12;
 			this.bobber.lerpVectors( this._landFrom || this.bobber, _v, e );
 			this.bobber.y += Math.sin( e * Math.PI ) * 0.8;

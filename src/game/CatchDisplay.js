@@ -41,7 +41,9 @@ export class CatchDisplay {
 		}
 
 		// stall fish: { species, frame (Matrix4, world), L, pose ('side' | 'sideFlip') }
-		for ( const s of stall ) fp.add( 'whole', FISH[ s.species ].model, s.frame, s.pose || 'side', s.L, { cloudy: 0.5, wet: 0.7 } );
+		// fresh on ice this morning: clear eyes and a fully wet skin (the ice keeps them glistening), not the
+		// half-dried, grey-eyed look of a fish left out in the sun
+		for ( const s of stall ) fp.add( 'whole', FISH[ s.species ].model, s.frame, s.pose || 'side', s.L, { cloudy: 0.12, wet: 1 } );
 		for ( const s of stall.filter( ( x ) => x.ice ) ) fp.add( 'ice', null, s.ice, 'flat', 0.5, { seed: 0.3, flags: 0 } );
 		this.mesh = fp.build();
 		this.mesh.name = 'GameFish';

@@ -12,9 +12,9 @@ import { CHANDLERY } from './Chandlery.js';
 // Per frame it only writes a few CSS transforms. The bake runs in row chunks over the first frames.
 //   const map = new Minimap( hudEl, game );  map.update( dt );  map.highlight( [ 'joe', 'marta' ] )
 
-const N = 640; // baked canvas size (px)
-const EXT = 1280; // metres covered by the bake
-const X0 = - EXT / 2, Z0 = - 180 - EXT / 2; // world at canvas (0, 0): the island sits north of the bay
+const N = 900; // baked canvas size (px)
+const EXT = 1800; // metres covered by the bake: the island, the strait and Joey Island
+const X0 = - EXT / 2, Z0 = 15 - EXT / 2; // world at canvas (0, 0): the island north, Joey Island south
 const PPM = N / EXT; // canvas px per metre
 const ROWS_PER_FRAME = 48;
 
@@ -37,6 +37,7 @@ const CSS = /* css */`
 .gm-mk.is-joe > i { background: var(--tw-sun); }
 .gm-mk.is-marta > i { background: var(--tw-aqua); }
 .gm-mk.is-boat > i { background: #f2efe6; }
+.gm-mk.is-driver > i { background: var(--driver-color); color: #102126; }
 .gm-mk > b { position: absolute; left: 0; top: 0; width: 0; height: 0; border-left: calc(5 * var(--tw-u)) solid transparent; border-right: calc(5 * var(--tw-u)) solid transparent;
 	border-bottom: calc(7 * var(--tw-u)) solid rgba(255,255,255,0.9); margin: calc(-19 * var(--tw-u)) 0 0 calc(-5 * var(--tw-u)); transform-origin: calc(5 * var(--tw-u)) calc(19 * var(--tw-u)); display: none; }
 .gm-mk.is-edge > b { display: block; }
@@ -108,7 +109,9 @@ export class Minimap {
 		this.el = h( 'div', 'gm-map tw-glass', `<div class="gm-map-view"><canvas width="${ N }" height="${ N }"></canvas><div class="gm-map-vig"></div>
 			<div class="gm-map-marks"></div>
 			<div class="gm-map-me"><svg viewBox="0 0 24 24"><path d="M12 2 20 21 12 16.5 4 21Z" fill="#fff" stroke="#0b1418" stroke-width="1.4" stroke-linejoin="round"/></svg></div></div>` );
-		this.el.setAttribute( 'aria-hidden', 'true' );
+		this.el.setAttribute( 'role', 'group' );
+		this.el.setAttribute( 'aria-label', 'Island minimap' );
+		this.driverMarkers = new Map();
 		this.view = this.el.querySelector( '.gm-map-view' );
 		this.canvas = this.el.querySelector( 'canvas' );
 		this.marks = this.el.querySelector( '.gm-map-marks' );
@@ -301,12 +304,37 @@ export class Minimap {
 		const [ hx1, hz1 ] = P( W.x + W.headWidth / 2, W.zEnd );
 		ctx.fillRect( hx0, hz0, hx1 - hx0, hz1 - hz0 );
 		ctx.strokeRect( hx0, hz0, hx1 - hx0, hz1 - hz0 );
+		// The actual coastal route, including both gravel exits to the beach.
+		for ( const road of T.roads?.paths || [] ) {
+			ctx.strokeStyle = road.kind === 'asphalt' ? '#65696a' : '#a09376';
+			ctx.lineWidth = road.halfWidth * 2 * PPM; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+			ctx.beginPath();
+			road.points.forEach( ( point, i ) => { const [ x, y ] = P( point.x, point.z ); if ( i === 0 ) ctx.moveTo( x, y ); else ctx.lineTo( x, y ); } );
+			ctx.stroke();
+		}
 		B.done = true;
 		B.img = null;
 
 	}
 
 	// ---- per frame
+	setDrivers( drivers ) {
+		const current = new Set( drivers.map( driver => driver.id ) );
+		for ( const [ id, marker ] of this.driverMarkers ) if ( ! current.has( id ) ) {
+			marker.el.remove(); this.markers.splice( this.markers.indexOf( marker ), 1 ); this.driverMarkers.delete( id );
+		}
+		for ( const driver of drivers ) {
+			if ( this.driverMarkers.has( driver.id ) ) continue;
+			const el = h( 'div', 'gm-mk is-driver', '<b></b><i></i>' );
+			el.lastChild.setAttribute( 'role', 'img' ); el.lastChild.setAttribute( 'aria-label', `${ driver.name } on minimap` );
+			el.title = driver.name; el.style.setProperty( '--driver-color', driver.color );
+			el.lastChild.textContent = driver.name.replace( /^@/, '' ).slice( 0, 1 ).toUpperCase();
+			this.marks.append( el );
+			const marker = { id: `driver:${ driver.id }`, el, arrow: el.firstChild, pos: () => driver.model.root.position };
+			this.markers.push( marker ); this.driverMarkers.set( driver.id, marker );
+		}
+	}
+
 	update( dt ) {
 
 		this._bakeStep();
@@ -334,7 +362,7 @@ export class Minimap {
 		const x = cam.position.x, z = cam.position.z;
 
 		// zoom: close on foot, wider at sea
-		const want = p.mode === 'boat' || p.mode === 'deck' || p.mode === 'swim' ? 240 : 110;
+		const want = p.mode === 'boat' || p.mode === 'deck' || p.mode === 'swim' || p.mode === 'rally' ? 240 : 110;
 		this.radiusM += ( want - this.radiusM ) * ( 1 - Math.exp( - dt * 1.5 ) );
 		const kpm = R / this.radiusM; // css px per metre
 

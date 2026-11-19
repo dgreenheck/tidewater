@@ -231,16 +231,19 @@ export function createStallMaterial( assets ) {
 			rough = clamp( rough + 0.06, 0.0, 1.0 );
 		}
 	} else if ( L > -1.5 ) {
-		// crushed ice: packed chunks with glassy facets, clear meltwater in the gaps
+		// crushed ice: packed chunks; each facet is either clear (the dark wet body of the ice shows through) or
+		// frosted milky white, meltwater in the gaps, wet glints off every facet; near neutral grey-white, not blue
 		let c = skCells( P.xz * 34.0 + vec2f( P.y * 11.0 ) );
 		let chunk = smoothstep( 0.0, 0.55, c.y - c.x );
 		let frost = skFbm( P * 90.0 );
+		let facet = fract( sin( dot( floor( N0 * 7.0 ), vec3f( 12.9898, 78.233, 37.719 ) ) ) * 43758.547 );
 		let hgt = chunk * 0.004 + frost * 0.0008;
 		nrm = skBump( P, N0, hgt );
-		alb = mix( vec3f( 0.52, 0.62, 0.66 ), vec3f( 0.86, 0.92, 0.95 ), chunk * 0.8 + frost * 0.2 );
-		rough = mix( 0.03, 0.28, frost * chunk );
-		s.translucency = vec3f( 0.25, 0.32, 0.35 ) * chunk;
-		s.clearcoat = 1.0; s.clearcoatRoughness = 0.02;
+		let milky = clamp( facet * 0.85 + frost * 0.35 + chunk * 0.2 - 0.32, 0.0, 1.0 );
+		alb = mix( vec3f( 0.3, 0.322, 0.33 ), vec3f( 0.8, 0.815, 0.82 ), milky );
+		rough = mix( 0.02, 0.22, milky * frost );
+		s.translucency = vec3f( 0.3, 0.31, 0.32 ) * ( 1.0 - milky * 0.6 );
+		s.clearcoat = 1.0; s.clearcoatRoughness = 0.015;
 	} else if ( L > -3.5 || ( L > -7.5 && L < -6.5 ) ) {
 		// painted: a sign on peeling timber, a chalkboard, or the scale's enamel dial
 		let paint = textureSampleGrad( skSigns, smpLinearClamp, uv2, 0, g2x, g2y );

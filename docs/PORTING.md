@@ -1,8 +1,7 @@
 # Porting Tidewater from three.js/TSL to raw WebGPU + WGSL
 
 Branch `webgpu-native`. Goal: no `three` import anywhere in `src/`, same look and behaviour as `main`.
-The three.js version (on `main`, and at `../threejs-water-claude`) is the reference: read the original file
-before porting it, keep its structure, names, constants and comments, and translate TSL to WGSL faithfully.
+Use the original Three.js shaders and scene as the reference for the WebGPU port.
 Don't simplify effects away. If something can't be ported 1:1, write down why in the file.
 
 ## Engine (src/engine)
@@ -37,7 +36,7 @@ GPU side, `src/engine/webgpu.js`:
 | CSM / `SoftCSMShadowNode` | `SunShadows` (render/Shadows.js); receivers sample `sunShadow( P, N, pixel )` automatically in `shadeSurface` |
 | post passes (`rtt`, `pass`, QuadMesh) | `FullscreenPass( { code, bindings, colorFormats } )`, or a compute kernel |
 | `renderer.render( scene, camera )` into a target | `meshRenderer.render( scene, { camera, kind: 'color', colorViews, colorFormats, depthView, … } )` |
-| `GLTFLoader` + `SkinnedMesh` / `AnimationMixer` | `loadGLB( url )` (engine/loaders/GLTF.js) + `SkinnedModel.create( gltf )` (engine/render/Skinning.js): `model.group`, `model.play( clip, { fade, loop, speed } )`, `model.update( dt )`; GPU skinning in the material vertex hook (attributes `skinIndex` vec4u / `skinWeight` vec4f, joints in a storage buffer with last frame's joints for the motion vectors), shadows skin the same way |
+| `GLTFLoader` + `SkinnedMesh` / `AnimationMixer` | `loadGLB( url )` (engine/loaders/GLTF.js) + `SkinnedModel.create( gltf )` (engine/render/Skinning.js): `model.group`, `model.play( clip, { fade, loop, speed } )`, `model.update( dt )`; GPU skinning in the material vertex hook (attributes `skinIndex` vec4u / `skinWeight` vec4f, joints in a storage buffer with last frame's joints for the motion vectors; a model drawn with no `update()` since its last drawn frame holds on its own, so animation LOD skips and frozen bodies read as still and need no `hold()`), shadows skin the same way |
 | async readback (`getArrayBufferAsync`) | `Readback` (ring of staging buffers), `readBuffer` / `readTexture` for one-offs |
 | `mx_noise_float`, `mx_fractal_noise_float`, `mx_worley_noise_vec2`, `mx_cell_noise_float`, `hash`, `interleavedGradientNoise`, `vogelDiskSample`, `luminance`, `perturbNormal` | `commonModule` (render/wgsl/common.js): `mx_noise_float3/2`, `mx_fractal_noise_float3`, `mx_worley_noise_vec2_3/2`, `mx_cell_noise_float3/2`, `hash11/21/31/22/33`, `interleavedGradientNoise`, `vogelDiskSample`, `luminance`, `perturbNormalByHeight`, `perturbNormalByMap`, depth helpers `viewDepth`, `worldFromDepth`, `projectToUv` |
 
@@ -97,7 +96,25 @@ App.js ports by changing imports.
 ## Testing
 
 Headless WebGPU (Dawn): `import './headless.mjs'` first in a test (see `test/engine-smoke.mjs`), then
-`GPU.init( { headless: true } )`; write images with `writePNG` and look at them. Put your test scripts in
-`test/` named after your stream. Compare against the three.js version: the reference app can be rendered
-headless the same way from `../threejs-water-claude` (see its memory notes), or read its shaders.
-Never start a dev server on 5188 or touch `../threejs-water-claude` (the user's live app).
+`GPU.init( { headless: true } )`; write images with `writePNG` and look at them. Compare the native output with the reference shaders at the same camera pose.
+
+### TAA thin-feature lock and particle motion (2026-09-27)
+
+- `src/post/TemporalUpscale.js`: the thin-feature lock (unclipped history on high-contrast pixels) now applies only to surfaces with no motion of their own. `taauCameraMotion()` rebuilds the motion the camera alone would give the opaque surface at the dilated tap (depth -> world with `frame.invViewProj`, reprojected with `viewProjNoJitter` / `prevViewProjNoJitter`). The lock is scaled by `1 - smoothstep(0.25, 1.0, |own motion| px)`, or `smoothstep(0.04, 0.2)` on skinned surfaces. Static wires, masts and wind-swayed foliage keep the lock, because their motion vectors carry only the camera's motion.
+- `src/engine/render/MeshShader.js`: the velocity target's `.z` is 1 on skinned meshes (geometry with a `skinIndex` attribute, `DEFORMING_F`) and 0 elsewhere. The late pass blends it premultiplied like `.xy`. Nothing else reads `.z`.
+- `VELOCITY_COVERAGE` (material define, set on `Spray`): a blended particle claims the pixel's motion only as it becomes opaque (`smoothstep(0.4, 0.9, alpha)`), not linearly with alpha. Faint spray keeps the hull's or rider's motion under it. The rocket flame (`Jetski.js`, additive cones, `velocityWeight` 1) does not use it.
+
+## Image quality rounds 1 and 2 (2026-09-27)
+
+Round 1 (engine-aa):
+- Specular anti-aliasing (`src/engine/render/wgsl/lighting.js`, `specularAntiAlias`): GGX roughness is widened by the screen-space normal variance, so thin highlights stop sparkling as white specks under the TAA jitter.
+- Near motion-blur cap (`src/post/MotionBlur.js`): streaks on surfaces close to the camera are capped, so the player and the boat you stand on no longer smear.
+- LODFade threshold (`src/materials/LODFade.js`, `bayer4`): interleaved gradient noise moved every frame replaced the Bayer 4x4 on a 16-frame cycle; the TAA kept the regular grid, which read as stippled foliage edges.
+- Lens flare toned down.
+- Default render scale stays 100% (`App.js` `settings.renderScale = 1`): measured at scale 1 and 0.5 (`engine-aa/b1.log`, `b05.log`, `a1.log`, `a05.log`); half scale leaves the upscaler too little to reconstruct thin features.
+- Ruled out as the player flicker (60 still frames on his pixels, full sun): shadows, AO, motion blur, shadow-pose timing and the skinned auto-hold.
+
+Round 2 (engine-aa2):
+- Retina: the canvas renders at `devicePixelRatio`, capped at 2 (`src/engine/ResolutionGovernor.js`, created by `Engine`). Settings > Performance > Resolution: Auto (Retina, default), Retina, Standard, kept in localStorage. Auto watches the rAF interval over a 3 s window: a median over 18 ms steps down (DPR 2, 1.5, 1, then render scale 85% and 70%, never above the slider); 12 s of good frames tries one level up, and a level that fails again doubles that wait (no flip-flop). A DPR step resizes the output (the TAA restarts). A scale step goes through `onScale` and keeps the TAA history: the history is at output size, and the previous-depth and cloud-mask copies are read by uv, so they follow the new render size after that frame's resolve (`src/post/TemporalUpscale.js` render()). It used to cut the camera, so every step under the tsunami spike threw the history away (on the tValley forest during a tsunami, a 1 -> 0.75 step restarted the history on the step frame before, and restarts nothing now, either direction). The `?stats` overlay shows the level (`res`).
+- Free camera: no motion blur (`MotionBlur.freeCamera`, set by `App.setFreeCam`); the shutter comes back when it ends.
+- Player "shadow flicker" (dappled palm, banana and canopy shade, third person): with the idle animation frozen his per-pixel variance falls by about 60%, and with the wind frozen his frame-to-frame change falls by about 30%; turning shadows off makes his pixels noisier, not calmer (direct sun on the moving body). Two candidate fixes were built and rejected on same-run A/B numbers: a world-anchored, still dither in shadow maps (no measurable change on him or the frame), and stepping the shadow sun while the clock runs (helps him, but triples whole-frame static flicker). Numbers: `engine-aa2/ab.log`, `sun.log`, `sun2.log`.

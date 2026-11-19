@@ -255,8 +255,12 @@ export class BoatController {
 	step( h ) {
 
 		const m = this.mass;
+        const env=this.environment?.sample(this.position.x,this.position.y,this.position.z);
+        const flow=new THREE.Vector3(env?.ux??0,0,env?.uz??0),air=new THREE.Vector3(env?.wx??0,env?.wy??0,env?.wz??0);
 		const F = _F.set( 0, - m * GRAV, 0 );
 		const T = _T.set( 0, 0, 0 ); // torque about COM (world)
+		this.disasterDt = h;
+		this.disasterForces?.( this, F, T );
 		const comW = this.toWorld( this.com, _com );
 		const invQ = _invQ.copy( this.quaternion ).invert();
 
@@ -305,7 +309,7 @@ export class BoatController {
 		const fwd = this.forward( _fwd );
 		const side = _side.set( 1, 0, 0 ).applyQuaternion( this.quaternion ); // port
 		const up = _up.set( 0, 1, 0 ).applyQuaternion( this.quaternion );
-		_vl.copy( this.velocity ).applyQuaternion( invQ ); // boat frame: x port, z forward
+		_vl.copy( this.velocity ).sub(flow).applyQuaternion( invQ ); // boat frame: x port, z forward
 		const u = _vl.z, vs = _vl.x;
 		this.speed = this.velocity.length();
 		this.forwardSpeed = u;
@@ -318,7 +322,8 @@ export class BoatController {
 		this.toWorld( _p, _p );
 		addForceAt( _f.copy( fwd ).multiplyScalar( - R * Math.sign( u ) ), _p );
 		// air drag on hull + house (Cd ~0.9, ~6 m^2 frontal area)
-		F.addScaledVector( this.velocity, - 3.3 * this.speed );
+		const airRelative=this.velocity.clone().sub(air);
+        F.addScaledVector( airRelative, - 3.3 * airRelative.length() );
 
 		// ---- lateral hydrodynamics along the keel: hull lift ~ u * v and cross-flow drag ~ v|v| at
 		// each station (v includes the yaw rate): directional stability, the turning circle, speed

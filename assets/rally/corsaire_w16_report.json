@@ -1,0 +1,47 @@
+{
+  "generator": "tools/rally/build_corsaire_w16.py",
+  "blender": "5.0.1",
+  "triangles": 69921,
+  "glb_bytes": 2317620,
+  "materials": [
+    "AlloyDark",
+    "BodyPaint",
+    "BodyPaintSecond",
+    "BrakeRotor",
+    "BrightMetal",
+    "Caliper",
+    "Glass",
+    "Graphite",
+    "Headlamp",
+    "Indicator",
+    "Interior",
+    "Rubber",
+    "SeatFabric",
+    "TailLamp"
+  ],
+  "wheel_radius_m": 0.348,
+  "wheelbase_m": 2.71,
+  "track_width_m": 1.704,
+  "wheel_pivots": [
+    "WheelFrontL",
+    "WheelFrontR",
+    "WheelRearL",
+    "WheelRearR"
+  ],
+  "plates_gltf_xyz_yaw": [
+    [
+      0.0,
+      0.66,
+      -2.248,
+      3.141592653589793
+    ],
+    [
+      0.0,
+      0.26,
+      2.246,
+      0
+    ]
+  ],
+  "length_m": 4.48,
+  "mass_kg": 1995
+}

@@ -16,8 +16,13 @@ const ui = new UI();
 const app = new App();
 window.__ui = ui;
 
+// The browser can take the graphics device away (driver reset, GPU memory pressure). Nothing draws
+// after that, so the loader stops and a dialog offers Reload (device-lost.spec.js).
+window.addEventListener( 'tw-device-lost', () => ui.showDeviceLost(), { once: true } );
+
 app.init( ( p, text, until ) => ui.setLoading( p, text, until ) ).then( async () => {
 
+	if ( ui.deviceLost ) return;
 	app.ui = new AppUI( app, ui );
 	ui.setLoading( 1, 'Ready' );
 	await ui.hideLoader();
@@ -42,6 +47,6 @@ app.init( ( p, text, until ) => ui.setLoading( p, text, until ) ).then( async ()
 } ).catch( ( e ) => {
 
 	console.error( e );
-	ui.setLoadingError( 'Something went wrong: ' + e.message );
+	if ( ! ui.deviceLost ) ui.setLoadingError( 'Something went wrong: ' + e.message );
 
 } );

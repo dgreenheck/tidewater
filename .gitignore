@@ -2,3 +2,37 @@ node_modules
 dist
 .DS_Store
 *.log
+/rally-physics/target
+/test-results*
+/playwright-report
+__pycache__/
+*.blend
+*.blend1
+/assets/shark/blacktip-reef.glb
+
+# Generated review images and videos
+/*.png
+/*.jpg
+/*.jpeg
+assets/**/*.png
+assets/**/*.jpg
+assets/**/*.jpeg
+*.mp4
+*.webm
+*.mov
+*.mkv
+*.avi
+*.gif
+docs/**/*.png
+
+# Local editor and assistant configuration
+/.claude/
+/.codex/
+/.agents/
+/AGENTS.md
+/CLAUDE.md
+
+# Expanded by npm install and the build/dev entry points.
+/public/rally/rally_physics_bg.wasm
+/public/rally/cosier_gt3rs.glb
+/public/aviation/carrier.glb
